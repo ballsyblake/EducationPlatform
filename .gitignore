@@ -1,0 +1,28 @@
+node_modules
+.next
+out
+build
+
+# Environment variables — copy .env.example to .env
+.env
+.env.local
+
+# Generated Prisma client
+/generated/prisma
+
+# SQLite database
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-shm
+prisma/*.db-wal
+
+# Uploaded files
+/uploads/*
+!/uploads/.gitkeep
+
+# Dev-mode outbox for magic links
+.mail-outbox.log
+
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store

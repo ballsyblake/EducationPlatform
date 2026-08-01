@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+@theme {
+  --color-field-50: #f0f9f2;
+  --color-field-100: #dcf0e1;
+  --color-field-200: #bbe1c7;
+  --color-field-300: #8ccaa2;
+  --color-field-400: #56ac77;
+  --color-field-500: #348f59;
+  --color-field-600: #237246;
+  --color-field-700: #1c5b39;
+  --color-field-800: #19482f;
+  --color-field-900: #153b28;
+
+  --color-chalk-50: #f7f8f8;
+  --color-chalk-100: #eceef0;
+  --color-chalk-200: #d7dbdf;
+  --color-chalk-300: #b3bac2;
+  --color-chalk-400: #8a94a0;
+  --color-chalk-500: #6b7684;
+  --color-chalk-600: #55606d;
+  --color-chalk-700: #454e59;
+  --color-chalk-800: #3b424b;
+  --color-chalk-900: #1f242a;
+  --color-chalk-950: #14181c;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-chalk-50 text-chalk-900 antialiased;
+}
+
+/* --- Small utility layer so pages stay readable ---------------------------- */
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-chalk-200 bg-white shadow-sm;
+  }
+
+  .card-pad {
+    @apply p-5;
+  }
+
+  /* Tailwind v4 only lets @apply pull in real utilities, so each button variant
+     restates the shared base rather than composing `.btn`. */
+  .btn,
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold
+           transition-colors disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-primary {
+    @apply bg-field-600 text-white hover:bg-field-700;
+  }
+
+  .btn-secondary {
+    @apply border border-chalk-300 bg-white text-chalk-800 hover:bg-chalk-100;
+  }
+
+  .btn-danger {
+    @apply border border-red-200 bg-white text-red-700 hover:bg-red-50;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-chalk-300 bg-white px-3 py-2 text-sm text-chalk-900
+           placeholder:text-chalk-400 focus:border-field-500 focus:ring-2 focus:ring-field-500/25
+           focus:outline-none;
+  }
+
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-chalk-700;
+  }
+
+  .hint {
+    @apply mt-1 text-xs text-chalk-500;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .section-title {
+    @apply text-xs font-semibold tracking-wide text-chalk-500 uppercase;
+  }
+
+  .prose-note {
+    @apply text-sm leading-relaxed whitespace-pre-wrap text-chalk-700;
+  }
+}

@@ -1,0 +1,287 @@
+// Coach LMS — a Canvas-style learning platform for football coaching staffs.
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Role {
+  ADMIN
+  COACH
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  title     String? // e.g. "Defensive Coordinator"
+  role      Role     @default(COACH)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  sessions     Session[]
+  loginTokens  LoginToken[]
+  enrollments  Enrollment[]
+  submissions  Submission[]
+  quizAttempts QuizAttempt[]
+
+  gradedSubmissions Submission[]  @relation("SubmissionGrader")
+  gradedAttempts    QuizAttempt[] @relation("AttemptGrader")
+  authoredCourses   Course[]      @relation("CourseAuthor")
+
+  @@index([role])
+}
+
+/// One-time, single-use magic-link tokens. Only the hash is stored.
+model LoginToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// Browser session, keyed by an httpOnly cookie. Only the hash is stored.
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Course {
+  id          String   @id @default(cuid())
+  title       String
+  season      String? // e.g. "2026 Spring Install"
+  description String?
+  published   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  authorId    String?
+  author      User?    @relation("CourseAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  enrollments Enrollment[]
+  materials   Material[]
+  assignments Assignment[]
+  quizzes     Quiz[]
+}
+
+model Enrollment {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, courseId])
+  @@index([courseId])
+}
+
+enum MaterialKind {
+  FILE
+  VIDEO
+  LINK
+}
+
+/// Course library: playbooks, film, install docs.
+model Material {
+  id          String       @id @default(cuid())
+  courseId    String
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  kind        MaterialKind @default(FILE)
+  /// External URL for LINK/VIDEO materials.
+  url         String?
+  /// Stored upload for FILE materials.
+  uploadId    String?      @unique
+  upload      Upload?      @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+  position    Int          @default(0)
+  createdAt   DateTime     @default(now())
+
+  @@index([courseId])
+}
+
+/// A file on disk. Served only through an authorization-checking route.
+model Upload {
+  id         String   @id @default(cuid())
+  filename   String
+  storedName String   @unique
+  mimeType   String
+  size       Int
+  createdAt  DateTime @default(now())
+
+  material         Material?
+  submissionFileOf Submission? @relation("SubmissionUploads", fields: [submissionId], references: [id], onDelete: Cascade)
+  submissionId     String?
+
+  @@index([submissionId])
+}
+
+model Assignment {
+  id           String    @id @default(cuid())
+  courseId     String
+  course       Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title        String
+  instructions String?
+  points       Int       @default(100)
+  dueAt        DateTime?
+  allowText    Boolean   @default(true)
+  allowFiles   Boolean   @default(true)
+  published    Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+
+  submissions Submission[]
+
+  @@index([courseId])
+}
+
+enum SubmissionStatus {
+  DRAFT
+  SUBMITTED
+  GRADED
+  RETURNED
+}
+
+model Submission {
+  id           String           @id @default(cuid())
+  assignmentId String
+  assignment   Assignment       @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  text         String?
+  status       SubmissionStatus @default(DRAFT)
+  submittedAt  DateTime?
+  updatedAt    DateTime         @updatedAt
+
+  score      Float?
+  feedback   String?
+  gradedAt   DateTime?
+  gradedById String?
+  gradedBy   User?     @relation("SubmissionGrader", fields: [gradedById], references: [id], onDelete: SetNull)
+
+  files Upload[] @relation("SubmissionUploads")
+
+  @@unique([assignmentId, userId])
+  @@index([userId])
+  @@index([status])
+}
+
+model Quiz {
+  id          String    @id @default(cuid())
+  courseId    String
+  course      Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  dueAt       DateTime?
+  /// null = unlimited retakes
+  maxAttempts Int?      @default(1)
+  published   Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  questions Question[]
+  attempts  QuizAttempt[]
+
+  @@index([courseId])
+}
+
+enum QuestionKind {
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+}
+
+model Question {
+  id       String       @id @default(cuid())
+  quizId   String
+  quiz     Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  prompt   String
+  kind     QuestionKind @default(MULTIPLE_CHOICE)
+  points   Int          @default(1)
+  position Int          @default(0)
+  /// Shown after grading, regardless of correctness.
+  rationale String?
+
+  choices Choice[]
+  answers Answer[]
+
+  @@index([quizId])
+}
+
+model Choice {
+  id         String   @id @default(cuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  isCorrect  Boolean  @default(false)
+  position   Int      @default(0)
+
+  answers Answer[]
+
+  @@index([questionId])
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  /// Auto-graded, but contains short answers a coach still has to read.
+  AWAITING_REVIEW
+  GRADED
+}
+
+model QuizAttempt {
+  id          String        @id @default(cuid())
+  quizId      String
+  quiz        Quiz          @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      AttemptStatus @default(IN_PROGRESS)
+  attemptNo   Int           @default(1)
+  startedAt   DateTime      @default(now())
+  submittedAt DateTime?
+
+  score      Float?
+  maxScore   Float?
+  feedback   String?
+  gradedAt   DateTime?
+  gradedById String?
+  gradedBy   User?     @relation("AttemptGrader", fields: [gradedById], references: [id], onDelete: SetNull)
+
+  answers Answer[]
+
+  @@unique([quizId, userId, attemptNo])
+  @@index([userId])
+  @@index([status])
+}
+
+model Answer {
+  id         String      @id @default(cuid())
+  attemptId  String
+  attempt    QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  choiceId   String?
+  choice     Choice?     @relation(fields: [choiceId], references: [id], onDelete: SetNull)
+  text       String?
+
+  /// null while a short answer is awaiting human review
+  isCorrect     Boolean?
+  pointsAwarded Float?
+  graderComment String?
+
+  @@unique([attemptId, questionId])
+  @@index([questionId])
+}
