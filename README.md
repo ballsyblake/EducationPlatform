@@ -91,6 +91,89 @@ a random name and streamed through `/api/files/[id]`, which checks on every
 request that the requester is an admin, is enrolled in the course the material
 belongs to, or is the author of the submission the file is attached to.
 
+## Deploying
+
+The app needs a running Node process, a database, and a disk — so a static host
+like GitHub Pages can't serve it. Anything that runs a container with a
+persistent volume works; the repo ships config for Render and Railway.
+
+Everything lives on one mounted disk at `/data`:
+
+```
+/data/coach-lms.db     SQLite database
+/data/uploads/         Playbooks, film, and submission attachments
+```
+
+`docker-entrypoint.sh` runs on every boot and is safe to re-run: it creates the
+directories, applies any pending migrations with `prisma migrate deploy` (which
+never drops data), makes sure everyone in `ADMIN_EMAILS` can sign in, and starts
+the server.
+
+### Render
+
+1. Push this repo to GitHub.
+2. In Render: **New → Blueprint**, select the repo. It reads `render.yaml`.
+3. Fill in the prompted env vars — at minimum `APP_URL` and `ADMIN_EMAILS`.
+4. Deploy, then sign in at `https://<your-app>.onrender.com/login`.
+
+A persistent disk requires a paid instance type. On the free tier the
+filesystem is wiped on every deploy, which would erase the database and every
+uploaded file, so the blueprint specifies `starter`.
+
+### Railway
+
+1. **New Project → Deploy from GitHub repo**. Railway detects the `Dockerfile`.
+2. Add a **Volume** mounted at `/data`.
+3. Set the env vars below under **Variables**.
+4. Generate a domain, and set `APP_URL` to it.
+
+### Environment variables
+
+| Variable        | Required | What it does                                                        |
+| --------------- | -------- | ------------------------------------------------------------------- |
+| `APP_URL`       | Yes      | Public base URL. Every magic link is built from it                   |
+| `ADMIN_EMAILS`  | Yes      | Comma-separated admins, granted access on boot                       |
+| `SMTP_HOST`     | Strongly | Unset means links go to the logs instead of coaches' inboxes         |
+| `SMTP_PORT`     | –        | Defaults to 587                                                      |
+| `SMTP_USER`     | –        | SMTP username                                                        |
+| `SMTP_PASSWORD` | –        | SMTP password                                                        |
+| `MAIL_FROM`     | –        | From address, e.g. `Coach LMS <lms@yourprogram.com>`                  |
+| `DATA_DIR`      | –        | Disk mount point. Defaults to `/data`                                |
+| `DATABASE_URL`  | –        | Derived from `DATA_DIR` unless set explicitly                        |
+| `UPLOAD_DIR`    | –        | Derived from `DATA_DIR` unless set explicitly                        |
+
+Set `APP_URL` correctly before inviting anyone. It's the base of every sign-in
+link that goes out, and a wrong value produces links that point elsewhere.
+
+**Without SMTP, nobody can sign in but you.** Dev mail mode writes links to the
+server logs, so you can retrieve your own from the host's log viewer — but your
+coaches can't. Configure SMTP before rolling this out to a staff.
+
+### Running the image locally
+
+```bash
+docker build -t coach-lms .
+docker run --rm -p 3000:3000 \
+  -v coach-lms-data:/data \
+  -e APP_URL="http://localhost:3000" \
+  -e ADMIN_EMAILS="you@yourprogram.com" \
+  coach-lms
+```
+
+`/api/health` returns 200 with a database round-trip, and is what the host's
+health check watches.
+
+### Notes
+
+The container runs as root so it can write to a freshly attached volume,
+whatever ownership the host gives it. To drop privileges, chown the disk to a
+non-root user in the entrypoint before the server starts and add `USER` to the
+Dockerfile — worth doing if the disk is shared.
+
+The runtime image carries the full `node_modules` from the build stage, which
+keeps native bindings intact at the cost of some image size. Adding
+`npm prune --omit=dev` after the build step trims it if that matters.
+
 ## Scripts
 
 | Command              | What it does                                       |
@@ -102,6 +185,10 @@ belongs to, or is the author of the submission the file is attached to.
 | `npm run db:seed`    | Reset seeded data and reload the sample program    |
 | `npm run db:reset`   | Drop the database, re-migrate, and re-seed         |
 | `npm run db:studio`  | Browse the database in Prisma Studio               |
+| `npm run bootstrap:admin` | Grant admin access to `ADMIN_EMAILS` without touching anything else |
+
+`prisma`, `tsx`, and `dotenv` are runtime dependencies rather than dev ones
+because the container runs migrations and the admin bootstrap on boot.
 
 ## Moving off SQLite
 

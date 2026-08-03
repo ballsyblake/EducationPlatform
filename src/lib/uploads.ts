@@ -5,7 +5,15 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/db";
 
-export const UPLOAD_DIR = path.join(process.cwd(), "uploads");
+/**
+ * Where uploaded files live. In production this should point at a mounted
+ * persistent disk (see UPLOAD_DIR in the deployment docs) — the container
+ * filesystem is wiped on every deploy.
+ */
+export const UPLOAD_DIR = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : path.join(process.cwd(), "uploads");
+
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
 
 const ALLOWED_MIME_PREFIXES = ["image/", "video/", "audio/", "text/"];

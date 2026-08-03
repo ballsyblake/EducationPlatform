@@ -1,0 +1,14 @@
+node_modules
+.next
+generated
+.git
+.github
+uploads
+prisma/*.db
+prisma/*.db-*
+.env
+.env.local
+.mail-outbox.log
+*.tsbuildinfo
+next-env.d.ts
+README.md

@@ -1,12 +1,19 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { endSession } from "@/lib/auth";
 
-export async function POST(request: NextRequest) {
-  await endSession();
-  return NextResponse.redirect(new URL("/login", request.url), { status: 303 });
+// Relative Location, for the same reason as /auth/verify: `request.url` is the
+// address the server is bound to inside a container, not the host the coach is
+// browsing, and redirecting across origins drops the session cookie.
+function toLogin() {
+  return new NextResponse(null, { status: 303, headers: { Location: "/login" } });
 }
 
-export async function GET(request: NextRequest) {
+export async function POST() {
   await endSession();
-  return NextResponse.redirect(new URL("/login", request.url));
+  return toLogin();
+}
+
+export async function GET() {
+  await endSession();
+  return toLogin();
 }
