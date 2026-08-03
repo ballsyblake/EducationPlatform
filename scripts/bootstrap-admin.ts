@@ -9,12 +9,30 @@
  *   ADMIN_EMAILS="head.coach@yourprogram.com" npm run bootstrap:admin
  */
 import "dotenv/config";
+import { randomBytes, scrypt as scryptCallback } from "node:crypto";
+import { promisify } from "node:util";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../generated/prisma/client.ts";
 
 const prisma = new PrismaClient({
   adapter: new PrismaBetterSqlite3({ url: process.env.DATABASE_URL ?? "file:./prisma/dev.db" }),
 });
+
+const scrypt = promisify(scryptCallback) as (p: string, s: Buffer, k: number) => Promise<Buffer>;
+
+async function hashPassword(password: string) {
+  const salt = randomBytes(16);
+  const derived = await scrypt(password, salt, 64);
+  return ["scrypt", salt.toString("hex"), derived.toString("hex")].join(":");
+}
+
+const WORDS = ["blitz", "wedge", "audible", "gauntlet", "sideline", "playbook", "huddle", "counter"];
+
+function generateTempPassword() {
+  const pick = () => WORDS[randomBytes(1)[0] % WORDS.length];
+  const digits = String(randomBytes(2).readUInt16BE(0) % 10000).padStart(4, "0");
+  return `${pick()}-${pick()}-${digits}`;
+}
 
 async function main() {
   const emails = (process.env.ADMIN_EMAILS ?? "")
@@ -32,8 +50,24 @@ async function main() {
     const existing = await prisma.user.findUnique({ where: { email } });
 
     if (!existing) {
-      await prisma.user.create({ data: { email, role: "ADMIN", title: "Program Admin" } });
+      // A brand-new instance has no email configured yet, so print a starting
+      // password to the deploy logs — it's the only way into a fresh install.
+      const password = generateTempPassword();
+      await prisma.user.create({
+        data: {
+          email,
+          role: "ADMIN",
+          title: "Program Admin",
+          passwordHash: await hashPassword(password),
+          mustChangePassword: true,
+        },
+      });
       console.log(`[bootstrap] Created admin ${email}`);
+      console.log(`[bootstrap] ---------------------------------------------`);
+      console.log(`[bootstrap]  Sign in with:  ${email}`);
+      console.log(`[bootstrap]  Password:      ${password}`);
+      console.log(`[bootstrap]  You'll be asked to change it immediately.`);
+      console.log(`[bootstrap] ---------------------------------------------`);
       continue;
     }
 

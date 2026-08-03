@@ -24,6 +24,14 @@ model User {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  /// scrypt digest. Null means this account can only sign in by magic link.
+  passwordHash       String?
+  /// Set when an admin issues a temporary password, cleared once it's changed.
+  mustChangePassword Boolean   @default(false)
+  /// Throttling for password attempts; both reset on a successful sign-in.
+  failedLogins       Int       @default(0)
+  lockedUntil        DateTime?
+
   sessions     Session[]
   loginTokens  LoginToken[]
   enrollments  Enrollment[]

@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
-import { isDevMailMode } from "@/lib/mailer";
+import { canRevealMagicLink, getCurrentUser, magicLinkAvailable } from "@/lib/auth";
 import { LoginForm } from "./login-form";
 
 export const metadata = { title: "Sign in" };
@@ -22,10 +21,10 @@ export default async function LoginPage() {
         </div>
 
         <div className="card card-pad">
-          <LoginForm />
+          <LoginForm magicLinkEnabled={magicLinkAvailable()} />
         </div>
 
-        {isDevMailMode() && (
+        {canRevealMagicLink() && (
           <p className="mt-6 text-center text-xs text-chalk-500">
             Running in dev mail mode — sign-in links are printed to the server console and{" "}
             <code className="rounded bg-chalk-200 px-1 py-0.5">.mail-outbox.log</code>. Set{" "}

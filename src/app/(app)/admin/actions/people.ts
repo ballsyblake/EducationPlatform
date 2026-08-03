@@ -1,13 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { normalizeEmail, requestLoginLink, requireAdmin } from "@/lib/auth";
+import { normalizeEmail, requestLoginLink, requireAdmin, setUserPassword } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { generateTempPassword, validatePassword } from "@/lib/password";
 
 export type PeopleFormState = {
   status: "idle" | "ok" | "error";
   message?: string;
   devLink?: string;
+  /** Shown once, so the admin can pass it on. Never stored in plain text. */
+  tempPassword?: string;
+  tempPasswordFor?: string;
 };
 
 export async function addStaffMember(
@@ -21,9 +25,15 @@ export async function addStaffMember(
   const title = String(formData.get("title") ?? "").trim() || null;
   const role = String(formData.get("role") ?? "COACH") === "ADMIN" ? "ADMIN" : "COACH";
   const sendInvite = formData.get("sendInvite") === "on";
+  const typedPassword = String(formData.get("password") ?? "").trim();
 
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return { status: "error", message: "Enter a valid email address." };
+  }
+
+  if (typedPassword) {
+    const problem = validatePassword(typedPassword);
+    if (problem) return { status: "error", message: problem };
   }
 
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -31,7 +41,11 @@ export async function addStaffMember(
     return { status: "error", message: `${email} is already on staff.` };
   }
 
-  await prisma.user.create({ data: { email, name, title, role } });
+  const user = await prisma.user.create({ data: { email, name, title, role } });
+
+  // Every new account gets a password, so nobody depends on email to get in.
+  const password = typedPassword || generateTempPassword();
+  await setUserPassword(user.id, password, { temporary: true });
 
   let devLink: string | undefined;
   if (sendInvite) {
@@ -42,10 +56,36 @@ export async function addStaffMember(
   revalidatePath("/admin/people");
   return {
     status: "ok",
-    message: sendInvite
-      ? `${email} added and a sign-in link was sent.`
-      : `${email} added. They can request a sign-in link from the login page.`,
+    message: `${email} added. Give them this password — they'll be asked to change it on first sign-in.`,
+    tempPassword: password,
+    tempPasswordFor: email,
     devLink,
+  };
+}
+
+/** Issues a fresh temporary password, e.g. when a coach is locked out. */
+export async function resetPassword(
+  _prev: PeopleFormState,
+  formData: FormData,
+): Promise<PeopleFormState> {
+  await requireAdmin();
+  const userId = String(formData.get("userId"));
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return { status: "error", message: "That account no longer exists." };
+
+  const password = generateTempPassword();
+  await setUserPassword(user.id, password, { temporary: true });
+
+  // Force them back through the new password on every device.
+  await prisma.session.deleteMany({ where: { userId: user.id } });
+
+  revalidatePath("/admin/people");
+  return {
+    status: "ok",
+    message: `New password for ${user.email}. They'll change it when they sign in.`,
+    tempPassword: password,
+    tempPasswordFor: user.email,
   };
 }
 

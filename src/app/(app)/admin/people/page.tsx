@@ -4,8 +4,10 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/format";
 import { isDevMailMode } from "@/lib/mailer";
+import { magicLinkAvailable } from "@/lib/auth";
 import { resendInvite, updateStaffMember } from "../actions/people";
 import { AddStaffForm } from "./add-staff-form";
+import { ResetPasswordForm } from "./reset-password-form";
 
 export const metadata = { title: "Staff" };
 
@@ -39,6 +41,11 @@ export default async function PeoplePage() {
                       {user.role === "ADMIN" && <Badge tone="info">Admin</Badge>}
                       {!user.active && <Badge tone="bad">Deactivated</Badge>}
                       {user.id === admin.id && <Badge tone="muted">You</Badge>}
+                      {user.mustChangePassword && <Badge tone="warn">Temp password</Badge>}
+                      {!user.passwordHash && <Badge tone="muted">No password</Badge>}
+                      {user.lockedUntil && user.lockedUntil > new Date() && (
+                        <Badge tone="bad">Locked out</Badge>
+                      )}
                     </div>
                     <p className="mt-0.5 text-xs text-chalk-500">
                       {user.title ? `${user.title} · ` : ""}
@@ -55,13 +62,17 @@ export default async function PeoplePage() {
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <form action={resendInvite}>
-                      <input type="hidden" name="email" value={user.email} />
-                      <SubmitButton className="btn-secondary btn-sm" pendingLabel="Sending…">
-                        Send sign-in link
-                      </SubmitButton>
-                    </form>
+                  <div className="flex flex-wrap items-start gap-2">
+                    <ResetPasswordForm userId={user.id} label={user.name ?? user.email} />
+
+                    {magicLinkAvailable() && (
+                      <form action={resendInvite}>
+                        <input type="hidden" name="email" value={user.email} />
+                        <SubmitButton className="btn-secondary btn-sm" pendingLabel="Sending…">
+                          Send sign-in link
+                        </SubmitButton>
+                      </form>
+                    )}
 
                     {user.id !== admin.id && (
                       <>
@@ -138,9 +149,9 @@ export default async function PeoplePage() {
 
           {isDevMailMode() && (
             <p className="mt-4 text-xs text-chalk-500">
-              No SMTP configured — sign-in links are printed to the server console and{" "}
-              <code className="rounded bg-chalk-200 px-1 py-0.5">.mail-outbox.log</code> instead of
-              being emailed.
+              No email is configured, so passwords are how your staff signs in. Hand each coach the
+              password shown when you add them; they set their own on first use, and you can reset
+              it any time from this page.
             </p>
           )}
         </aside>

@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sendMail, isDevMailMode } from "@/lib/mailer";
+import { hashPassword, verifyPassword } from "@/lib/password";
 import type { Role, User } from "@prisma-client";
 
 const SESSION_COOKIE = "coach_lms_session";
@@ -90,8 +91,21 @@ export async function requestLoginLink(rawEmail: string): Promise<LoginRequestRe
   return {
     ok: true,
     delivered: !isDevMailMode(),
-    devLink: isDevMailMode() ? link : undefined,
+    // Never hand the link back to the browser in production. Without SMTP the
+    // app still falls back to logging it, but showing it on the login page
+    // would let anyone sign in as any coach just by typing their address.
+    devLink: canRevealMagicLink() ? link : undefined,
   };
+}
+
+/** Magic links may only be shown on screen outside production. */
+export function canRevealMagicLink() {
+  return isDevMailMode() && process.env.NODE_ENV !== "production";
+}
+
+/** Whether the login page should offer the magic-link route at all. */
+export function magicLinkAvailable() {
+  return !isDevMailMode() || canRevealMagicLink();
 }
 
 /** Consumes a magic-link token and starts a session. Returns null if invalid. */
@@ -112,6 +126,101 @@ export async function consumeLoginToken(token: string): Promise<User | null> {
 
   await startSession(record.userId);
   return record.user;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Passwords                                                                  */
+/* -------------------------------------------------------------------------- */
+
+const MAX_FAILED_LOGINS = 10;
+const LOCKOUT_MINUTES = 15;
+
+export type PasswordSignInResult =
+  | { ok: true; mustChangePassword: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Signs in with an admin-issued password.
+ *
+ * Every failure returns the same message, so the form can't be used to work out
+ * which addresses are on staff or which of those have a password set. Repeated
+ * failures lock the account for a while to make guessing impractical.
+ */
+export async function signInWithPassword(
+  rawEmail: string,
+  password: string,
+): Promise<PasswordSignInResult> {
+  const generic = { ok: false as const, error: "That email and password don't match." };
+
+  const email = normalizeEmail(rawEmail);
+  if (!email || !password) return generic;
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || !user.active || !user.passwordHash) {
+    // Spend roughly the same time as a real verification would.
+    await verifyPassword(password, null);
+    return generic;
+  }
+
+  if (user.lockedUntil && user.lockedUntil > new Date()) {
+    const minutes = Math.max(1, Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60_000));
+    return {
+      ok: false,
+      error: `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}, or ask your coordinator to reset it.`,
+    };
+  }
+
+  if (!(await verifyPassword(password, user.passwordHash))) {
+    const failedLogins = user.failedLogins + 1;
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        failedLogins,
+        lockedUntil:
+          failedLogins >= MAX_FAILED_LOGINS
+            ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000)
+            : null,
+      },
+    });
+    return generic;
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { failedLogins: 0, lockedUntil: null },
+  });
+
+  await startSession(user.id);
+  return { ok: true, mustChangePassword: user.mustChangePassword };
+}
+
+/**
+ * Sets a password. `temporary` marks it as needing a change on first use, which
+ * is what an admin handing one to a coach wants.
+ */
+export async function setUserPassword(
+  userId: string,
+  password: string,
+  opts: { temporary?: boolean } = {},
+) {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      passwordHash: await hashPassword(password),
+      mustChangePassword: opts.temporary ?? false,
+      failedLogins: 0,
+      lockedUntil: null,
+    },
+  });
+}
+
+/** Ends every other session, e.g. after a coach changes their own password. */
+export async function revokeOtherSessions(userId: string) {
+  const jar = await cookies();
+  const current = jar.get(SESSION_COOKIE)?.value;
+  await prisma.session.deleteMany({
+    where: { userId, ...(current ? { NOT: { tokenHash: hash(current) } } : {}) },
+  });
 }
 
 /* -------------------------------------------------------------------------- */
