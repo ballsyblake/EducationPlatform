@@ -5,12 +5,26 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sendMail, isDevMailMode } from "@/lib/mailer";
-import { hashPassword, verifyPassword } from "@/lib/password";
 import type { Role, User } from "@prisma-client";
 
 const SESSION_COOKIE = "coach_lms_session";
-const SESSION_TTL_DAYS = 30;
-const LOGIN_TOKEN_TTL_MINUTES = 20;
+
+/**
+ * Sessions slide: every visit pushes the expiry back out, so a coach who keeps
+ * using the app never has to sign in again. Only a genuinely dormant account
+ * lapses and needs a fresh link — which matters a lot when links are handed out
+ * by an admin rather than self-served over email.
+ */
+const SESSION_IDLE_DAYS = Number(process.env.SESSION_IDLE_DAYS ?? 60);
+
+/** Emailed links are short-lived; the inbox is the weak point. */
+const EMAIL_LINK_TTL_MINUTES = Number(process.env.EMAIL_LINK_TTL_MINUTES ?? 20);
+
+/** Links an admin hands over in person need to survive until the coach uses one. */
+const INVITE_LINK_TTL_DAYS = Number(process.env.INVITE_LINK_TTL_DAYS ?? 7);
+
+/** Stops a repeated request from flooding a coach's inbox. */
+const RESEND_COOLDOWN_SECONDS = 60;
 
 function hash(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -54,22 +68,19 @@ export async function requestLoginLink(rawEmail: string): Promise<LoginRequestRe
     return { ok: true, delivered: false };
   }
 
-  // Retire any outstanding links so only the newest one works.
-  await prisma.loginToken.updateMany({
-    where: { userId: user.id, usedAt: null },
-    data: { usedAt: new Date() },
-  });
-
-  const token = newToken();
-  await prisma.loginToken.create({
-    data: {
-      tokenHash: hash(token),
+  // Repeated submits shouldn't bury a coach in mail. The most recent live link
+  // still works, so silently succeeding here costs them nothing.
+  const recent = await prisma.loginToken.findFirst({
+    where: {
       userId: user.id,
-      expiresAt: new Date(Date.now() + LOGIN_TOKEN_TTL_MINUTES * 60_000),
+      usedAt: null,
+      createdAt: { gt: new Date(Date.now() - RESEND_COOLDOWN_SECONDS * 1000) },
     },
   });
+  if (recent) return { ok: true, delivered: !isDevMailMode() };
 
-  const link = `${appUrl()}/auth/verify?token=${token}`;
+  const { token, minutes } = await issueToken(user.id, EMAIL_LINK_TTL_MINUTES);
+  const link = signInUrl(token);
   const greeting = user.name ? `Coach ${user.name}` : "Coach";
 
   await sendMail({
@@ -78,14 +89,13 @@ export async function requestLoginLink(rawEmail: string): Promise<LoginRequestRe
     text: [
       `${greeting},`,
       "",
-      "Use the link below to sign in. It works once and expires in " +
-        `${LOGIN_TOKEN_TTL_MINUTES} minutes.`,
+      `Use the link below to sign in. It works once and expires in ${minutes} minutes.`,
       "",
       link,
       "",
       "If you didn't request this, you can ignore this email.",
     ].join("\n"),
-    html: `<p>${greeting},</p><p>Use the link below to sign in. It works once and expires in ${LOGIN_TOKEN_TTL_MINUTES} minutes.</p><p><a href="${link}">Sign in to Coach LMS</a></p><p>If you didn't request this, you can ignore this email.</p>`,
+    html: `<p>${greeting},</p><p>Use the link below to sign in. It works once and expires in ${minutes} minutes.</p><p><a href="${link}">Sign in to Coach LMS</a></p><p>If you didn't request this, you can ignore this email.</p>`,
   });
 
   return {
@@ -95,6 +105,46 @@ export async function requestLoginLink(rawEmail: string): Promise<LoginRequestRe
     // app still falls back to logging it, but showing it on the login page
     // would let anyone sign in as any coach just by typing their address.
     devLink: canRevealMagicLink() ? link : undefined,
+  };
+}
+
+/** Mints a token, retiring any older ones so only the newest link works. */
+async function issueToken(userId: string, ttlMinutes: number) {
+  await prisma.loginToken.updateMany({
+    where: { userId, usedAt: null },
+    data: { usedAt: new Date() },
+  });
+
+  const token = newToken();
+  await prisma.loginToken.create({
+    data: {
+      tokenHash: hash(token),
+      userId,
+      expiresAt: new Date(Date.now() + ttlMinutes * 60_000),
+    },
+  });
+
+  return { token, minutes: ttlMinutes };
+}
+
+export function signInUrl(token: string) {
+  return `${appUrl()}/auth/verify?token=${token}`;
+}
+
+/**
+ * A sign-in link for an admin to deliver by hand — text, printout, or a QR code
+ * held up in a staff meeting. Longer-lived than an emailed one because it has
+ * to survive the trip from the coordinator's screen to the coach's phone, and
+ * it never travels through an inbox.
+ *
+ * Callers must already have established that the requester is an admin.
+ */
+export async function createInviteLink(userId: string, ttlDays = INVITE_LINK_TTL_DAYS) {
+  const { token } = await issueToken(userId, ttlDays * 24 * 60);
+  return {
+    url: signInUrl(token),
+    expiresAt: new Date(Date.now() + ttlDays * 86_400_000),
+    ttlDays,
   };
 }
 
@@ -128,93 +178,7 @@ export async function consumeLoginToken(token: string): Promise<User | null> {
   return record.user;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Passwords                                                                  */
-/* -------------------------------------------------------------------------- */
-
-const MAX_FAILED_LOGINS = 10;
-const LOCKOUT_MINUTES = 15;
-
-export type PasswordSignInResult =
-  | { ok: true; mustChangePassword: boolean }
-  | { ok: false; error: string };
-
-/**
- * Signs in with an admin-issued password.
- *
- * Every failure returns the same message, so the form can't be used to work out
- * which addresses are on staff or which of those have a password set. Repeated
- * failures lock the account for a while to make guessing impractical.
- */
-export async function signInWithPassword(
-  rawEmail: string,
-  password: string,
-): Promise<PasswordSignInResult> {
-  const generic = { ok: false as const, error: "That email and password don't match." };
-
-  const email = normalizeEmail(rawEmail);
-  if (!email || !password) return generic;
-
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !user.active || !user.passwordHash) {
-    // Spend roughly the same time as a real verification would.
-    await verifyPassword(password, null);
-    return generic;
-  }
-
-  if (user.lockedUntil && user.lockedUntil > new Date()) {
-    const minutes = Math.max(1, Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60_000));
-    return {
-      ok: false,
-      error: `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}, or ask your coordinator to reset it.`,
-    };
-  }
-
-  if (!(await verifyPassword(password, user.passwordHash))) {
-    const failedLogins = user.failedLogins + 1;
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        failedLogins,
-        lockedUntil:
-          failedLogins >= MAX_FAILED_LOGINS
-            ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000)
-            : null,
-      },
-    });
-    return generic;
-  }
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { failedLogins: 0, lockedUntil: null },
-  });
-
-  await startSession(user.id);
-  return { ok: true, mustChangePassword: user.mustChangePassword };
-}
-
-/**
- * Sets a password. `temporary` marks it as needing a change on first use, which
- * is what an admin handing one to a coach wants.
- */
-export async function setUserPassword(
-  userId: string,
-  password: string,
-  opts: { temporary?: boolean } = {},
-) {
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      passwordHash: await hashPassword(password),
-      mustChangePassword: opts.temporary ?? false,
-      failedLogins: 0,
-      lockedUntil: null,
-    },
-  });
-}
-
-/** Ends every other session, e.g. after a coach changes their own password. */
+/** Ends every session but the current one — used from the account page. */
 export async function revokeOtherSessions(userId: string) {
   const jar = await cookies();
   const current = jar.get(SESSION_COOKIE)?.value;
@@ -227,12 +191,15 @@ export async function revokeOtherSessions(userId: string) {
 /* Sessions                                                                   */
 /* -------------------------------------------------------------------------- */
 
+function idleExpiry() {
+  return new Date(Date.now() + SESSION_IDLE_DAYS * 86_400_000);
+}
+
 export async function startSession(userId: string) {
   const token = newToken();
-  const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 86_400_000);
 
   await prisma.session.create({
-    data: { tokenHash: hash(token), userId, expiresAt },
+    data: { tokenHash: hash(token), userId, expiresAt: idleExpiry() },
   });
 
   const jar = await cookies();
@@ -241,7 +208,10 @@ export async function startSession(userId: string) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    expires: expiresAt,
+    // The cookie deliberately outlives the session row. Expiry is enforced in
+    // the database, which is the only place that can be slid forward — a
+    // Server Component may read cookies but never write them.
+    maxAge: 400 * 86_400, // browsers cap persistent cookies at 400 days
   });
 }
 
@@ -269,11 +239,13 @@ export async function getCurrentUser(): Promise<User | null> {
     return null;
   }
 
-  // Refresh at most once an hour to avoid a write on every page view.
+  // Slide the expiry forward on use, at most once an hour so an active coach
+  // costs one write per hour rather than one per page view. This is what keeps
+  // regular users from ever needing another sign-in link.
   if (Date.now() - session.lastSeenAt.getTime() > 3_600_000) {
     await prisma.session.update({
       where: { id: session.id },
-      data: { lastSeenAt: new Date() },
+      data: { lastSeenAt: new Date(), expiresAt: idleExpiry() },
     });
   }
 

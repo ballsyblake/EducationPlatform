@@ -2,7 +2,6 @@ import Link from "next/link";
 import { NavLinks, type NavLink } from "@/components/nav";
 import { isAdmin, requireUser } from "@/lib/auth";
 import { displayName, initials } from "@/lib/format";
-import { PasswordForm } from "./account/password-form";
 
 const COACH_LINKS: NavLink[] = [
   { href: "/dashboard", label: "Dashboard" },
@@ -32,10 +31,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <span>Coach LMS</span>
           </Link>
 
-          {/* Nothing is reachable until a temporary password is replaced, so the
-              nav would just be a row of links back to the same screen. */}
           <div className="order-3 w-full md:order-2 md:w-auto md:flex-1">
-            {!user.mustChangePassword && <NavLinks links={links} />}
+            <NavLinks links={links} />
           </div>
 
           <div className="order-2 ml-auto flex items-center gap-3 md:order-3">
@@ -65,26 +62,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-8">
-        {/* A temporary password unlocks nothing but this screen. Blocking here
-            rather than redirecting means no route can slip past it. */}
-        {user.mustChangePassword ? <ForcedPasswordChange /> : children}
-      </main>
-    </div>
-  );
-}
-
-function ForcedPasswordChange() {
-  return (
-    <div className="mx-auto max-w-xl">
-      <h1 className="text-2xl font-bold text-chalk-900">Choose your password</h1>
-      <p className="mt-1 mb-6 text-sm text-chalk-500">
-        You signed in with a temporary password. Pick your own to finish setting up — after this
-        you won&apos;t need your coordinator to get back in.
-      </p>
-      <div className="card card-pad">
-        <PasswordForm requireCurrent={false} />
-      </div>
+      <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
     </div>
   );
 }

@@ -1,18 +1,34 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { normalizeEmail, requestLoginLink, requireAdmin, setUserPassword } from "@/lib/auth";
+import QRCode from "qrcode";
+import { createInviteLink, normalizeEmail, requestLoginLink, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { generateTempPassword, validatePassword } from "@/lib/password";
+import { isDevMailMode } from "@/lib/mailer";
 
 export type PeopleFormState = {
   status: "idle" | "ok" | "error";
   message?: string;
-  devLink?: string;
-  /** Shown once, so the admin can pass it on. Never stored in plain text. */
-  tempPassword?: string;
-  tempPasswordFor?: string;
+  /** A sign-in link for the admin to deliver by hand. Shown once. */
+  invite?: {
+    url: string;
+    qrSvg: string;
+    email: string;
+    expiresAt: string;
+  };
 };
+
+async function buildInvite(userId: string, email: string) {
+  const { url, expiresAt } = await createInviteLink(userId);
+  return {
+    url,
+    // Inline SVG keeps this working under the app's strict asset rules and
+    // needs no round trip to an image service.
+    qrSvg: await QRCode.toString(url, { type: "svg", margin: 1, width: 180 }),
+    email,
+    expiresAt: expiresAt.toISOString(),
+  };
+}
 
 export async function addStaffMember(
   _prev: PeopleFormState,
@@ -24,16 +40,10 @@ export async function addStaffMember(
   const name = String(formData.get("name") ?? "").trim() || null;
   const title = String(formData.get("title") ?? "").trim() || null;
   const role = String(formData.get("role") ?? "COACH") === "ADMIN" ? "ADMIN" : "COACH";
-  const sendInvite = formData.get("sendInvite") === "on";
-  const typedPassword = String(formData.get("password") ?? "").trim();
+  const sendEmail = formData.get("sendEmail") === "on";
 
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return { status: "error", message: "Enter a valid email address." };
-  }
-
-  if (typedPassword) {
-    const problem = validatePassword(typedPassword);
-    if (problem) return { status: "error", message: problem };
   }
 
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -43,28 +53,24 @@ export async function addStaffMember(
 
   const user = await prisma.user.create({ data: { email, name, title, role } });
 
-  // Every new account gets a password, so nobody depends on email to get in.
-  const password = typedPassword || generateTempPassword();
-  await setUserPassword(user.id, password, { temporary: true });
-
-  let devLink: string | undefined;
-  if (sendInvite) {
-    const result = await requestLoginLink(email);
-    if (result.ok) devLink = result.devLink;
+  if (sendEmail && !isDevMailMode()) {
+    await requestLoginLink(email);
+    revalidatePath("/admin/people");
+    return { status: "ok", message: `${email} added and a sign-in link was emailed.` };
   }
 
+  // Default path: hand the link over yourself, no mail server involved.
+  const invite = await buildInvite(user.id, email);
   revalidatePath("/admin/people");
   return {
     status: "ok",
-    message: `${email} added. Give them this password — they'll be asked to change it on first sign-in.`,
-    tempPassword: password,
-    tempPasswordFor: email,
-    devLink,
+    message: `${email} added. Send them this link to sign in.`,
+    invite,
   };
 }
 
-/** Issues a fresh temporary password, e.g. when a coach is locked out. */
-export async function resetPassword(
+/** Issues a fresh sign-in link for a coach — the passwordless equivalent of a reset. */
+export async function createSignInLink(
   _prev: PeopleFormState,
   formData: FormData,
 ): Promise<PeopleFormState> {
@@ -73,20 +79,13 @@ export async function resetPassword(
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { status: "error", message: "That account no longer exists." };
+  if (!user.active) {
+    return { status: "error", message: "Reactivate this account before issuing a link." };
+  }
 
-  const password = generateTempPassword();
-  await setUserPassword(user.id, password, { temporary: true });
-
-  // Force them back through the new password on every device.
-  await prisma.session.deleteMany({ where: { userId: user.id } });
-
+  const invite = await buildInvite(user.id, user.email);
   revalidatePath("/admin/people");
-  return {
-    status: "ok",
-    message: `New password for ${user.email}. They'll change it when they sign in.`,
-    tempPassword: password,
-    tempPasswordFor: user.email,
-  };
+  return { status: "ok", invite };
 }
 
 export async function updateStaffMember(formData: FormData) {
@@ -102,6 +101,11 @@ export async function updateStaffMember(formData: FormData) {
   if (action === "deactivate") {
     await prisma.user.update({ where: { id: userId }, data: { active: false } });
     await prisma.session.deleteMany({ where: { userId } });
+    // Any link already handed out stops working too.
+    await prisma.loginToken.updateMany({
+      where: { userId, usedAt: null },
+      data: { usedAt: new Date() },
+    });
   } else if (action === "reactivate") {
     await prisma.user.update({ where: { id: userId }, data: { active: true } });
   } else if (action === "make_admin") {
@@ -121,7 +125,7 @@ export async function updateStaffMember(formData: FormData) {
   revalidatePath("/admin/people");
 }
 
-export async function resendInvite(formData: FormData) {
+export async function emailSignInLink(formData: FormData) {
   await requireAdmin();
   const email = String(formData.get("email"));
   await requestLoginLink(email);

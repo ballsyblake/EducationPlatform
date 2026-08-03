@@ -15,16 +15,19 @@ export function SubmitButton({
   confirm?: string;
 } & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "className">) {
   const { pending } = useFormStatus();
+  const { disabled, ...buttonProps } = rest;
 
   return (
     <button
       type="submit"
       className={className}
-      disabled={pending}
+      // Spreading `rest` last would let a caller's `disabled` clobber the
+      // pending state, so the two are combined explicitly.
+      disabled={pending || disabled}
       onClick={(event) => {
         if (confirm && !window.confirm(confirm)) event.preventDefault();
       }}
-      {...rest}
+      {...buttonProps}
     >
       {pending ? (pendingLabel ?? "Working…") : children}
     </button>

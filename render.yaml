@@ -29,9 +29,9 @@ services:
       - key: ADMIN_EMAILS
         sync: false
 
-      # SMTP. Leave unset to run in dev mail mode, where sign-in links are
-      # written to the logs instead of emailed — fine for a first look, not for
-      # real use.
+      # SMTP is optional. Left unset, coaches can't request their own link and
+      # you hand out sign-in links from the staff page instead — which needs no
+      # mail server at all.
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT

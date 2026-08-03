@@ -2,8 +2,9 @@
 
 A Canvas-style learning platform, cut down to what a football coaching staff
 actually needs. Coordinators post install work; coaches complete assignments,
-take quizzes, and get feedback. Everyone signs in with their email address, and
-running it needs no email server — see [Signing in](#signing-in).
+take quizzes, and get feedback. Sign-in is passwordless — there are no passwords
+anywhere in the system — and running it needs no email server. See
+[Signing in](#signing-in).
 
 ## What it does
 
@@ -21,7 +22,7 @@ running it needs no email server — see [Signing in](#signing-in).
 - Author assignments and build quizzes question by question
 - A grading queue: score submissions, review written quiz answers, add feedback, or send work back for revision
 - A staff progress dashboard — completion, overdue counts, and averages per coach, filterable by course
-- Staff management: add coaches by email, issue and reset their passwords, promote to admin, deactivate
+- Staff management: add coaches by email, hand out sign-in links, promote to admin, deactivate
 
 **Grading model.** Multiple-choice and true/false questions score the instant a
 coach submits. Written answers can't be auto-graded, so an attempt containing
@@ -43,8 +44,8 @@ npm run db:seed            # load a sample coaching staff and two courses
 npm run dev
 ```
 
-Open http://localhost:3000/login. Every seeded account uses the password
-`coach-lms-demo`:
+Open http://localhost:3000/login and enter any seeded address. In development
+the sign-in link appears on the page, so you can click straight through:
 
 | Email                       | Role                            |
 | --------------------------- | ------------------------------- |
@@ -55,25 +56,31 @@ Open http://localhost:3000/login. Every seeded account uses the password
 
 ## Signing in
 
-There are two ways in, and **email is optional**.
+Nobody has a password. A coach signs in by opening a link, and the session then
+slides forward on every visit — so anyone using the app regularly never has to
+sign in again. Only a genuinely dormant account lapses (60 days idle by
+default).
 
-**Passwords (no email needed).** When an admin adds a coach on `/admin/people`,
-the app returns a starting password to hand over however you like — text, Slack,
-or read aloud. The coach is held on a "choose your password" screen until they
-replace it; no other page is reachable until they do. After that they sign in on
-their own forever, and an admin can issue a new password any time from the same
-page. Ten wrong attempts locks an account for 15 minutes.
+**Links handed out by an admin — no email server needed.** Adding a coach on
+`/admin/people` produces a sign-in link right there: copy it, text it, or hold
+up the QR code for them to scan off your screen. `Get sign-in link` does the
+same for anyone already on staff who needs a new one. This is the default path
+and the one to use if you're working from a registration list.
 
-This is the path to use if you're setting accounts up from a registration list
-and don't want to run an email server at all.
-
-**Magic links (needs email).** A coach enters their address and gets a
-single-use link. Convenient, but it requires SMTP: without it the link only
-reaches the server logs, which is fine for you and useless for your staff.
+**Links by email.** If SMTP is configured, coaches can also request their own
+link from the login page. Without SMTP that form is hidden entirely rather than
+silently failing — a link nobody receives is worse than no button.
 
 Either way, accounts are only ever created by an admin — signing in never
-creates one. Only password and token *hashes* are stored; the starting password
-is shown once and never persisted in plain text.
+creates one. Links are single-use: opening one retires it, and issuing a new
+link kills the previous one. Emailed links last 20 minutes; admin-issued ones
+last 7 days, since they have to survive the trip from your screen to a coach's
+phone. Both are configurable (`EMAIL_LINK_TTL_MINUTES`, `INVITE_LINK_TTL_DAYS`,
+`SESSION_IDLE_DAYS`).
+
+Deactivating a coach drops their sessions *and* kills any link already handed
+out. Coaches can review their signed-in devices on `/account` and sign the
+others out.
 
 ### Sending real email
 
@@ -96,20 +103,24 @@ over SMTP, as does Brevo's free tier. Neither is required.
 
 ## Security notes
 
-Both sign-in forms are deliberately vague. A wrong password and an address
-that isn't on staff produce the identical message, and requesting a magic link
-for an unknown address gives the same "check your email" response as a real one
-— so neither form can be used to work out who is on the staff list.
+Requesting a link for an address that isn't on staff returns the same
+"check your email" response as a real one, so the login form can't be used to
+work out who is on the staff list.
 
-Magic links are **never** displayed in the browser when `NODE_ENV=production`.
-Without SMTP the app still falls back to logging them, but showing them on the
-login page would let anyone sign in as any coach just by typing their address.
+Sign-in links are **never** shown in the browser when `NODE_ENV=production`.
+Without SMTP the app still logs them, but returning one to the login page would
+let anyone sign in as any coach just by typing their address. Links shown on the
+staff page are different: the admin viewing them is already authenticated and
+authorised.
 
-Passwords are hashed with scrypt from Node's standard library — no native
-module to compile on whatever host this lands on. Sessions and login tokens are
-stored as hashes too. Changing a password signs out every other device, an
-admin password reset does the same, and deactivating a coach drops their
-sessions immediately.
+Only token hashes are stored, for both sign-in links and sessions — a database
+dump yields nothing that can be replayed. Repeated requests for the same
+address are throttled so nobody's inbox can be flooded.
+
+A sign-in link is a bearer credential for as long as it's unused: anyone holding
+it can sign in as that coach. That's the trade-off passwordless makes, and why
+admin-issued links are single-use and time-boxed. Send them over a channel you'd
+trust with the account itself.
 
 Uploaded files are never served statically. They're written to `uploads/` under
 a random name and streamed through `/api/files/[id]`, which checks on every
@@ -183,7 +194,7 @@ uploaded file, so the blueprint specifies `starter`.
 | --------------- | -------- | ------------------------------------------------------------------- |
 | `APP_URL`       | Yes      | Public base URL. Every magic link is built from it                   |
 | `ADMIN_EMAILS`  | Yes      | Comma-separated admins, granted access on boot                       |
-| `SMTP_HOST`     | No       | Only needed for magic links; passwords work without it              |
+| `SMTP_HOST`     | No       | Only needed if coaches request their own links                       |
 | `SMTP_PORT`     | –        | Defaults to 587                                                      |
 | `SMTP_USER`     | –        | SMTP username                                                        |
 | `SMTP_PASSWORD` | –        | SMTP password                                                        |
@@ -195,10 +206,11 @@ uploaded file, so the blueprint specifies `starter`.
 Set `APP_URL` correctly before inviting anyone. It's the base of every sign-in
 link that goes out, and a wrong value produces links that point elsewhere.
 
-SMTP is optional. Without it, magic links are disabled in the browser and your
-staff signs in with passwords you hand out — see [Signing in](#signing-in).
-On a brand-new deploy the first admin's starting password is printed to the
-boot logs, so check the host's log viewer after the first deploy.
+SMTP is optional. Without it, the login form is hidden and you hand out sign-in
+links from the staff page — see [Signing in](#signing-in). On a brand-new
+deploy the first admin's sign-in link is printed to the boot logs, so open the
+host's log viewer after the first deploy. A later deploy prints a fresh link
+whenever an admin has no active session, so a lost link is never a lockout.
 
 ### Running the image locally
 
@@ -236,7 +248,7 @@ keeps native bindings intact at the cost of some image size. Adding
 | `npm run db:seed`    | Reset seeded data and reload the sample program    |
 | `npm run db:reset`   | Drop the database, re-migrate, and re-seed         |
 | `npm run db:studio`  | Browse the database in Prisma Studio               |
-| `npm run bootstrap:admin` | Grant admin access to `ADMIN_EMAILS` without touching anything else |
+| `npm run bootstrap:admin` | Grant admin access to `ADMIN_EMAILS` and print a sign-in link |
 
 `prisma`, `tsx`, and `dotenv` are runtime dependencies rather than dev ones
 because the container runs migrations and the admin bootstrap on boot.
@@ -261,10 +273,10 @@ prisma/
   seed.ts              Sample coaching staff, courses, and graded history
 src/
   app/
-    login/             Password sign-in, with magic link as a fallback
+    login/             Sign-in link request
     auth/verify/       Token consumption → session
     (app)/             Everything behind authentication
-      account/         Change your own password
+      account/         Your details and signed-in devices
       dashboard/       Coach home
       courses/         Course list, detail, and library
       assignments/     Instructions, submission, feedback
@@ -273,8 +285,7 @@ src/
       admin/           Courses, quiz builder, grading queue, progress, staff
     api/files/[id]/    Authorization-checked file streaming
   lib/
-    auth.ts            Passwords, magic links, sessions, role guards
-    password.ts        scrypt hashing and temporary-password generation
+    auth.ts            Sign-in links, sliding sessions, role guards
     access.ts          Course and upload authorization
     grading.ts         Auto-grading and score rollups
     coursework.ts      Task aggregation and progress summaries

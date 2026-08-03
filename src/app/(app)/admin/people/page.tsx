@@ -1,18 +1,17 @@
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, PageHeader } from "@/components/ui";
-import { requireAdmin } from "@/lib/auth";
+import { magicLinkAvailable, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/format";
-import { isDevMailMode } from "@/lib/mailer";
-import { magicLinkAvailable } from "@/lib/auth";
-import { resendInvite, updateStaffMember } from "../actions/people";
+import { emailSignInLink, updateStaffMember } from "../actions/people";
 import { AddStaffForm } from "./add-staff-form";
-import { ResetPasswordForm } from "./reset-password-form";
+import { SignInLinkForm } from "./sign-in-link-form";
 
 export const metadata = { title: "Staff" };
 
 export default async function PeoplePage() {
   const admin = await requireAdmin();
+  const emailEnabled = magicLinkAvailable();
 
   const users = await prisma.user.findMany({
     orderBy: [{ active: "desc" }, { role: "asc" }, { name: "asc" }, { email: "asc" }],
@@ -26,7 +25,7 @@ export default async function PeoplePage() {
     <>
       <PageHeader
         title="Staff"
-        subtitle="Everyone with access. Coaches sign in with the email address listed here."
+        subtitle="Everyone with access. Nobody has a password — coaches sign in with a link."
       />
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
@@ -41,10 +40,8 @@ export default async function PeoplePage() {
                       {user.role === "ADMIN" && <Badge tone="info">Admin</Badge>}
                       {!user.active && <Badge tone="bad">Deactivated</Badge>}
                       {user.id === admin.id && <Badge tone="muted">You</Badge>}
-                      {user.mustChangePassword && <Badge tone="warn">Temp password</Badge>}
-                      {!user.passwordHash && <Badge tone="muted">No password</Badge>}
-                      {user.lockedUntil && user.lockedUntil > new Date() && (
-                        <Badge tone="bad">Locked out</Badge>
+                      {!user.sessions[0] && user.active && (
+                        <Badge tone="warn">Never signed in</Badge>
                       )}
                     </div>
                     <p className="mt-0.5 text-xs text-chalk-500">
@@ -63,13 +60,13 @@ export default async function PeoplePage() {
                   </div>
 
                   <div className="flex flex-wrap items-start gap-2">
-                    <ResetPasswordForm userId={user.id} label={user.name ?? user.email} />
+                    <SignInLinkForm userId={user.id} disabled={!user.active} />
 
-                    {magicLinkAvailable() && (
-                      <form action={resendInvite}>
+                    {emailEnabled && user.active && (
+                      <form action={emailSignInLink}>
                         <input type="hidden" name="email" value={user.email} />
                         <SubmitButton className="btn-secondary btn-sm" pendingLabel="Sending…">
-                          Send sign-in link
+                          Email it instead
                         </SubmitButton>
                       </form>
                     )}
@@ -144,14 +141,14 @@ export default async function PeoplePage() {
         <aside>
           <div className="card card-pad">
             <h2 className="mb-4 font-semibold text-chalk-900">Add a staff member</h2>
-            <AddStaffForm />
+            <AddStaffForm emailEnabled={emailEnabled} />
           </div>
 
-          {isDevMailMode() && (
+          {!emailEnabled && (
             <p className="mt-4 text-xs text-chalk-500">
-              No email is configured, so passwords are how your staff signs in. Hand each coach the
-              password shown when you add them; they set their own on first use, and you can reset
-              it any time from this page.
+              No email is configured, so sign-in links are handed out from this page. Give each
+              coach the link shown when you add them — copy it, or hold up the QR code for them to
+              scan. Once they use it they stay signed in, and you can issue a new link any time.
             </p>
           )}
         </aside>

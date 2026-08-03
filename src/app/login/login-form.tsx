@@ -1,91 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useActionState } from "react";
 import { SubmitButton } from "@/components/submit-button";
-import { sendLoginLink, signIn, type LoginFormState } from "./actions";
+import { sendLoginLink, type LoginFormState } from "./actions";
 
 const initialState: LoginFormState = { status: "idle" };
 
-export function LoginForm({ magicLinkEnabled }: { magicLinkEnabled: boolean }) {
-  const [mode, setMode] = useState<"password" | "link">("password");
-
-  return mode === "password" ? (
-    <PasswordForm onSwitch={magicLinkEnabled ? () => setMode("link") : undefined} />
-  ) : (
-    <MagicLinkForm onSwitch={() => setMode("password")} />
-  );
-}
-
-function PasswordForm({ onSwitch }: { onSwitch?: () => void }) {
-  const [state, formAction] = useActionState(signIn, initialState);
-
-  return (
-    <form action={formAction} className="space-y-4">
-      <div>
-        <label className="label" htmlFor="email">
-          Staff email address
-        </label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          required
-          autoComplete="username"
-          autoFocus
-          placeholder="coach@yourprogram.com"
-          className="input"
-        />
-      </div>
-
-      <div>
-        <label className="label" htmlFor="password">
-          Password
-        </label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          required
-          autoComplete="current-password"
-          className="input"
-        />
-        <p className="hint">Your coordinator gives you this when they set up your account.</p>
-      </div>
-
-      {state.status === "error" && (
-        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.message}</p>
-      )}
-
-      <SubmitButton className="btn-primary w-full" pendingLabel="Signing in…">
-        Sign in
-      </SubmitButton>
-
-      {onSwitch && (
-        <button
-          type="button"
-          onClick={onSwitch}
-          className="w-full text-center text-sm font-medium text-field-700 hover:underline"
-        >
-          Email me a sign-in link instead
-        </button>
-      )}
-    </form>
-  );
-}
-
-function MagicLinkForm({ onSwitch }: { onSwitch: () => void }) {
+export function LoginForm({ emailEnabled }: { emailEnabled: boolean }) {
   const [state, formAction] = useActionState(sendLoginLink, initialState);
+
+  // With no mail server there is nothing this form can do for a coach: the link
+  // would only reach the server log. Say so instead of pretending to send.
+  if (!emailEnabled) {
+    return (
+      <div className="space-y-3 text-sm text-chalk-600">
+        <p className="font-medium text-chalk-800">Ask your coordinator for a sign-in link.</p>
+        <p>
+          This program hands out sign-in links directly rather than by email. Your coordinator can
+          send you one from the staff page — it opens the app on any device and keeps you signed in.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <form action={formAction} className="space-y-4">
         <div>
-          <label className="label" htmlFor="link-email">
+          <label className="label" htmlFor="email">
             Staff email address
           </label>
           <input
-            id="link-email"
+            id="email"
             name="email"
             type="email"
             required
@@ -94,7 +41,9 @@ function MagicLinkForm({ onSwitch }: { onSwitch: () => void }) {
             placeholder="coach@yourprogram.com"
             className="input"
           />
-          <p className="hint">We&apos;ll send a link that signs you in for 30 days.</p>
+          <p className="hint">
+            No password needed. We&apos;ll send a link that signs you in and keeps you signed in.
+          </p>
         </div>
 
         <SubmitButton className="btn-primary w-full" pendingLabel="Sending…">
@@ -121,14 +70,6 @@ function MagicLinkForm({ onSwitch }: { onSwitch: () => void }) {
           )}
         </div>
       )}
-
-      <button
-        type="button"
-        onClick={onSwitch}
-        className="w-full text-center text-sm font-medium text-field-700 hover:underline"
-      >
-        Use a password instead
-      </button>
     </div>
   );
 }

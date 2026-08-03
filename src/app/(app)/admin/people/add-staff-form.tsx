@@ -1,15 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useActionState, useEffect, useRef } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { FormError } from "@/components/ui";
 import { addStaffMember, type PeopleFormState } from "../actions/people";
-import { TempPasswordCallout } from "./temp-password-callout";
+import { InviteCallout } from "./invite-callout";
 
 const initialState: PeopleFormState = { status: "idle" };
 
-export function AddStaffForm() {
+export function AddStaffForm({ emailEnabled }: { emailEnabled: boolean }) {
   const [state, formAction] = useActionState(addStaffMember, initialState);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -31,7 +30,7 @@ export function AddStaffForm() {
           placeholder="coach@yourprogram.com"
           className="input"
         />
-        <p className="hint">This is the address they&apos;ll sign in with.</p>
+        <p className="hint">This identifies their account. No password is ever created.</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -64,48 +63,21 @@ export function AddStaffForm() {
         </select>
       </div>
 
-      <div>
-        <label className="label" htmlFor="staff-password">
-          Starting password
+      {emailEnabled && (
+        <label className="flex items-center gap-2 text-sm text-chalk-700">
+          <input type="checkbox" name="sendEmail" className="accent-field-600" />
+          Email the link instead of showing it here
         </label>
-        <input
-          id="staff-password"
-          name="password"
-          type="text"
-          autoComplete="off"
-          placeholder="Leave blank to generate one"
-          className="input"
-        />
-        <p className="hint">
-          They&apos;ll be asked to change it the first time they sign in.
-        </p>
-      </div>
-
-      <label className="flex items-center gap-2 text-sm text-chalk-700">
-        <input type="checkbox" name="sendInvite" className="accent-field-600" />
-        Also email them a sign-in link
-      </label>
+      )}
 
       <FormError message={state.status === "error" ? state.message : null} />
 
-      {state.status === "ok" && state.tempPassword && (
-        <TempPasswordCallout
-          password={state.tempPassword}
-          email={state.tempPasswordFor ?? "them"}
-          message={state.message}
-        />
-      )}
-
-      {state.status === "ok" && state.devLink && (
-        <div className="space-y-1 rounded-lg bg-chalk-100 px-3 py-2">
-          <p className="text-xs font-semibold tracking-wide text-chalk-600 uppercase">
-            Dev mode — no SMTP configured
-          </p>
-          <Link href={state.devLink} className="block truncate text-xs underline">
-            {state.devLink}
-          </Link>
-        </div>
-      )}
+      {state.status === "ok" &&
+        (state.invite ? (
+          <InviteCallout invite={state.invite} message={state.message} />
+        ) : (
+          <p className="rounded-lg bg-field-50 px-3 py-2 text-sm text-field-800">{state.message}</p>
+        ))}
 
       <SubmitButton className="btn-primary w-full" pendingLabel="Adding…">
         Add to staff

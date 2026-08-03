@@ -9,8 +9,7 @@
  *   ADMIN_EMAILS="head.coach@yourprogram.com" npm run bootstrap:admin
  */
 import "dotenv/config";
-import { randomBytes, scrypt as scryptCallback } from "node:crypto";
-import { promisify } from "node:util";
+import { createHash, randomBytes } from "node:crypto";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../generated/prisma/client.ts";
 
@@ -18,20 +17,27 @@ const prisma = new PrismaClient({
   adapter: new PrismaBetterSqlite3({ url: process.env.DATABASE_URL ?? "file:./prisma/dev.db" }),
 });
 
-const scrypt = promisify(scryptCallback) as (p: string, s: Buffer, k: number) => Promise<Buffer>;
+const INVITE_TTL_DAYS = Number(process.env.INVITE_LINK_TTL_DAYS ?? 7);
 
-async function hashPassword(password: string) {
-  const salt = randomBytes(16);
-  const derived = await scrypt(password, salt, 64);
-  return ["scrypt", salt.toString("hex"), derived.toString("hex")].join(":");
-}
-
-const WORDS = ["blitz", "wedge", "audible", "gauntlet", "sideline", "playbook", "huddle", "counter"];
-
-function generateTempPassword() {
-  const pick = () => WORDS[randomBytes(1)[0] % WORDS.length];
-  const digits = String(randomBytes(2).readUInt16BE(0) % 10000).padStart(4, "0");
-  return `${pick()}-${pick()}-${digits}`;
+/**
+ * Mints a sign-in link the same way the app does. Duplicated rather than
+ * imported because src/lib/auth.ts is "server-only" and can't load here.
+ */
+async function issueSignInLink(userId: string) {
+  const token = randomBytes(32).toString("base64url");
+  await prisma.loginToken.updateMany({
+    where: { userId, usedAt: null },
+    data: { usedAt: new Date() },
+  });
+  await prisma.loginToken.create({
+    data: {
+      tokenHash: createHash("sha256").update(token).digest("hex"),
+      userId,
+      expiresAt: new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000),
+    },
+  });
+  const base = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  return `${base}/auth/verify?token=${token}`;
 }
 
 async function main() {
@@ -50,24 +56,18 @@ async function main() {
     const existing = await prisma.user.findUnique({ where: { email } });
 
     if (!existing) {
-      // A brand-new instance has no email configured yet, so print a starting
-      // password to the deploy logs — it's the only way into a fresh install.
-      const password = generateTempPassword();
-      await prisma.user.create({
-        data: {
-          email,
-          role: "ADMIN",
-          title: "Program Admin",
-          passwordHash: await hashPassword(password),
-          mustChangePassword: true,
-        },
+      // A brand-new instance has no mail server yet, so the only way in is a
+      // link printed here for whoever is watching the deploy.
+      const user = await prisma.user.create({
+        data: { email, role: "ADMIN", title: "Program Admin" },
       });
+      const link = await issueSignInLink(user.id);
       console.log(`[bootstrap] Created admin ${email}`);
-      console.log(`[bootstrap] ---------------------------------------------`);
-      console.log(`[bootstrap]  Sign in with:  ${email}`);
-      console.log(`[bootstrap]  Password:      ${password}`);
-      console.log(`[bootstrap]  You'll be asked to change it immediately.`);
-      console.log(`[bootstrap] ---------------------------------------------`);
+      console.log("[bootstrap] ---------------------------------------------");
+      console.log("[bootstrap]  Open this link to sign in as the first admin:");
+      console.log(`[bootstrap]  ${link}`);
+      console.log(`[bootstrap]  Works once, valid for ${INVITE_TTL_DAYS} days.`);
+      console.log("[bootstrap] ---------------------------------------------");
       continue;
     }
 
@@ -80,6 +80,25 @@ async function main() {
       console.log(`[bootstrap] Restored admin access for ${email}`);
     } else {
       console.log(`[bootstrap] Admin ${email} already present`);
+    }
+
+    // Without a mail server, an admin who never got in — or whose link expired
+    // before they used it — has no way to ask for another. Print one whenever
+    // they have no live session, so a redeploy is always a route back in.
+    const [liveSession, liveToken] = await Promise.all([
+      prisma.session.findFirst({ where: { userId: existing.id, expiresAt: { gt: new Date() } } }),
+      prisma.loginToken.findFirst({
+        where: { userId: existing.id, usedAt: null, expiresAt: { gt: new Date() } },
+      }),
+    ]);
+
+    if (!liveSession && !liveToken) {
+      const link = await issueSignInLink(existing.id);
+      console.log("[bootstrap] ---------------------------------------------");
+      console.log(`[bootstrap]  ${email} has no active session. Sign in with:`);
+      console.log(`[bootstrap]  ${link}`);
+      console.log(`[bootstrap]  Works once, valid for ${INVITE_TTL_DAYS} days.`);
+      console.log("[bootstrap] ---------------------------------------------");
     }
   }
 }

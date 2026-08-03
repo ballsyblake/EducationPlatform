@@ -21,7 +21,7 @@ export default async function LoginPage() {
         </div>
 
         <div className="card card-pad">
-          <LoginForm magicLinkEnabled={magicLinkAvailable()} />
+          <LoginForm emailEnabled={magicLinkAvailable()} />
         </div>
 
         {canRevealMagicLink() && (

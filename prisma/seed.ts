@@ -6,8 +6,6 @@
  *   npm run db:seed
  */
 import "dotenv/config";
-import { randomBytes, scrypt as scryptCallback } from "node:crypto";
-import { promisify } from "node:util";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../generated/prisma/client.ts";
 
@@ -16,18 +14,6 @@ const prisma = new PrismaClient({
 });
 
 const days = (n: number) => new Date(Date.now() + n * 86_400_000);
-
-/** Same scheme as src/lib/password.ts, inlined so the seed stays runnable standalone. */
-const scrypt = promisify(scryptCallback) as (p: string, s: Buffer, k: number) => Promise<Buffer>;
-
-async function hashPassword(password: string) {
-  const salt = randomBytes(16);
-  const derived = await scrypt(password, salt, 64);
-  return ["scrypt", salt.toString("hex"), derived.toString("hex")].join(":");
-}
-
-/** Everyone in the sample program shares this, so it's easy to click around. */
-const DEMO_PASSWORD = "coach-lms-demo";
 
 async function main() {
   console.log("Clearing existing data…");
@@ -54,9 +40,6 @@ async function main() {
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
 
-  // Seeded accounts are ready to use, so mustChangePassword stays false here.
-  const passwordHash = await hashPassword(DEMO_PASSWORD);
-
   const [headCoach] = await Promise.all(
     adminEmails.map((email, i) =>
       prisma.user.create({
@@ -65,7 +48,6 @@ async function main() {
           name: i === 0 ? "Ray Delgado" : null,
           title: i === 0 ? "Head Coach" : "Program Admin",
           role: "ADMIN",
-          passwordHash,
         },
       }),
     ),
@@ -78,7 +60,7 @@ async function main() {
       { email: "dana.pryor@example.com", name: "Dana Pryor", title: "Linebackers" },
       { email: "elliot.snow@example.com", name: "Elliot Snow", title: "Wide Receivers" },
       { email: "sam.okafor@example.com", name: "Sam Okafor", title: "Offensive Line" },
-    ].map((data) => prisma.user.create({ data: { ...data, role: "COACH", passwordHash } })),
+    ].map((data) => prisma.user.create({ data: { ...data, role: "COACH" } })),
   );
 
   /* -------------------------------- Courses ------------------------------- */
@@ -364,8 +346,9 @@ async function main() {
   console.log("\nSeed complete.\n");
   console.log(`  Admin:   ${adminEmails.join(", ")}`);
   console.log(`  Coaches: ${coaches.map((c) => c.email).join(", ")}`);
-  console.log(`  Password for all of them: ${DEMO_PASSWORD}`);
-  console.log("\nSign in at http://localhost:3000/login with any of those addresses.\n");
+  console.log("\nSign in at http://localhost:3000/login with any of those addresses.");
+  console.log("Without SMTP configured, the link is printed to the server console");
+  console.log("and shown right on the login page in development.\n");
 }
 
 main()
