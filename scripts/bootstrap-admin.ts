@@ -86,24 +86,30 @@ async function main() {
       console.log(`[bootstrap] Admin ${email} already present`);
     }
 
-    // Without a mail server, an admin who never got in — or whose link expired
-    // before they used it — has no way to ask for another. Print one whenever
-    // they have no live session, so a redeploy is always a route back in.
-    const [liveSession, liveToken] = await Promise.all([
-      prisma.session.findFirst({ where: { userId: existing.id, expiresAt: { gt: new Date() } } }),
-      prisma.loginToken.findFirst({
-        where: { userId: existing.id, usedAt: null, expiresAt: { gt: new Date() } },
-      }),
-    ]);
+    // Without a mail server, an admin who isn't signed in has no way to ask for
+    // a link — so print one on every deploy until they are.
+    //
+    // Deliberately keyed on the session alone. An earlier check also skipped
+    // when an unused token existed, which backfired: the token had been printed
+    // to a previous deploy's log, so the one person who needed it couldn't see
+    // it, and redeploying stayed silent. Issuing a new link retires the old one,
+    // which is exactly right — the newest log always holds the link that works.
+    const liveSession = await prisma.session.findFirst({
+      where: { userId: existing.id, expiresAt: { gt: new Date() } },
+    });
 
-    if (!liveSession && !liveToken) {
-      const link = await issueSignInLink(existing.id);
-      console.log("[bootstrap] ---------------------------------------------");
-      console.log(`[bootstrap]  ${email} has no active session. Sign in with:`);
-      console.log(`[bootstrap]  ${link}`);
-      console.log(`[bootstrap]  Works once, valid for ${INVITE_TTL_DAYS} days.`);
-      console.log("[bootstrap] ---------------------------------------------");
+    if (liveSession) {
+      console.log(`[bootstrap] ${email} has an active session; no link needed.`);
+      continue;
     }
+
+    const link = await issueSignInLink(existing.id);
+    console.log("[bootstrap] ---------------------------------------------");
+    console.log(`[bootstrap]  ${email} is not signed in. Sign in with:`);
+    console.log(`[bootstrap]  ${link}`);
+    console.log(`[bootstrap]  Works once, valid for ${INVITE_TTL_DAYS} days.`);
+    console.log(`[bootstrap]  This replaces any link from an earlier deploy.`);
+    console.log("[bootstrap] ---------------------------------------------");
   }
 }
 
