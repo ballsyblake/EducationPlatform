@@ -10,9 +10,20 @@ datasource db {
   provider = "sqlite"
 }
 
+/// One account can only ever be one of these. ADMIN spans both products: it is
+/// the coach-education program admin and the FQ Club Development Unit.
+///
+/// SQLite stores enums as plain TEXT, so adding CLUB and ASSESSOR needs no
+/// column change — only the generated client's validation moves.
 enum Role {
   ADMIN
   COACH
+
+  /// CDA: a club's designated administrator. Sees only their own club.
+  CLUB
+
+  /// CDA: an FQ assessor. Sees only the clubs they are assigned to.
+  ASSESSOR
 }
 
 model User {
@@ -33,6 +44,14 @@ model User {
   gradedSubmissions Submission[]  @relation("SubmissionGrader")
   gradedAttempts    QuizAttempt[] @relation("AttemptGrader")
   authoredCourses   Course[]      @relation("CourseAuthor")
+
+  // Club Development & Assessment
+  clubMemberships        ClubMembership[]
+  assessorAssignments    AssessorAssignment[]  @relation("AssessorAssignments")
+  assessorScores         AssessorScore[]       @relation("AssessorScores")
+  resolvedScores         FinalScore[]          @relation("ScoreResolver")
+  lockedAssessments      ClubAssessment[]      @relation("AssessmentLocker")
+  verifiedNonNegotiables NonNegotiableResult[] @relation("NonNegotiableVerifier")
 
   @@index([role])
 }
@@ -133,7 +152,17 @@ model Upload {
   submissionFileOf Submission? @relation("SubmissionUploads", fields: [submissionId], references: [id], onDelete: Cascade)
   submissionId     String?
 
+  // CDA evidence. A club attaches qualification certificates to a staff member
+  // and supporting documents to a Non-Negotiable declaration; both are read
+  // back through the same authorization-checking download route.
+  staffCertificateOf    StaffMember?         @relation("StaffCertificates", fields: [staffMemberId], references: [id], onDelete: Cascade)
+  staffMemberId         String?
+  nonNegotiableProofOf  NonNegotiableResult? @relation("NonNegotiableEvidence", fields: [nonNegotiableResultId], references: [id], onDelete: Cascade)
+  nonNegotiableResultId String?
+
   @@index([submissionId])
+  @@index([staffMemberId])
+  @@index([nonNegotiableResultId])
 }
 
 model Assignment {
@@ -210,13 +239,13 @@ enum QuestionKind {
 }
 
 model Question {
-  id       String       @id @default(cuid())
-  quizId   String
-  quiz     Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
-  prompt   String
-  kind     QuestionKind @default(MULTIPLE_CHOICE)
-  points   Int          @default(1)
-  position Int          @default(0)
+  id        String       @id @default(cuid())
+  quizId    String
+  quiz      Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  prompt    String
+  kind      QuestionKind @default(MULTIPLE_CHOICE)
+  points    Int          @default(1)
+  position  Int          @default(0)
   /// Shown after grading, regardless of correctness.
   rationale String?
 
@@ -288,4 +317,453 @@ model Answer {
 
   @@unique([attemptId, questionId])
   @@index([questionId])
+}
+
+/**
+ * ==========================================================================
+ * Club Development & Assessment (CDA) Portal
+ * --------------------------------------------------------------------------
+ * Football Queensland rates each affiliated club once a year across four
+ * domains — Technical Qualifications, Planning, Delivery and Outcomes — and
+ * awards a shield (Bronze/Silver/Gold/Platinum) from the weighted total.
+ * Nine Non-Negotiables gate the award entirely: fail one and no shield is
+ * possible regardless of score.
+ * Shape of the data:
+ * Club  ──<  ClubAssessment  >── Cycle          one row per club, per year
+ * ClubAssessment ──< StaffMember                Technical Qualifications
+ * ClubAssessment ──< AssessorScore >── Criterion  up to 3 independent scores
+ * ClubAssessment ──< FinalScore    >── Criterion  one reconciled score
+ * ClubAssessment ──< NonNegotiableResult
+ * Criteria live in their own catalogue rather than in code so the CDU can
+ * reword a criterion or retire one between cycles without a deploy.
+ * ==========================================================================
+ */
+
+/// An affiliated club. Long-lived: it carries across cycles, and its rating
+/// history is the sequence of ClubAssessments hanging off it.
+model Club {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  /// FQ zone, e.g. "Brisbane Metro", "Far North Queensland".
+  zone         String?
+  /// Competition tier the senior team plays in, e.g. "NPL", "FQPL", "Community".
+  tier         String?
+  contactName  String?
+  contactEmail String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  members     ClubMembership[]
+  assessments ClubAssessment[]
+
+  @@index([zone])
+}
+
+/// Grants a CLUB user access to one club. Modelled as a join rather than a
+/// column on User so a club can have more than one administrator, and so a
+/// handover doesn't mean editing the account that is signed in.
+model ClubMembership {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clubId    String
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, clubId])
+  @@index([clubId])
+}
+
+enum CycleStatus {
+  /// Criteria and weights being configured; nothing visible to clubs yet.
+  SETUP
+  /// Clubs entering staff, metrics and Non-Negotiable declarations.
+  CLUB_ENTRY
+  /// Assessors scoring.
+  ASSESSING
+  /// CDU resolving disagreements and locking scores.
+  RECONCILING
+  /// Ratings released to clubs.
+  PUBLISHED
+}
+
+/// One assessment year.
+///
+/// Weights and shield thresholds are stored per cycle, not globally, so that
+/// re-tuning next year's rubric can never change what a club was awarded in a
+/// year already published.
+model Cycle {
+  id        String      @id @default(cuid())
+  year      Int         @unique
+  name      String
+  status    CycleStatus @default(SETUP)
+  opensAt   DateTime?
+  closesAt  DateTime?
+  createdAt DateTime    @default(now())
+
+  /// Domain weights, as whole percentages. Normalised at scoring time, so they
+  /// need not total exactly 100 — but they should.
+  technicalWeight Int @default(30)
+  planningWeight  Int @default(20)
+  deliveryWeight  Int @default(30)
+  outcomesWeight  Int @default(20)
+
+  /// Minimum weighted-total percentage for each shield.
+  bronzeMin   Int @default(40)
+  silverMin   Int @default(55)
+  goldMin     Int @default(70)
+  platinumMin Int @default(85)
+
+  assessments ClubAssessment[]
+}
+
+enum AssessmentStatus {
+  /// Created, club hasn't opened it.
+  NOT_STARTED
+  /// Club is filling in staff, metrics and Non-Negotiables.
+  IN_PROGRESS
+  /// Club has declared their data complete; assessors can score.
+  SUBMITTED
+  /// At least one assessor has started.
+  IN_ASSESSMENT
+  /// All assigned assessors have submitted; CDU reconciling.
+  RECONCILING
+  /// Scores locked. Result computed and frozen, not yet visible to the club.
+  LOCKED
+  /// Released to the club.
+  PUBLISHED
+}
+
+enum Shield {
+  /// Scored, but below the Bronze threshold.
+  NONE
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+/// One club's assessment for one cycle. The hub of the whole model.
+model ClubAssessment {
+  id      String           @id @default(cuid())
+  clubId  String
+  club    Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  cycleId String
+  cycle   Cycle            @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  status  AssessmentStatus @default(NOT_STARTED)
+
+  clubSubmittedAt DateTime?
+  lockedAt        DateTime?
+  lockedById      String?
+  lockedBy        User?     @relation("AssessmentLocker", fields: [lockedById], references: [id], onDelete: SetNull)
+  publishedAt     DateTime?
+
+  /// The result, frozen at lock time.
+  ///
+  /// Deliberately stored rather than recomputed on read: criteria get reworded,
+  /// weights get re-tuned and staff records get corrected, and none of that may
+  /// retroactively change a rating a club has already been told about. Before
+  /// the lock these are null and every view computes live from the rubric.
+  finalPercent Float?
+  technicalPct Float?
+  planningPct  Float?
+  deliveryPct  Float?
+  outcomesPct  Float?
+  finalShield  Shield?
+  /// False when a Non-Negotiable failed — no shield, whatever the score.
+  eligible     Boolean?
+  /// CDU's summary paragraph on the published report.
+  summary      String?
+
+  staff          StaffMember[]
+  assessors      AssessorAssignment[]
+  scores         AssessorScore[]
+  finalScores    FinalScore[]
+  nonNegotiables NonNegotiableResult[]
+  metrics        ClubMetric[]
+
+  @@unique([clubId, cycleId])
+  @@index([cycleId])
+  @@index([status])
+}
+
+/// Assigns an assessor to a club's assessment. FQ caps this at three; the cap
+/// is enforced in the action rather than the schema, because the limit is
+/// policy and the schema shouldn't have to migrate if it changes.
+model AssessorAssignment {
+  id           String         @id @default(cuid())
+  assessmentId String
+  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessorId   String
+  assessor     User           @relation("AssessorAssignments", fields: [assessorId], references: [id], onDelete: Cascade)
+  createdAt    DateTime       @default(now())
+  /// Set when the assessor declares their scoring complete.
+  submittedAt  DateTime?
+
+  @@unique([assessmentId, assessorId])
+  @@index([assessorId])
+}
+
+/**
+ * ------------------------------ Domain 1: Technical Qualifications --------
+ */
+
+enum QualificationStream {
+  OUTFIELD
+  GOALKEEPING
+  /// Community/grassroots certificates, which count in any role but score low.
+  COMMUNITY
+}
+
+/// The qualification ladder, AFC Pro Diploma down to grassroots certificates.
+///
+/// A table rather than an enum: FQ revises the pathway (and what each rung is
+/// worth) more often than the app ships, and the CDU needs to see the point
+/// values as a rubric.
+model Qualification {
+  id       String              @id @default(cuid())
+  code     String              @unique
+  label    String
+  /// Points for holding this as the staff member's highest qualification.
+  points   Int
+  stream   QualificationStream @default(OUTFIELD)
+  position Int                 @default(0)
+  active   Boolean             @default(true)
+
+  staff StaffMember[]
+}
+
+enum StaffRole {
+  TECHNICAL_DIRECTOR
+  HEAD_OF_YOUTH_ACADEMY
+  SENIOR_HEAD_COACH
+  YOUTH_HEAD_COACH
+  JUNIOR_COACH
+  GOALKEEPING_COACH
+  FEMALE_PROGRAM_LEAD
+  PLAYER_DEVELOPMENT_OFFICER
+  STRENGTH_AND_CONDITIONING
+  MINIROOS_COORDINATOR
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  VOLUNTEER
+}
+
+enum StaffGender {
+  FEMALE
+  MALE
+  OTHER
+  UNDISCLOSED
+}
+
+/// A member of a club's technical staff, as declared for one cycle.
+///
+/// Attached to the assessment rather than to the club: qualifications, hours
+/// and personnel all change year to year, and each year's rating has to stay
+/// reproducible from the record that was actually assessed.
+model StaffMember {
+  id              String         @id @default(cuid())
+  assessmentId    String
+  assessment      ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  name            String
+  email           String?
+  staffRole       StaffRole
+  qualificationId String?
+  qualification   Qualification? @relation(fields: [qualificationId], references: [id], onDelete: SetNull)
+  yearsExperience Int            @default(0)
+  employment      EmploymentType @default(VOLUNTEER)
+  gender          StaffGender    @default(UNDISCLOSED)
+  /// Working with Children Check. Queensland law, and a Non-Negotiable.
+  blueCard        Boolean        @default(false)
+  blueCardExpiry  DateTime?
+  notes           String?
+  createdAt       DateTime       @default(now())
+
+  certificates Upload[] @relation("StaffCertificates")
+
+  @@index([assessmentId])
+}
+
+/**
+ * ------------------- Domains 2-4: Planning, Delivery, Outcomes ------------
+ */
+
+enum Domain {
+  TECHNICAL
+  PLANNING
+  DELIVERY
+  OUTCOMES
+}
+
+/// One scored criterion. Assessors don't award stars directly — they tick the
+/// sub-criteria they saw evidence for, and the count maps to 0-3 stars.
+model Criterion {
+  id          String  @id @default(cuid())
+  domain      Domain
+  code        String  @unique
+  title       String
+  description String?
+  /// Relative weight within its domain.
+  weight      Int     @default(1)
+  position    Int     @default(0)
+  active      Boolean @default(true)
+
+  /// Minimum sub-criteria met to earn 1 / 2 / 3 stars. Seeded from the number
+  /// of sub-criteria, but explicit so the CDU can make one criterion harder
+  /// than another without a code change.
+  oneStarAt   Int @default(1)
+  twoStarAt   Int @default(2)
+  threeStarAt Int @default(3)
+
+  subCriteria SubCriterion[]
+  scores      AssessorScore[]
+  finalScores FinalScore[]
+
+  @@index([domain])
+}
+
+/// A single evidence point under a criterion — the thing an assessor ticks.
+model SubCriterion {
+  id          String    @id @default(cuid())
+  criterionId String
+  criterion   Criterion @relation(fields: [criterionId], references: [id], onDelete: Cascade)
+  text        String
+  position    Int       @default(0)
+
+  evidence ScoreEvidence[]
+
+  @@index([criterionId])
+}
+
+/// One assessor's score for one criterion on one assessment.
+model AssessorScore {
+  id           String         @id @default(cuid())
+  assessmentId String
+  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessorId   String
+  assessor     User           @relation("AssessorScores", fields: [assessorId], references: [id], onDelete: Cascade)
+  criterionId  String
+  criterion    Criterion      @relation(fields: [criterionId], references: [id], onDelete: Cascade)
+
+  /// Derived from the ticked sub-criteria and stored, so that re-tuning a
+  /// criterion's thresholds later doesn't rewrite what an assessor awarded.
+  stars     Int      @default(0)
+  comment   String?
+  updatedAt DateTime @updatedAt
+
+  evidence ScoreEvidence[]
+
+  @@unique([assessmentId, assessorId, criterionId])
+  @@index([assessmentId])
+  @@index([assessorId])
+}
+
+/// A sub-criterion an assessor marked as met. Absence means not met, so only
+/// positives are stored.
+model ScoreEvidence {
+  id             String        @id @default(cuid())
+  scoreId        String
+  score          AssessorScore @relation(fields: [scoreId], references: [id], onDelete: Cascade)
+  subCriterionId String
+  subCriterion   SubCriterion  @relation(fields: [subCriterionId], references: [id], onDelete: Cascade)
+
+  @@unique([scoreId, subCriterionId])
+  @@index([subCriterionId])
+}
+
+/// The reconciled score for a criterion — what actually counts. Written by the
+/// CDU during reconciliation, either accepting a consensus or resolving a split.
+model FinalScore {
+  id           String         @id @default(cuid())
+  assessmentId String
+  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  criterionId  String
+  criterion    Criterion      @relation(fields: [criterionId], references: [id], onDelete: Cascade)
+  stars        Int
+  /// Required when the CDU departs from what the assessors agreed on.
+  rationale    String?
+  resolvedById String?
+  resolvedBy   User?          @relation("ScoreResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt   DateTime       @default(now())
+
+  @@unique([assessmentId, criterionId])
+  @@index([assessmentId])
+}
+
+/**
+ * ------------------------------- Non-Negotiables --------------------------
+ */
+
+/// One of the nine mandatory eligibility checks.
+model NonNegotiable {
+  id           String  @id @default(cuid())
+  code         String  @unique
+  title        String
+  description  String
+  /// What the club has to produce to satisfy it.
+  evidenceHint String?
+  position     Int     @default(0)
+  active       Boolean @default(true)
+
+  results NonNegotiableResult[]
+}
+
+enum NonNegotiableVerdict {
+  /// Not yet verified by the CDU.
+  PENDING
+  PASS
+  FAIL
+}
+
+/// A club's declaration against one Non-Negotiable, and the CDU's verdict.
+///
+/// The club's self-report and the CDU's verdict are separate fields on purpose:
+/// a club claiming compliance is evidence, not a decision, and the gap between
+/// the two is exactly what the CDU is checking.
+model NonNegotiableResult {
+  id              String               @id @default(cuid())
+  assessmentId    String
+  assessment      ClubAssessment       @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  nonNegotiableId String
+  nonNegotiable   NonNegotiable        @relation(fields: [nonNegotiableId], references: [id], onDelete: Cascade)
+  /// The club's own answer. Null until they answer it.
+  clubDeclared    Boolean?
+  clubNote        String?
+  verdict         NonNegotiableVerdict @default(PENDING)
+  adminNote       String?
+  verifiedById    String?
+  verifiedBy      User?                @relation("NonNegotiableVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verifiedAt      DateTime?
+  updatedAt       DateTime             @updatedAt
+
+  evidence Upload[] @relation("NonNegotiableEvidence")
+
+  @@unique([assessmentId, nonNegotiableId])
+  @@index([assessmentId])
+}
+
+/**
+ * --------------------------------- Outcomes data --------------------------
+ */
+
+/// A participation figure the club reports, alongside last year's for
+/// comparison. These don't score by themselves — they're the evidence an
+/// assessor reads when scoring the Outcomes criteria, which is why they carry
+/// no weight of their own.
+model ClubMetric {
+  id           String         @id @default(cuid())
+  assessmentId String
+  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  /// Stable identifier from the metric catalogue in src/lib/cda/rubric.ts.
+  key          String
+  value        Float?
+  priorValue   Float?
+  note         String?
+
+  @@unique([assessmentId, key])
 }
