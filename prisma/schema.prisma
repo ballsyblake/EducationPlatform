@@ -116,14 +116,18 @@ model Material {
   @@index([courseId])
 }
 
-/// A file on disk. Served only through an authorization-checking route.
+/// An uploaded file. Served only through an authorization-checking route.
+///
+/// Contents live in the row rather than on disk so the app runs on hosts with
+/// no persistent filesystem. Large media belongs in a VIDEO/LINK material
+/// pointing at YouTube or Vimeo instead.
 model Upload {
-  id         String   @id @default(cuid())
-  filename   String
-  storedName String   @unique
-  mimeType   String
-  size       Int
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  filename  String
+  mimeType  String
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
 
   material         Material?
   submissionFileOf Submission? @relation("SubmissionUploads", fields: [submissionId], references: [id], onDelete: Cascade)

@@ -74,7 +74,10 @@ export function MaterialForm({ courseId }: { courseId: string }) {
             type="file"
             className="block w-full text-sm text-chalk-600 file:mr-3 file:rounded-lg file:border-0 file:bg-chalk-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-chalk-700 hover:file:bg-chalk-200"
           />
-          <p className="hint">Playbook PDFs, install docs, images, or video up to 50 MB.</p>
+          <p className="hint">
+            Playbook PDFs, install docs, or images. Post film as a video link instead — uploads
+            are capped, and YouTube/Vimeo play inline.
+          </p>
         </div>
       ) : (
         <div>

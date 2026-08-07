@@ -31,8 +31,8 @@ and awards points. Assignment submissions are always graded by a human.
 
 ## Stack
 
-Next.js 16 (App Router, server actions) · React 19 · Prisma 7 on SQLite ·
-Tailwind CSS v4 · Nodemailer
+Next.js 16 (App Router, server actions) · React 19 · Prisma 7 on SQLite or
+[Turso](https://turso.tech) · Tailwind CSS v4 · Nodemailer
 
 ## Getting started
 
@@ -122,71 +122,83 @@ it can sign in as that coach. That's the trade-off passwordless makes, and why
 admin-issued links are single-use and time-boxed. Send them over a channel you'd
 trust with the account itself.
 
-Uploaded files are never served statically. They're written to `uploads/` under
-a random name and streamed through `/api/files/[id]`, which checks on every
-request that the requester is an admin, is enrolled in the course the material
-belongs to, or is the author of the submission the file is attached to.
+Uploaded files are never served statically. They're stored in the database and
+streamed through `/api/files/[id]`, which checks on every request that the
+requester is an admin, is enrolled in the course the material belongs to, or is
+the author of the submission the file is attached to. Authorization runs against
+the metadata first, so an unauthorized request never pulls file contents out of
+the database.
 
 ## Deploying
 
-The app needs a running Node process, a database, and a disk — so a static host
-like GitHub Pages can't serve it. Anything that runs a container with a
-persistent volume works; the repo ships config for Render and Railway.
+The app needs a running Node process and a database — so a static host like
+GitHub Pages can't serve it. It does *not* need a disk, which means free
+container hosts work. The repo ships config for Render and Railway.
 
-### Doing this for free
+### Free hosting, with no disk
 
-The catch is the disk, not the server. Free tiers on Render, Vercel, and
-Railway all have an ephemeral filesystem, which would erase the database and
-every uploaded file on each deploy. Fly.io removed its free allowance
-entirely. Two ways around it:
+Free tiers on Render, Vercel, and Railway all have an ephemeral filesystem —
+anything written to disk is erased on every deploy. Rather than pay for a disk,
+this app keeps **all** of its state in the database, including uploaded files,
+which are stored as rows. That means it runs on a free host unmodified.
 
-**Self-host.** Run the container on any machine that stays on — a computer at
-the facility, or a spare box — and put a free [Cloudflare
-Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
-in front of it for a public HTTPS URL. Zero code changes, zero cost, no size
-limits on film. This is the simplest genuinely free option.
+The database is [Turso](https://turso.tech/pricing): SQLite-compatible, free for
+5 GB, commercial use allowed, no credit card. Because it speaks the same SQL,
+the schema and every migration here are identical to the local SQLite setup —
+only the connection string changes.
 
-**Free cloud database instead of a disk.** Keep a free web host and move state
-off the filesystem: [Turso](https://turso.tech/pricing) is SQLite-compatible,
-free for 5 GB, allows commercial use, and needs no card — so the schema and
-migrations here carry over nearly unchanged. Uploads then need somewhere to go
-too (object storage, or the database with a size cap), and film is better
-pointed at YouTube/Vimeo links, which the library already supports. That
-rework isn't in the repo yet.
+**The trade-off is file size.** Every upload travels over the database
+connection, so `MAX_UPLOAD_MB` defaults to 10 and oversized files are rejected
+with a message pointing at the alternative. Playbook PDFs, install docs, and
+images are all comfortably under that. Film should go in as a **video link** —
+the library already plays YouTube and Vimeo inline, which is both free and
+better than hosting video yourself.
 
-Note that Vercel's free Hobby plan is [non-commercial
-only](https://vercel.com/docs/plans/hobby), so it's only an option if the
-program isn't revenue-generating.
+Self-hosting still works exactly as before: leave `DATABASE_URL` unset, mount a
+disk at `DATA_DIR`, and the entrypoint uses a local SQLite file. You can raise
+`MAX_UPLOAD_MB` there since nothing is going over a network.
 
-Everything lives on one mounted disk at `/data`:
+### Render (free) + Turso
 
+**1. Create the database.**
+
+```bash
+curl -sSfL https://get.tur.so/install.sh | bash
+turso auth signup
+turso db create coach-lms
+turso db show coach-lms --url        # → libsql://coach-lms-<org>.turso.io
+turso db tokens create coach-lms     # → the auth token
 ```
-/data/coach-lms.db     SQLite database
-/data/uploads/         Playbooks, film, and submission attachments
-```
 
-`docker-entrypoint.sh` runs on every boot and is safe to re-run: it creates the
-directories, applies any pending migrations with `prisma migrate deploy` (which
-never drops data), makes sure everyone in `ADMIN_EMAILS` can sign in, and starts
-the server.
+**2. Deploy the app.** Push this repo to GitHub, then in Render choose
+**New → Blueprint** and select it. `render.yaml` sets up a free Docker service
+with no disk. Fill in the prompted variables:
 
-### Render
+| Variable           | Value                                       |
+| ------------------ | ------------------------------------------- |
+| `DATABASE_URL`     | the `libsql://…` URL from step 1             |
+| `TURSO_AUTH_TOKEN` | the token from step 1                        |
+| `APP_URL`          | `https://<your-app>.onrender.com`            |
+| `ADMIN_EMAILS`     | your own email address                       |
 
-1. Push this repo to GitHub.
-2. In Render: **New → Blueprint**, select the repo. It reads `render.yaml`.
-3. Fill in the prompted env vars — at minimum `APP_URL` and `ADMIN_EMAILS`.
-4. Deploy, then sign in at `https://<your-app>.onrender.com/login`.
+**3. Sign in.** The first boot applies the migrations, creates your admin
+account, and prints a sign-in link to the deploy logs. Open Render's log viewer,
+click the link, and add your staff from the Staff page.
 
-A persistent disk requires a paid instance type. On the free tier the
-filesystem is wiped on every deploy, which would erase the database and every
-uploaded file, so the blueprint specifies `starter`.
+`APP_URL` has to be right before you invite anyone — it's the base of every
+sign-in link. If you get it wrong, fix it and redeploy; a fresh link is printed
+whenever an admin has no active session.
 
-### Railway
+**What "free" costs you.** Render free instances sleep after 15 minutes idle, so
+the first visit after a quiet spell takes 30–60 seconds to load. Subsequent
+requests are normal. Free instances also get 750 hours/month, which one service
+cannot exceed.
 
-1. **New Project → Deploy from GitHub repo**. Railway detects the `Dockerfile`.
-2. Add a **Volume** mounted at `/data`.
-3. Set the env vars below under **Variables**.
-4. Generate a domain, and set `APP_URL` to it.
+### Railway, Fly, or any container host
+
+The same image works anywhere. Point `DATABASE_URL` and `TURSO_AUTH_TOKEN` at
+Turso and no volume is needed; or omit them, mount a volume at `/data`, and it
+uses a local SQLite file instead.
 
 ### Environment variables
 
@@ -199,9 +211,10 @@ uploaded file, so the blueprint specifies `starter`.
 | `SMTP_USER`     | –        | SMTP username                                                        |
 | `SMTP_PASSWORD` | –        | SMTP password                                                        |
 | `MAIL_FROM`     | –        | From address, e.g. `Coach LMS <lms@yourprogram.com>`                  |
-| `DATA_DIR`      | –        | Disk mount point. Defaults to `/data`                                |
-| `DATABASE_URL`  | –        | Derived from `DATA_DIR` unless set explicitly                        |
-| `UPLOAD_DIR`    | –        | Derived from `DATA_DIR` unless set explicitly                        |
+| `DATABASE_URL`  | Yes      | Turso `libsql://…` URL, or unset to use a local SQLite file           |
+| `TURSO_AUTH_TOKEN` | Yes\*  | Required whenever `DATABASE_URL` is a hosted URL                     |
+| `MAX_UPLOAD_MB` | –        | Per-file upload cap. Defaults to 10                                  |
+| `DATA_DIR`      | –        | Only for local SQLite. Disk mount point, defaults to `/data`          |
 
 Set `APP_URL` correctly before inviting anyone. It's the base of every sign-in
 link that goes out, and a wrong value produces links that point elsewhere.
@@ -236,6 +249,10 @@ Dockerfile — worth doing if the disk is shared.
 The runtime image carries the full `node_modules` from the build stage, which
 keeps native bindings intact at the cost of some image size. Adding
 `npm prune --omit=dev` after the build step trims it if that matters.
+
+`DB_DRIVER=libsql` forces the libSQL driver even against a local `file:` URL.
+That's how the test suite exercises the exact client Turso uses without needing
+a hosted database.
 
 ## Scripts
 
@@ -289,5 +306,6 @@ src/
     access.ts          Course and upload authorization
     grading.ts         Auto-grading and score rollups
     coursework.ts      Task aggregation and progress summaries
-    uploads.ts         File validation and storage
+    uploads.ts         File validation and database-backed storage
+    adapter.ts         Picks SQLite or Turso from DATABASE_URL
 ```

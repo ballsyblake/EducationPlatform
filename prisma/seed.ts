@@ -6,12 +6,10 @@
  *   npm run db:seed
  */
 import "dotenv/config";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../generated/prisma/client.ts";
+import { createAdapter } from "../src/lib/adapter.ts";
 
-const prisma = new PrismaClient({
-  adapter: new PrismaBetterSqlite3({ url: process.env.DATABASE_URL ?? "file:./prisma/dev.db" }),
-});
+const prisma = new PrismaClient({ adapter: createAdapter() });
 
 const days = (n: number) => new Date(Date.now() + n * 86_400_000);
 

@@ -53,7 +53,8 @@ export function SubmissionForm({
             className="block w-full text-sm text-chalk-600 file:mr-3 file:rounded-lg file:border-0 file:bg-chalk-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-chalk-700 hover:file:bg-chalk-200"
           />
           <p className="hint">
-            Film clips, wristband sheets, PDFs, or images. Up to 50 MB per file.
+            Wristband sheets, PDFs, or images. For film, ask your coordinator to post it as a
+            video link.
           </p>
         </div>
       )}

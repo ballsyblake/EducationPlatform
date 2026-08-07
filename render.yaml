@@ -1,33 +1,47 @@
-# Render blueprint. In the Render dashboard: New → Blueprint, point it at this
-# repo, and set the env vars marked `sync: false` when prompted.
+# Render blueprint — free tier.
 #
-# Note: persistent disks require a paid instance type. On Render's free tier the
-# filesystem is wiped on every deploy, which would drop the database and every
-# uploaded file — so `starter` is the smallest plan that actually works here.
+# In the Render dashboard: New → Blueprint, point it at this repo, and fill in
+# the env vars marked `sync: false` when prompted.
+#
+# There's no disk here on purpose. Render's free tier has an ephemeral
+# filesystem, so all state lives in a hosted Turso database instead — including
+# uploaded files, which are stored as rows. See the deployment notes in README.
+#
+# Free instances sleep after 15 minutes idle; the next request takes 30-60s to
+# wake them. Everything else behaves normally.
 services:
   - type: web
     name: coach-lms
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     healthCheckPath: /api/health
     autoDeploy: true
 
-    disk:
-      name: coach-lms-data
-      mountPath: /data
-      sizeGB: 5
-
     envVars:
-      # Base URL of the deployed site. Every magic link is built from this, so
-      # an incorrect value produces links that point somewhere else.
+      # Public URL of the deployed site. Every sign-in link is built from this,
+      # so a wrong value produces links that point somewhere else.
       - key: APP_URL
         sync: false
 
-      # Comma-separated addresses granted admin access on boot. Whoever is
-      # listed here can always sign in, so keep at least one valid address.
+      # Comma-separated addresses granted admin access on boot. On the first
+      # deploy a sign-in link for each is printed to the logs.
       - key: ADMIN_EMAILS
         sync: false
+
+      # Turso connection. Create with:
+      #   turso db create coach-lms
+      #   turso db show coach-lms --url
+      #   turso db tokens create coach-lms
+      - key: DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+
+      # Uploads are stored as database rows, so keep this modest. Film belongs
+      # in a video link, not an upload.
+      - key: MAX_UPLOAD_MB
+        value: "10"
 
       # SMTP is optional. Left unset, coaches can't request their own link and
       # you hand out sign-in links from the staff page instead — which needs no
@@ -42,8 +56,3 @@ services:
         sync: false
       - key: MAIL_FROM
         sync: false
-
-      # Where the SQLite file and uploads live on the mounted disk. The
-      # entrypoint derives these from DATA_DIR, so they rarely need changing.
-      - key: DATA_DIR
-        value: /data

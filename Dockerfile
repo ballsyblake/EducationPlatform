@@ -31,8 +31,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000 \
-    DATA_DIR=/data
+    PORT=3000
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates \
@@ -47,16 +46,21 @@ COPY --from=builder /app/package.json /app/package-lock.json /app/next.config.ts
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/public ./public
+# prisma.config.ts and scripts/bootstrap-admin.ts both import src/lib/adapter.ts
+# at boot, so the sources have to be present in the runtime image too.
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/tsconfig.json ./
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
-# Runtime state lives here; mount a persistent disk at this path.
+# With DATABASE_URL pointing at a hosted database, nothing is written to disk
+# and this image runs fine on a host with an ephemeral filesystem. Self-hosters
+# can instead leave DATABASE_URL unset and mount a volume at DATA_DIR, which the
+# entrypoint uses for a local SQLite file.
 #
-# The container stays root on purpose. Hosts mount their volumes with their own
+# The container stays root on purpose: hosts mount volumes with their own
 # ownership, and a non-root user frequently can't write to a freshly attached
-# disk — which would fail the very first boot. Dropping privileges is possible
-# but needs the disk chowned first; see the deployment notes in the README.
-RUN mkdir -p /data/uploads
+# disk, which would fail the very first boot.
 
 EXPOSE 3000
 

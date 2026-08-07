@@ -16,10 +16,6 @@ prisma/*.db-journal
 prisma/*.db-shm
 prisma/*.db-wal
 
-# Uploaded files
-/uploads/*
-!/uploads/.gitkeep
-
 # Dev-mode outbox for magic links
 .mail-outbox.log
 

@@ -1,14 +1,21 @@
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "@prisma-client";
-
-// Next.js hot-reloads modules in development, which would otherwise open a new
-// database connection on every edit until SQLite runs out of handles.
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+import { createAdapter } from "@/lib/adapter";
 
 function createClient() {
-  const url = process.env.DATABASE_URL ?? "file:./prisma/dev.db";
-  return new PrismaClient({ adapter: new PrismaBetterSqlite3({ url }) });
+  return new PrismaClient({
+    adapter: createAdapter(),
+    // File contents are excluded from every query by default. Course and
+    // grading pages list a dozen attachments at a time and only need the
+    // metadata; pulling the blobs would balloon each render. The download route
+    // asks for `data` explicitly, which overrides this.
+    omit: { upload: { data: true } },
+  });
 }
+
+// Next.js hot-reloads modules in development, which would otherwise open a new
+// database connection on every edit until SQLite runs out of handles. The type
+// comes from the factory so it carries the global `omit` above.
+const globalForPrisma = globalThis as unknown as { prisma?: ReturnType<typeof createClient> };
 
 export const prisma = globalForPrisma.prisma ?? createClient();
 
