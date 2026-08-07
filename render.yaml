@@ -19,11 +19,6 @@ services:
     autoDeploy: true
 
     envVars:
-      # Public URL of the deployed site. Every sign-in link is built from this,
-      # so a wrong value produces links that point somewhere else.
-      - key: APP_URL
-        sync: false
-
       # Comma-separated addresses granted admin access on boot. On the first
       # deploy a sign-in link for each is printed to the logs.
       - key: ADMIN_EMAILS
@@ -43,16 +38,12 @@ services:
       - key: MAX_UPLOAD_MB
         value: "10"
 
-      # SMTP is optional. Left unset, coaches can't request their own link and
-      # you hand out sign-in links from the staff page instead — which needs no
-      # mail server at all.
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASSWORD
-        sync: false
-      - key: MAIL_FROM
-        sync: false
+# Deliberately not listed here, so Render only prompts for what's required:
+#
+#   APP_URL   Only needed for a custom domain. Otherwise the app falls back to
+#             RENDER_EXTERNAL_URL, which Render sets to the real public URL —
+#             so sign-in links work on the very first deploy.
+#   SMTP_*    Only needed if coaches should request their own sign-in links by
+#             email. Without it you hand links out from the staff page.
+#
+# Both can be added later under the service's Environment tab.

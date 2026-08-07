@@ -39,7 +39,16 @@ export function normalizeEmail(email: string) {
 }
 
 export function appUrl() {
-  return (process.env.APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  // RENDER_EXTERNAL_URL is injected by Render with the service's real public
+  // URL. Falling back to it means a first deploy produces working sign-in links
+  // before you know what your hostname will be. APP_URL still wins when set,
+  // which is what a custom domain needs.
+  // `||`, not `??`: a variable left blank in a host's dashboard arrives as an
+  // empty string, and an empty base would turn every sign-in link into a
+  // relative path that's useless once it leaves the browser.
+  const base =
+    process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:3000";
+  return base.replace(/\/+$/, "");
 }
 
 /* -------------------------------------------------------------------------- */

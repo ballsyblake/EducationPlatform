@@ -178,16 +178,20 @@ with no disk. Fill in the prompted variables:
 | ------------------ | ------------------------------------------- |
 | `DATABASE_URL`     | the `libsql://…` URL from step 1             |
 | `TURSO_AUTH_TOKEN` | the token from step 1                        |
-| `APP_URL`          | `https://<your-app>.onrender.com`            |
 | `ADMIN_EMAILS`     | your own email address                       |
+
+`APP_URL` is deliberately not required. Render injects `RENDER_EXTERNAL_URL`
+with the service's real public URL, and the app falls back to it — so sign-in
+links are correct on the first deploy, before you know your hostname. Set
+`APP_URL` only when you put a custom domain in front.
 
 **3. Sign in.** The first boot applies the migrations, creates your admin
 account, and prints a sign-in link to the deploy logs. Open Render's log viewer,
 click the link, and add your staff from the Staff page.
 
-`APP_URL` has to be right before you invite anyone — it's the base of every
-sign-in link. If you get it wrong, fix it and redeploy; a fresh link is printed
-whenever an admin has no active session.
+If you do set `APP_URL`, it has to be right before you invite anyone — it's the
+base of every sign-in link. Get it wrong and you can just fix it and redeploy: a
+fresh link is printed whenever an admin has no active session.
 
 **What "free" costs you.** Render free instances sleep after 15 minutes idle, so
 the first visit after a quiet spell takes 30–60 seconds to load. Subsequent

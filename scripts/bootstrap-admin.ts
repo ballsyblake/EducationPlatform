@@ -34,7 +34,13 @@ async function issueSignInLink(userId: string) {
       expiresAt: new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000),
     },
   });
-  const base = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  // Mirrors appUrl() in src/lib/auth.ts — Render injects RENDER_EXTERNAL_URL,
+  // so the very first deploy prints a link that actually works.
+  const base = (
+    process.env.APP_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    "http://localhost:3000"
+  ).replace(/\/+$/, "");
   return `${base}/auth/verify?token=${token}`;
 }
 
