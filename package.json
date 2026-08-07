@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A Canvas-style learning platform for football coaching staffs.",
+  "description": "A Canvas-style coach education platform for association football.",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",

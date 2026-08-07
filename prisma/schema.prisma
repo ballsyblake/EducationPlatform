@@ -1,4 +1,4 @@
-// Coach LMS — a Canvas-style learning platform for football coaching staffs.
+// Coach Education — a Canvas-style platform for association football coaching.
 // Docs: https://pris.ly/d/prisma-schema
 
 generator client {
@@ -19,7 +19,7 @@ model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String?
-  title     String? // e.g. "Defensive Coordinator"
+  title     String? // e.g. "U15 Girls Head Coach"
   role      Role     @default(COACH)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -66,7 +66,7 @@ model Session {
 model Course {
   id          String   @id @default(cuid())
   title       String
-  season      String? // e.g. "2026 Spring Install"
+  season      String? // e.g. "2026 Pre-Season"
   description String?
   published   Boolean  @default(false)
   createdAt   DateTime @default(now())
@@ -97,7 +97,7 @@ enum MaterialKind {
   LINK
 }
 
-/// Course library: playbooks, film, install docs.
+/// Course library: session plans, resources, and video.
 model Material {
   id          String       @id @default(cuid())
   courseId    String

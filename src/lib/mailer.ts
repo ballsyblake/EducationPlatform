@@ -37,7 +37,7 @@ function getTransporter() {
 }
 
 export async function sendMail(mail: Mail) {
-  const from = process.env.MAIL_FROM ?? "Coach LMS <no-reply@coach-lms.local>";
+  const from = process.env.MAIL_FROM ?? "Coach Education <no-reply@coach-education.local>";
 
   if (isDevMailMode()) {
     const entry = [

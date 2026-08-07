@@ -44,7 +44,7 @@ async function main() {
         data: {
           email,
           name: i === 0 ? "Ray Delgado" : null,
-          title: i === 0 ? "Head Coach" : "Program Admin",
+          title: i === 0 ? "Coach Education Manager" : "Program Admin",
           role: "ADMIN",
         },
       }),
@@ -53,33 +53,33 @@ async function main() {
 
   const coaches = await Promise.all(
     [
-      { email: "marcus.webb@example.com", name: "Marcus Webb", title: "Defensive Coordinator" },
-      { email: "tj.rollins@example.com", name: "T.J. Rollins", title: "Offensive Coordinator" },
-      { email: "dana.pryor@example.com", name: "Dana Pryor", title: "Linebackers" },
-      { email: "elliot.snow@example.com", name: "Elliot Snow", title: "Wide Receivers" },
-      { email: "sam.okafor@example.com", name: "Sam Okafor", title: "Offensive Line" },
+      { email: "marcus.webb@example.com", name: "Marcus Webb", title: "Technical Director" },
+      { email: "tj.rollins@example.com", name: "Tom Rollins", title: "Senior Men's Head Coach" },
+      { email: "dana.pryor@example.com", name: "Dana Pryor", title: "U15 Girls Head Coach" },
+      { email: "elliot.snow@example.com", name: "Elliot Snow", title: "Goalkeeping Coach" },
+      { email: "sam.okafor@example.com", name: "Sam Okafor", title: "MiniRoos Coordinator" },
     ].map((data) => prisma.user.create({ data: { ...data, role: "COACH" } })),
   );
 
   /* -------------------------------- Courses ------------------------------- */
 
-  const defense = await prisma.course.create({
+  const principles = await prisma.course.create({
     data: {
-      title: "Base Defense Install",
-      season: "2026 Spring",
+      title: "Principles of Play",
+      season: "2026 Pre-Season",
       description:
-        "Cover 3 and Cover 2 rules, run fits, and communication. Every defensive coach installs from the same language.",
+        "Attacking and defending principles, pressing triggers, and building from the back — so every age group is coached in the same language.",
       published: true,
       authorId: headCoach.id,
     },
   });
 
-  const staffDev = await prisma.course.create({
+  const safety = await prisma.course.create({
     data: {
-      title: "Staff Development & Compliance",
+      title: "Player Safety & Club Standards",
       season: "2026 Season",
       description:
-        "Practice planning, player safety, and the program standards every coach signs off on before camp.",
+        "Heat policy, concussion protocols and the safeguarding standards every coach signs off before the season starts.",
       published: true,
       authorId: headCoach.id,
     },
@@ -87,8 +87,8 @@ async function main() {
 
   await prisma.enrollment.createMany({
     data: [
-      ...coaches.map((c) => ({ userId: c.id, courseId: defense.id })),
-      ...coaches.map((c) => ({ userId: c.id, courseId: staffDev.id })),
+      ...coaches.map((c) => ({ userId: c.id, courseId: principles.id })),
+      ...coaches.map((c) => ({ userId: c.id, courseId: safety.id })),
     ],
   });
 
@@ -97,25 +97,25 @@ async function main() {
   await prisma.material.createMany({
     data: [
       {
-        courseId: defense.id,
-        title: "Cover 3 install — full walkthrough",
-        description: "Whiteboard session covering landmarks, pattern match rules, and run fits.",
+        courseId: principles.id,
+        title: "Pressing triggers — session walkthrough",
+        description: "Full session covering the triggers to press, the cues to drop, and how the unit shifts across.",
         kind: "VIDEO",
         url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         position: 0,
       },
       {
-        courseId: defense.id,
-        title: "Front and coverage call sheet",
-        description: "One-page reference. Print it for the practice script binder.",
+        courseId: principles.id,
+        title: "Principles of play — one-page reference",
+        description: "The attacking and defending principles on a single page. Print it for your session folder.",
         kind: "LINK",
         url: "https://example.com/call-sheet",
         position: 1,
       },
       {
-        courseId: staffDev.id,
-        title: "Practice planning standards",
-        description: "Period structure, rep counts, and how we script team periods.",
+        courseId: safety.id,
+        title: "Training and match day standards",
+        description: "Session structure, ratios, and the standards expected of coaches on match day.",
         kind: "LINK",
         url: "https://example.com/practice-standards",
         position: 0,
@@ -125,25 +125,26 @@ async function main() {
 
   /* ------------------------------ Assignments ----------------------------- */
 
-  const selfScout = await prisma.assignment.create({
+  const matchAnalysis = await prisma.assignment.create({
     data: {
-      courseId: defense.id,
-      title: "Self-scout: 3rd & medium tendencies",
+      courseId: principles.id,
+      title: "Match analysis: building from the back",
       instructions:
-        "Pull our last four games. Chart every 3rd & 4-6 snap: front, coverage, pressure, and result. " +
-        "Write up the two tendencies an opponent could sit on, and what you'd call to break them.",
+        "Review your last four matches. Chart every goal kick and every restart from your own third: shape, " +
+        "first pass, and outcome. Write up the two patterns an opponent could press, and what you would coach " +
+        "to beat that press.",
       points: 100,
       dueAt: days(6),
     },
   });
 
-  const installScript = await prisma.assignment.create({
+  const sessionPlan = await prisma.assignment.create({
     data: {
-      courseId: defense.id,
-      title: "Install script — Day 1 individual period",
+      courseId: principles.id,
+      title: "Session plan: defending in wide areas",
       instructions:
-        "Build the 12-minute individual period for your position group. Include drill names, rep counts, " +
-        "and the coaching points tied to this week's install. Attach the script.",
+        "Build a 60-minute session for your age group on defending in wide areas. Include the practice design, " +
+        "progressions, and the two or three coaching points you would actually stop play for. Attach the plan.",
       points: 50,
       dueAt: days(-2),
     },
@@ -151,11 +152,11 @@ async function main() {
 
   const safetyPlan = await prisma.assignment.create({
     data: {
-      courseId: staffDev.id,
-      title: "Heat and hydration plan for camp",
+      courseId: safety.id,
+      title: "Heat and hydration plan for summer training",
       instructions:
-        "Write your position group's plan for the first three days of camp: water breaks, acclimatization, " +
-        "and how you'd handle a player showing early heat-illness signs.",
+        "Write your plan for training through a Queensland summer: drinks breaks, session modifications at each " +
+        "heat threshold, and how you would handle a player showing early signs of heat illness.",
       points: 50,
       dueAt: days(10),
     },
@@ -163,52 +164,57 @@ async function main() {
 
   /* -------------------------------- Quizzes ------------------------------- */
 
-  const coverageQuiz = await prisma.quiz.create({
+  const lawsQuiz = await prisma.quiz.create({
     data: {
-      courseId: defense.id,
-      title: "Cover 3 rules check",
-      description: "Ten minutes. Confirms everyone teaches the same rules before we hit the grass.",
+      courseId: principles.id,
+      title: "Laws of the Game — check",
+      description: "Ten minutes. Confirms every coach is teaching the same interpretations before the season.",
       dueAt: days(3),
       maxAttempts: 2,
       questions: {
         create: [
           {
-            prompt: "In base Cover 3, who is responsible for the flat to the field?",
+            prompt: "When is a player in an offside position?",
             kind: "MULTIPLE_CHOICE",
             points: 2,
             position: 0,
             rationale:
-              "The field corner sinks to the deep third, so the field flat belongs to the outside linebacker or nickel.",
+              "Being level with the second-last opponent is not an offside position, and a player in their own half is never offside.",
             choices: {
               create: [
-                { text: "Field corner", isCorrect: false, position: 0 },
-                { text: "Nickel / field outside linebacker", isCorrect: true, position: 1 },
-                { text: "Free safety", isCorrect: false, position: 2 },
-                { text: "Mike linebacker", isCorrect: false, position: 3 },
+                { text: "Any time they are ahead of the ball", isCorrect: false, position: 0 },
+                {
+                  text: "When any part of the head, body or feet is nearer the opponents' goal line than both the ball and the second-last opponent",
+                  isCorrect: true,
+                  position: 1,
+                },
+                { text: "Whenever they are inside the opponents' half", isCorrect: false, position: 2 },
+                { text: "When they are level with the second-last opponent", isCorrect: false, position: 3 },
               ],
             },
           },
           {
-            prompt: "Cover 3 gives you an extra defender in the run fit compared to Cover 2.",
+            prompt: "A player can be penalised for offside directly from a corner kick.",
             kind: "TRUE_FALSE",
             points: 1,
             position: 1,
-            rationale: "The free safety is the extra fitter — that's the whole point of the call.",
+            rationale:
+              "There is no offside offence directly from a corner kick, a throw-in or a goal kick.",
             choices: {
               create: [
-                { text: "True", isCorrect: true, position: 0 },
-                { text: "False", isCorrect: false, position: 1 },
+                { text: "True", isCorrect: false, position: 0 },
+                { text: "False", isCorrect: true, position: 1 },
               ],
             },
           },
           {
             prompt:
-              "A trips formation to the field puts three vertical threats on your field third. Describe your check and who takes the #3 vertical.",
+              "Your side keeps conceding from switches of play after losing the ball in midfield. Describe the rest-defence shape you would coach, and who is responsible for the far-side space.",
             kind: "SHORT_ANSWER",
             points: 4,
             position: 2,
             rationale:
-              "We want to hear the check called out loud plus a clear answer on #3 — the free safety or the Mike, depending on the call.",
+              "We are looking for a clear rest-defence structure while in possession, plus an explicit answer on who covers the far side when the ball is switched.",
           },
         ],
       },
@@ -217,33 +223,41 @@ async function main() {
 
   await prisma.quiz.create({
     data: {
-      courseId: staffDev.id,
+      courseId: safety.id,
       title: "Player safety certification",
-      description: "Required before you can run a practice period. Unlimited retakes.",
+      description: "Required before you take a session this season. Unlimited retakes.",
       dueAt: days(14),
       maxAttempts: null,
       questions: {
         create: [
           {
             prompt:
-              "A player takes a hit and is slow getting up, then says he's 'just dinged.' What do you do?",
+              "A player takes a knock to the head, is slow to get up, and tells you they are fine to keep playing. What do you do?",
             kind: "MULTIPLE_CHOICE",
             points: 2,
             position: 0,
-            rationale: "Any suspected head injury is a removal. It is never the coach's call to clear.",
+            rationale:
+              "Any suspected concussion means immediate and permanent removal for that day — if in doubt, sit them out. Clearing a player is never the coach's call.",
             choices: {
               create: [
-                { text: "Sit him a series, then let him back in if he says he's fine", isCorrect: false, position: 0 },
-                { text: "Remove him from practice and send him to the trainer", isCorrect: true, position: 1 },
-                { text: "Ask him to run a lap to see if he's steady", isCorrect: false, position: 2 },
+                { text: "Rest them for ten minutes, then bring them back on if they seem alright", isCorrect: false, position: 0 },
+                {
+                  text: "Remove them from play for the rest of the day and follow the concussion protocol",
+                  isCorrect: true,
+                  position: 1,
+                },
+                { text: "Ask them to jog the touchline to see whether their balance is steady", isCorrect: false, position: 2 },
               ],
             },
           },
           {
-            prompt: "Full-contact practice time is capped during the regular season.",
+            prompt:
+              "Training must be modified or postponed once the heat policy threshold is reached.",
             kind: "TRUE_FALSE",
             points: 1,
             position: 1,
+            rationale:
+              "Queensland summers push past the threshold regularly. Modifying or postponing is a requirement, not a judgement call.",
             choices: {
               create: [
                 { text: "True", isCorrect: true, position: 0 },
@@ -258,28 +272,29 @@ async function main() {
 
   /* --------------------- A little history to look at ---------------------- */
 
-  // Marcus turned in the install script and got graded.
+  // Marcus turned in the session plan and it has been graded.
   await prisma.submission.create({
     data: {
-      assignmentId: installScript.id,
+      assignmentId: sessionPlan.id,
       userId: coaches[0].id,
-      text: "Individual period attached — 4 min bag work, 4 min block destruction, 4 min tackling circuit.",
+      text:
+        "Plan attached — 15 min rondo warm-up, 20 min 4v4 wide overloads, 25 min 9v9 with a halfway line condition.",
       status: "GRADED",
       submittedAt: days(-3),
       score: 46,
       feedback:
-        "Good structure and the rep counts are realistic. Tie the block-destruction drill directly to the Cover 3 fit — right now it's a generic drill.",
+        "Good structure, and the practice design genuinely creates the picture you want. Tie the 4v4 back to the pressing triggers from the course — at the moment it could be any wide-area session.",
       gradedAt: days(-1),
       gradedById: headCoach.id,
     },
   });
 
-  // T.J. has a draft going on the self-scout.
+  // Tom has a draft going on the match analysis.
   await prisma.submission.create({
     data: {
-      assignmentId: selfScout.id,
+      assignmentId: matchAnalysis.id,
       userId: coaches[1].id,
-      text: "Started charting — through two games so far.",
+      text: "Started charting — two matches done, two to go.",
       status: "DRAFT",
     },
   });
@@ -290,16 +305,17 @@ async function main() {
       assignmentId: safetyPlan.id,
       userId: coaches[2].id,
       text:
-        "Water every 15 minutes for the first three days, helmets-only day one, shells day two. " +
-        "Any player showing confusion or cramping comes out and goes to the trainer immediately.",
+        "Drinks break every 15 minutes once we pass 28 degrees, session cut to 45 minutes above 32, and " +
+        "moved to an evening slot in February. Any player showing confusion or cramping comes off immediately " +
+        "and is not left on their own.",
       status: "SUBMITTED",
       submittedAt: days(-1),
     },
   });
 
-  // Marcus took the coverage quiz — the written answer still needs a read.
+  // Marcus sat the Laws quiz — the written answer still needs a read.
   const quiz = await prisma.quiz.findUniqueOrThrow({
-    where: { id: coverageQuiz.id },
+    where: { id: lawsQuiz.id },
     include: { questions: { include: { choices: true }, orderBy: { position: "asc" } } },
   });
 
@@ -335,8 +351,8 @@ async function main() {
         attemptId: attempt.id,
         questionId: quiz.questions[2].id,
         text:
-          "Check to Cover 3 Buzz. Free safety takes #3 vertical, Mike walls #2 and carries to the hash, " +
-          "field corner stays over the top of #1.",
+          "Rest defence in a 2-3 shape while we build: two centre-backs holding, the single pivot screening in " +
+          "front, and the far full-back tucking in to cover the switch. Nearest winger recovers inside.",
       },
     ],
   });

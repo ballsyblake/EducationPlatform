@@ -1,8 +1,8 @@
-# Coach LMS
+# Coach Education
 
-A Canvas-style learning platform, cut down to what a football coaching staff
-actually needs. Coordinators post install work; coaches complete assignments,
-take quizzes, and get feedback. Sign-in is passwordless — there are no passwords
+A Canvas-style learning platform for association football, built for Football
+Queensland. Coach educators post coursework; coaches complete assignments, take
+quizzes, and get feedback. Sign-in is passwordless — there are no passwords
 anywhere in the system — and running it needs no email server. See
 [Signing in](#signing-in).
 
@@ -11,12 +11,12 @@ anywhere in the system — and running it needs no email server. See
 **For coaches**
 
 - A dashboard of everything assigned, sorted by due date, with overdue items flagged
-- Course pages with a library of playbooks, install docs, and film (uploaded files or YouTube/Vimeo links)
+- Course pages with a library of session plans, resources and video (uploaded files or YouTube/Vimeo links)
 - Assignments accepting a written response, file attachments, or both — with drafts you can save and come back to
 - Quizzes with multiple-choice, true/false, and written questions
 - A Grades & Feedback page collecting every score and written comment in one place
 
-**For admins (coordinators / head coach)**
+**For admins (coach educators / technical staff)**
 
 - Create courses, enroll staff, and publish or hide coursework
 - Author assignments and build quizzes question by question
@@ -26,7 +26,7 @@ anywhere in the system — and running it needs no email server. See
 
 **Grading model.** Multiple-choice and true/false questions score the instant a
 coach submits. Written answers can't be auto-graded, so an attempt containing
-one lands in the grading queue as `AWAITING_REVIEW` until a coordinator reads it
+one lands in the grading queue as `AWAITING_REVIEW` until an educator reads it
 and awards points. Assignment submissions are always graded by a human.
 
 ## Stack
@@ -50,9 +50,9 @@ the sign-in link appears on the page, so you can click straight through:
 | Email                       | Role                            |
 | --------------------------- | ------------------------------- |
 | `head.coach@example.com`    | Admin — courses and grading     |
-| `marcus.webb@example.com`   | Coach — Defensive Coordinator   |
-| `tj.rollins@example.com`    | Coach — Offensive Coordinator   |
-| `dana.pryor@example.com`    | Coach — Linebackers             |
+| `marcus.webb@example.com`   | Coach — Technical Director      |
+| `tj.rollins@example.com`    | Coach — Senior Men's Head Coach |
+| `dana.pryor@example.com`    | Coach — U15 Girls Head Coach    |
 
 ## Signing in
 
@@ -91,7 +91,7 @@ SMTP_HOST="smtp.resend.com"
 SMTP_PORT="587"
 SMTP_USER="resend"
 SMTP_PASSWORD="…"
-MAIL_FROM="Coach LMS <lms@yourprogram.com>"
+MAIL_FROM="Coach Education <coaching@footballqueensland.com.au>"
 APP_URL="https://lms.yourprogram.com"
 ```
 
@@ -185,8 +185,8 @@ only the connection string changes.
 
 **The trade-off is file size.** Every upload travels over the database
 connection, so `MAX_UPLOAD_MB` defaults to 10 and oversized files are rejected
-with a message pointing at the alternative. Playbook PDFs, install docs, and
-images are all comfortably under that. Film should go in as a **video link** —
+with a message pointing at the alternative. Session plans, PDFs and images are
+all comfortably under that. Video should go in as a **link** —
 the library already plays YouTube and Vimeo inline, which is both free and
 better than hosting video yourself.
 
@@ -266,7 +266,7 @@ runner refuses to start if an already-applied migration file has been edited.
 | `SMTP_PORT`     | –        | Defaults to 587                                                      |
 | `SMTP_USER`     | –        | SMTP username                                                        |
 | `SMTP_PASSWORD` | –        | SMTP password                                                        |
-| `MAIL_FROM`     | –        | From address, e.g. `Coach LMS <lms@yourprogram.com>`                  |
+| `MAIL_FROM`     | –        | From address, e.g. `Coach Education <coaching@footballqueensland.com.au>`                  |
 | `DATABASE_URL`  | Yes      | Turso `libsql://…` URL, or unset to use a local SQLite file           |
 | `TURSO_AUTH_TOKEN` | Yes\*  | Required whenever `DATABASE_URL` is a hosted URL                     |
 | `MAX_UPLOAD_MB` | –        | Per-file upload cap. Defaults to 10                                  |
@@ -347,7 +347,7 @@ The one SQLite-specific workaround in application code is in
 ```
 prisma/
   schema.prisma        Data model
-  seed.ts              Sample coaching staff, courses, and graded history
+  seed.ts              Sample coaches, courses, and graded history
 src/
   app/
     login/             Sign-in link request

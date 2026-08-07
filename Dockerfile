@@ -1,8 +1,8 @@
-# Coach LMS — production image.
+# Coach Education — production image.
 #
-# Runs the Next.js server, applies migrations on boot, and keeps the SQLite
-# database plus uploaded files on a mounted disk at /data. Works as-is on
-# Render, Railway, Fly.io, or any host that can run a container with a volume.
+# Runs the Next.js server and applies migrations on boot. With DATABASE_URL
+# pointing at Turso nothing touches disk, so this runs on a free host; leave it
+# unset and mount a volume at /data to use a local SQLite file instead.
 
 # ---------------------------------------------------------------- dependencies
 FROM node:22-bookworm-slim AS deps

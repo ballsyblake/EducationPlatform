@@ -94,7 +94,7 @@ export async function requestLoginLink(rawEmail: string): Promise<LoginRequestRe
 
   await sendMail({
     to: email,
-    subject: "Your Coach LMS sign-in link",
+    subject: "Your Coach Education sign-in link",
     text: [
       `${greeting},`,
       "",
@@ -104,7 +104,7 @@ export async function requestLoginLink(rawEmail: string): Promise<LoginRequestRe
       "",
       "If you didn't request this, you can ignore this email.",
     ].join("\n"),
-    html: `<p>${greeting},</p><p>Use the link below to sign in. It works once and expires in ${minutes} minutes.</p><p><a href="${link}">Sign in to Coach LMS</a></p><p>If you didn't request this, you can ignore this email.</p>`,
+    html: `<p>${greeting},</p><p>Use the link below to sign in. It works once and expires in ${minutes} minutes.</p><p><a href="${link}">Sign in to Coach Education</a></p><p>If you didn't request this, you can ignore this email.</p>`,
   });
 
   return {
