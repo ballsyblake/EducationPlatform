@@ -5,15 +5,19 @@ import { createAdapter, databaseUrl, isRemoteDatabase } from "./src/lib/adapter.
 /**
  * Migrations run through the same adapter the app uses, so `prisma migrate
  * deploy` works unchanged against either a local SQLite file or a hosted Turso
- * database. Without the adapter the CLI would try to open a hosted URL as a
- * local file and fail at boot.
+ * database.
+ *
+ * `datasource.url` is supplied in both cases because the CLI validates its
+ * presence before it ever looks at the adapter — omitting it fails with
+ * "The datasource.url property is required" regardless of the adapter.
  */
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
   },
-  ...(isRemoteDatabase()
-    ? { adapter: async () => createAdapter() }
-    : { datasource: { url: databaseUrl() } }),
+  datasource: {
+    url: databaseUrl(),
+  },
+  ...(isRemoteDatabase() ? { adapter: async () => createAdapter() } : {}),
 });

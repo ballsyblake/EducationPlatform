@@ -204,11 +204,27 @@ The same image works anywhere. Point `DATABASE_URL` and `TURSO_AUTH_TOKEN` at
 Turso and no volume is needed; or omit them, mount a volume at `/data`, and it
 uses a local SQLite file instead.
 
+### How migrations are applied
+
+`docker-entrypoint.sh` runs on every boot and is safe to re-run: it applies any
+pending migrations, ensures everyone in `ADMIN_EMAILS` can sign in, and starts
+the server. Migrations only ever move forward — nothing is reset or dropped.
+
+**Why not `prisma migrate deploy`?** Prisma 7's config file has no `adapter`
+field, so the CLI hands `datasource.url` straight to its own engine, which
+rejects a `libsql://` URL with *"The scheme is not recognized in database URL"*.
+`scripts/migrate.ts` runs the same migration SQL through the libSQL client
+instead, recording it in the same `_prisma_migrations` table with the same
+sha256 checksum format Prisma uses. So `prisma migrate dev` locally and this
+runner in production stay interoperable — `prisma migrate status` reports a
+runner-built database as up to date, and neither reapplies the other's work. The
+runner refuses to start if an already-applied migration file has been edited.
+
 ### Environment variables
 
 | Variable        | Required | What it does                                                        |
 | --------------- | -------- | ------------------------------------------------------------------- |
-| `APP_URL`       | Yes      | Public base URL. Every magic link is built from it                   |
+| `APP_URL`       | No       | Only for a custom domain; falls back to `RENDER_EXTERNAL_URL`        |
 | `ADMIN_EMAILS`  | Yes      | Comma-separated admins, granted access on boot                       |
 | `SMTP_HOST`     | No       | Only needed if coaches request their own links                       |
 | `SMTP_PORT`     | –        | Defaults to 587                                                      |
@@ -265,7 +281,8 @@ a hosted database.
 | `npm run dev`        | Start the dev server                               |
 | `npm run build`      | Generate the Prisma client and build for production |
 | `npm run typecheck`  | `tsc --noEmit`                                      |
-| `npm run db:migrate` | Create and apply a migration                       |
+| `npm run db:migrate` | Create and apply a migration (local development)   |
+| `npm run db:deploy`  | Apply pending migrations (SQLite or Turso)         |
 | `npm run db:seed`    | Reset seeded data and reload the sample program    |
 | `npm run db:reset`   | Drop the database, re-migrate, and re-seed         |
 | `npm run db:studio`  | Browse the database in Prisma Studio               |
@@ -274,17 +291,20 @@ a hosted database.
 `prisma`, `tsx`, and `dotenv` are runtime dependencies rather than dev ones
 because the container runs migrations and the admin bootstrap on boot.
 
-## Moving off SQLite
+## Moving to another database
 
-SQLite keeps local setup to zero, but nothing in the app depends on it. To move
-to Postgres, change the `datasource` provider in `prisma/schema.prisma`, swap
-`@prisma/adapter-better-sqlite3` for `@prisma/adapter-pg` in `src/lib/db.ts`,
-point `DATABASE_URL` at the new server, and re-run the migrations. The one
-SQLite-specific workaround is in `enrollAllCoaches`, which filters duplicates in
-application code because SQLite has no `skipDuplicates`.
+Turso is supported out of the box — set `DATABASE_URL` to a `libsql://` URL and
+`TURSO_AUTH_TOKEN`, and `src/lib/adapter.ts` picks the driver automatically.
 
-Uploads are on local disk, so a multi-instance deployment needs object storage
-(S3 or similar) behind `src/lib/uploads.ts`.
+For Postgres, change the `datasource` provider in `prisma/schema.prisma`, swap
+in `@prisma/adapter-pg` in `src/lib/adapter.ts`, regenerate the migrations, and
+point `DATABASE_URL` at the server. `scripts/migrate.ts` is libSQL-specific, so
+a Postgres deployment would go back to `prisma migrate deploy`, which works
+there because Prisma's engine speaks `postgresql://` natively.
+
+The one SQLite-specific workaround in application code is in
+`enrollAllCoaches`, which filters duplicates itself because SQLite has no
+`skipDuplicates`.
 
 ## Layout
 
@@ -312,4 +332,7 @@ src/
     coursework.ts      Task aggregation and progress summaries
     uploads.ts         File validation and database-backed storage
     adapter.ts         Picks SQLite or Turso from DATABASE_URL
+scripts/
+  migrate.ts           Applies pending migrations to SQLite or Turso
+  bootstrap-admin.ts   Ensures ADMIN_EMAILS can sign in; prints a link
 ```

@@ -22,9 +22,10 @@ case "${DATABASE_URL}" in
 esac
 
 # Applies any migrations this image ships that the database hasn't seen yet.
-# `migrate deploy` never resets or drops data, so it's safe on every boot.
+# Only ever moves forward — nothing is reset or dropped — so it's safe on every
+# boot. Not `prisma migrate deploy`: that can't talk to a hosted libSQL URL.
 echo "[boot] applying migrations…"
-npx prisma migrate deploy
+npx tsx scripts/migrate.ts
 
 # Makes sure ADMIN_EMAILS can always sign in. Prints a link when they can't.
 echo "[boot] checking admin accounts…"
