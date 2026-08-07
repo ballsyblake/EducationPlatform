@@ -27,9 +27,15 @@ const MIN_HEIGHT_PX = 23;
 export function BrandLogo({
   variant = "colour",
   className = "",
+  name = "Coach Education",
 }: {
   variant?: "colour" | "light";
   className?: string;
+  /**
+   * The product name shown when no official artwork is supplied. One instance
+   * serves two products, and the header has to say which one you're in.
+   */
+  name?: string;
 }) {
   const src = variant === "light" ? (LIGHT_LOGO ?? COLOUR_LOGO) : COLOUR_LOGO;
 
@@ -41,7 +47,7 @@ export function BrandLogo({
           variant === "light" ? "text-white" : "text-maroon-600"
         } ${className}`}
       >
-        Coach Education
+        {name}
       </span>
     );
   }

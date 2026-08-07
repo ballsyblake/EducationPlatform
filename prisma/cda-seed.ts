@@ -445,9 +445,7 @@ export async function seedDemo(prisma: PrismaClient) {
           clubDeclared: answered ? !fails : null,
           clubNote: answered && !fails ? "Evidence held on file and available on request." : null,
           verdict: published ? (fails ? "FAIL" : "PASS") : scenario.state === "RECONCILING" ? "PASS" : "PENDING",
-          adminNote: fails
-            ? "Register incomplete at the time of review; three coaching staff without a current Blue Card recorded."
-            : null,
+          adminNote: fails ? FAILURE_NOTES[nn.code] : null,
           verifiedAt: published || scenario.state === "RECONCILING" ? new Date("2026-06-02") : null,
         },
       });
@@ -576,6 +574,14 @@ export async function seedDemo(prisma: PrismaClient) {
   console.log("[cda] club sign-ins: " + CLUBS.map((c) => c.admin.email).join(", "));
   console.log("[cda] assessor sign-ins: " + ASSESSORS.map((a) => a.email).join(", "));
 }
+
+/** Why the ineligible club failed each check it failed. */
+const FAILURE_NOTES: Record<string, string> = {
+  "NN-2":
+    "Blue Card register incomplete at the time of review; three coaching staff without a current card recorded.",
+  "NN-3":
+    "No female coach holds a technical role at the club. The club has committed to appointing a Female Program Lead before the next cycle.",
+};
 
 const COMMENTS = [
   "Documented and endorsed, but the review cycle has slipped past 12 months.",

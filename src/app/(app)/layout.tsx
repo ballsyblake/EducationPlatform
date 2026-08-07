@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { BrandLogo } from "@/components/brand";
 import { NavLinks, type NavLink } from "@/components/nav";
-import { isAdmin, requireUser } from "@/lib/auth";
+import { homePathFor, isAdmin, requireUser } from "@/lib/auth";
 import { displayName, initials } from "@/lib/format";
 
 const COACH_LINKS: NavLink[] = [
@@ -19,6 +20,13 @@ const ADMIN_LINKS: NavLink[] = [
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+
+  // A club administrator or an assessor has a valid account for the other
+  // product in this instance, not this one. Sending them on beats showing them
+  // a coach dashboard with nothing on it.
+  const home = homePathFor(user);
+  if (home !== "/dashboard") redirect(home);
+
   const links = isAdmin(user) ? [...COACH_LINKS, ...ADMIN_LINKS] : COACH_LINKS;
 
   return (
