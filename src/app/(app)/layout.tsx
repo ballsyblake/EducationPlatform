@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand";
 import { NavLinks, type NavLink } from "@/components/nav";
 import { isAdmin, requireUser } from "@/lib/auth";
 import { displayName, initials } from "@/lib/format";
@@ -22,13 +23,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen">
-      <header className="bg-field-800 text-white">
+      <header className="bg-maroon-800 text-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
-          <Link href="/dashboard" className="flex items-center gap-2 font-bold">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-field-800">
-              C
-            </span>
-            <span>Coach LMS</span>
+          <Link href="/dashboard" className="flex items-center">
+            {/* Deep Maroon background, so the mono white logo is the permitted
+                version here — the master gradient is for white or images. */}
+            <BrandLogo variant="light" />
           </Link>
 
           <div className="order-3 w-full md:order-2 md:w-auto md:flex-1">
@@ -39,12 +39,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Link href="/account" className="flex items-center gap-3 hover:opacity-90">
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-medium">{displayName(user)}</p>
-                <p className="text-xs text-field-200">
+                <p className="text-xs text-white/70">
                   {user.title ?? (isAdmin(user) ? "Program admin" : "Coach")}
                 </p>
               </div>
               <span
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-field-600 text-sm font-semibold"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-maroon-600 text-sm font-semibold"
                 title={`${user.email} — account settings`}
               >
                 {initials(user.name, user.email)}
@@ -53,7 +53,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <form action="/logout" method="post">
               <button
                 type="submit"
-                className="rounded-lg px-2 py-1 text-xs font-medium text-field-100 hover:bg-field-700 hover:text-white"
+                className="rounded-lg px-2 py-1 text-xs font-medium text-white/80 hover:bg-maroon-700 hover:text-white"
               >
                 Sign out
               </button>

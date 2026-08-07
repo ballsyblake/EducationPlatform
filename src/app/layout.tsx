@@ -3,10 +3,10 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Coach LMS",
-    template: "%s · Coach LMS",
+    default: "Coach Education | Football Queensland",
+    template: "%s · Coach Education",
   },
-  description: "Assignments, quizzes, and film study for football coaching staffs.",
+  description: "Courses, assessments and feedback for Football Queensland coaches.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

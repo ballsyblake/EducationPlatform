@@ -104,23 +104,23 @@ export default async function GradesPage() {
               <Link key={entry.key} href={entry.href} className="card card-pad block hover:shadow-md">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="text-xs text-chalk-500">
+                    <p className="text-xs text-ink-500">
                       {entry.kind} · {entry.course}
                     </p>
-                    <p className="font-semibold text-chalk-900">{entry.title}</p>
-                    <p className="mt-0.5 text-xs text-chalk-500">
+                    <p className="font-semibold text-ink-900">{entry.title}</p>
+                    <p className="mt-0.5 text-xs text-ink-500">
                       {entry.pending
                         ? "Written answers still being reviewed"
                         : `Graded ${formatDateTime(entry.at)}${entry.grader ? ` by ${entry.grader}` : ""}`}
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xl font-bold text-chalk-900">
+                    <p className="text-xl font-bold text-ink-900">
                       {entry.score ?? "—"}
-                      <span className="text-sm font-normal text-chalk-500"> / {entry.max ?? "—"}</span>
+                      <span className="text-sm font-normal text-ink-500"> / {entry.max ?? "—"}</span>
                     </p>
                     {!entry.pending && pct !== null && (
-                      <p className="text-xs font-medium text-chalk-500">
+                      <p className="text-xs font-medium text-ink-500">
                         {pct}% · {performance.label}
                       </p>
                     )}
@@ -128,7 +128,7 @@ export default async function GradesPage() {
                 </div>
 
                 {entry.feedback && (
-                  <p className="prose-note mt-3 rounded-lg bg-chalk-50 px-3 py-2">
+                  <p className="prose-note mt-3 rounded-lg bg-ink-50 px-3 py-2">
                     {entry.feedback}
                   </p>
                 )}

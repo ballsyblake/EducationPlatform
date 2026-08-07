@@ -66,7 +66,7 @@ export default async function QuizPage({ params }: { params: Promise<{ id: strin
             {quiz.description && <p className="prose-note mb-4">{quiz.description}</p>}
 
             {quiz.questions.length === 0 ? (
-              <p className="text-sm text-chalk-500">
+              <p className="text-sm text-ink-500">
                 No questions have been added to this quiz yet.
               </p>
             ) : canStart ? (
@@ -77,7 +77,7 @@ export default async function QuizPage({ params }: { params: Promise<{ id: strin
                 </SubmitButton>
               </form>
             ) : (
-              <p className="text-sm text-chalk-500">
+              <p className="text-sm text-ink-500">
                 You&apos;ve used all {quiz.maxAttempts} attempt
                 {quiz.maxAttempts === 1 ? "" : "s"} for this quiz.
               </p>
@@ -85,9 +85,9 @@ export default async function QuizPage({ params }: { params: Promise<{ id: strin
           </section>
 
           <section>
-            <h2 className="mb-3 text-lg font-semibold text-chalk-900">Your attempts</h2>
+            <h2 className="mb-3 text-lg font-semibold text-ink-900">Your attempts</h2>
             {attempts.length ? (
-              <div className="card divide-y divide-chalk-200">
+              <div className="card divide-y divide-ink-200">
                 {attempts.map((attempt) => {
                   const pct = percentage(attempt.score, attempt.maxScore);
                   const performance = band(pct);
@@ -95,11 +95,11 @@ export default async function QuizPage({ params }: { params: Promise<{ id: strin
                     <Link
                       key={attempt.id}
                       href={`/quizzes/${quiz.id}/attempt/${attempt.id}`}
-                      className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-chalk-50"
+                      className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-ink-50"
                     >
                       <div>
-                        <p className="font-medium text-chalk-900">Attempt {attempt.attemptNo}</p>
-                        <p className="text-xs text-chalk-500">
+                        <p className="font-medium text-ink-900">Attempt {attempt.attemptNo}</p>
+                        <p className="text-xs text-ink-500">
                           {attempt.submittedAt
                             ? `Submitted ${formatDateTime(attempt.submittedAt)}`
                             : `Started ${formatDateTime(attempt.startedAt)}`}
@@ -124,7 +124,7 @@ export default async function QuizPage({ params }: { params: Promise<{ id: strin
                 })}
               </div>
             ) : (
-              <div className="card card-pad text-sm text-chalk-500">
+              <div className="card card-pad text-sm text-ink-500">
                 You haven&apos;t taken this quiz yet.
               </div>
             )}
@@ -133,7 +133,7 @@ export default async function QuizPage({ params }: { params: Promise<{ id: strin
 
         <aside className="card card-pad h-fit">
           <h2 className="mb-2 section-title">How grading works</h2>
-          <ul className="space-y-2 text-sm text-chalk-600">
+          <ul className="space-y-2 text-sm text-ink-600">
             <li>Multiple-choice and true/false questions are scored the moment you submit.</li>
             <li>
               Written answers are read by a coordinator, so your score may be marked{" "}

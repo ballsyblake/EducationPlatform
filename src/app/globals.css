@@ -1,28 +1,68 @@
 @import "tailwindcss";
 
-@theme {
-  --color-field-50: #f0f9f2;
-  --color-field-100: #dcf0e1;
-  --color-field-200: #bbe1c7;
-  --color-field-300: #8ccaa2;
-  --color-field-400: #56ac77;
-  --color-field-500: #348f59;
-  --color-field-600: #237246;
-  --color-field-700: #1c5b39;
-  --color-field-800: #19482f;
-  --color-field-900: #153b28;
+/* ---------------------------------------------------------------------------
+   Football Queensland brand palette — Brand Guidelines V2.0, section 2.B.
 
-  --color-chalk-50: #f7f8f8;
-  --color-chalk-100: #eceef0;
-  --color-chalk-200: #d7dbdf;
-  --color-chalk-300: #b3bac2;
-  --color-chalk-400: #8a94a0;
-  --color-chalk-500: #6b7684;
-  --color-chalk-600: #55606d;
-  --color-chalk-700: #454e59;
-  --color-chalk-800: #3b424b;
-  --color-chalk-900: #1f242a;
-  --color-chalk-950: #14181c;
+   Maroon is the lead colour across all executions; Deep Maroon is the second
+   primary. The exact brand values sit at the 600 and 800 steps so that
+   `maroon-600` is always the real #88133D rather than an approximation, with
+   the surrounding steps derived for tints, hovers and borders.
+
+   Neutrals are tints of black, per the note that black is a text colour or a
+   10% tint as a background, and never a main brand colour.
+--------------------------------------------------------------------------- */
+
+@theme {
+  --color-maroon-50: #fdf3f6;
+  --color-maroon-100: #fae3ec;
+  --color-maroon-200: #f3c2d5;
+  --color-maroon-300: #e793b4;
+  --color-maroon-400: #d55a88;
+  --color-maroon-500: #b32b60;
+  --color-maroon-600: #88133d; /* Maroon — primary brand colour */
+  --color-maroon-700: #741135;
+  --color-maroon-800: #621333; /* Deep Maroon — second primary */
+  --color-maroon-900: #490d26;
+
+  /* Tints of black. ink-100 is the 10% tint named in the guidelines. */
+  --color-ink-50: #f7f7f7;
+  --color-ink-100: #e6e6e6;
+  --color-ink-200: #d4d4d4;
+  --color-ink-300: #b3b3b3;
+  --color-ink-400: #8c8c8c;
+  --color-ink-500: #6b6b6b;
+  --color-ink-600: #545454;
+  --color-ink-700: #3d3d3d;
+  --color-ink-800: #262626;
+  --color-ink-900: #000000; /* Black — text only */
+
+  /* Highlight colours. Used sparingly, and only as fills behind dark text —
+     at full strength they're far too light to read as type on white. */
+  --color-highlight-blue: #00ebff;
+  --color-highlight-green: #6eff6e;
+  --color-highlight-yellow: #ffff0c;
+  --color-highlight-orange: #ff9800;
+
+  /* Readable tints and shades of the highlights, for status badges. */
+  --color-status-blue-bg: #d6fbff;
+  --color-status-blue-fg: #00505a;
+  --color-status-green-bg: #e2ffe2;
+  --color-status-green-fg: #10520f;
+  --color-status-yellow-bg: #ffffd1;
+  --color-status-yellow-fg: #4f4f00;
+  --color-status-orange-bg: #fff0d9;
+  --color-status-orange-fg: #7a4400;
+
+  /* Competitions palette (appendix). Not used by the app chrome; kept here so
+     competition-specific views have the official values to hand. */
+  --color-npl-navy: #0c2340;
+  --color-npl-light: #00a9e0;
+  --color-fqpl-yellow: #ffcc31;
+
+  /* Gibson is the brand typeface. It is licensed, so it isn't bundled — the
+     guidelines name Arial as the substitute when Gibson is unavailable, which
+     is what renders unless a licensed Gibson webfont is added to the page. */
+  --font-brand: "Gibson", Arial, Helvetica, sans-serif;
 }
 
 :root {
@@ -30,14 +70,12 @@
 }
 
 body {
-  @apply bg-chalk-50 text-chalk-900 antialiased;
+  @apply bg-ink-50 font-brand text-ink-900 antialiased;
 }
-
-/* --- Small utility layer so pages stay readable ---------------------------- */
 
 @layer components {
   .card {
-    @apply rounded-xl border border-chalk-200 bg-white shadow-sm;
+    @apply rounded-xl border border-ink-200 bg-white shadow-sm;
   }
 
   .card-pad {
@@ -55,15 +93,17 @@ body {
   }
 
   .btn-primary {
-    @apply bg-field-600 text-white hover:bg-field-700;
+    @apply bg-maroon-600 text-white hover:bg-maroon-800;
   }
 
   .btn-secondary {
-    @apply border border-chalk-300 bg-white text-chalk-800 hover:bg-chalk-100;
+    @apply border border-ink-300 bg-white text-ink-800 hover:bg-ink-100;
   }
 
+  /* The palette contains no red, so destructive actions are distinguished by
+     shape rather than hue: outlined against the filled primary. */
   .btn-danger {
-    @apply border border-red-200 bg-white text-red-700 hover:bg-red-50;
+    @apply border border-maroon-300 bg-white text-maroon-700 hover:bg-maroon-50;
   }
 
   .btn-sm {
@@ -71,28 +111,34 @@ body {
   }
 
   .input {
-    @apply w-full rounded-lg border border-chalk-300 bg-white px-3 py-2 text-sm text-chalk-900
-           placeholder:text-chalk-400 focus:border-field-500 focus:ring-2 focus:ring-field-500/25
+    @apply w-full rounded-lg border border-ink-300 bg-white px-3 py-2 text-sm text-ink-900
+           placeholder:text-ink-400 focus:border-maroon-600 focus:ring-2 focus:ring-maroon-600/25
            focus:outline-none;
   }
 
   .label {
-    @apply mb-1.5 block text-sm font-medium text-chalk-700;
+    @apply mb-1.5 block text-sm font-medium text-ink-700;
   }
 
   .hint {
-    @apply mt-1 text-xs text-chalk-500;
+    @apply mt-1 text-xs text-ink-500;
   }
 
   .badge {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
   }
 
+  /* Main headlines are SemiBold, all caps and tracked out, to match the logo
+     (guidelines 2.D). Sub-headlines and body stay in sentence case. */
+  .headline {
+    @apply font-semibold tracking-[0.08em] uppercase;
+  }
+
   .section-title {
-    @apply text-xs font-semibold tracking-wide text-chalk-500 uppercase;
+    @apply text-xs font-semibold tracking-[0.08em] text-ink-500 uppercase;
   }
 
   .prose-note {
-    @apply text-sm leading-relaxed whitespace-pre-wrap text-chalk-700;
+    @apply text-sm leading-relaxed whitespace-pre-wrap text-ink-700;
   }
 }

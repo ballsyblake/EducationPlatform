@@ -19,7 +19,7 @@ export function SignInLinkForm({ userId, disabled }: { userId: string; disabled?
         </SubmitButton>
       </form>
 
-      {state.status === "error" && <p className="text-xs text-red-700">{state.message}</p>}
+      {state.status === "error" && <p className="text-xs text-maroon-700">{state.message}</p>}
       {state.status === "ok" && state.invite && (
         <div className="w-full max-w-md">
           <InviteCallout invite={state.invite} />

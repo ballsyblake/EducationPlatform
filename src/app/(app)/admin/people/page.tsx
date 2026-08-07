@@ -30,13 +30,13 @@ export default async function PeoplePage() {
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <section>
-          <div className="card divide-y divide-chalk-200">
+          <div className="card divide-y divide-ink-200">
             {users.map((user) => (
               <div key={user.id} className="px-5 py-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium text-chalk-900">{user.name ?? user.email}</p>
+                      <p className="font-medium text-ink-900">{user.name ?? user.email}</p>
                       {user.role === "ADMIN" && <Badge tone="info">Admin</Badge>}
                       {!user.active && <Badge tone="bad">Deactivated</Badge>}
                       {user.id === admin.id && <Badge tone="muted">You</Badge>}
@@ -44,11 +44,11 @@ export default async function PeoplePage() {
                         <Badge tone="warn">Never signed in</Badge>
                       )}
                     </div>
-                    <p className="mt-0.5 text-xs text-chalk-500">
+                    <p className="mt-0.5 text-xs text-ink-500">
                       {user.title ? `${user.title} · ` : ""}
                       {user.email}
                     </p>
-                    <p className="mt-1 text-xs text-chalk-400">
+                    <p className="mt-1 text-xs text-ink-400">
                       {user._count.enrollments} course{user._count.enrollments === 1 ? "" : "s"} ·{" "}
                       {user._count.submissions} submission
                       {user._count.submissions === 1 ? "" : "s"} · {user._count.quizAttempts} quiz
@@ -110,7 +110,7 @@ export default async function PeoplePage() {
                 </div>
 
                 <details className="mt-3">
-                  <summary className="cursor-pointer text-xs font-medium text-field-700">
+                  <summary className="cursor-pointer text-xs font-medium text-maroon-700">
                     Edit details
                   </summary>
                   <form action={updateStaffMember} className="mt-2 flex flex-wrap gap-2">
@@ -140,12 +140,12 @@ export default async function PeoplePage() {
 
         <aside>
           <div className="card card-pad">
-            <h2 className="mb-4 font-semibold text-chalk-900">Add a staff member</h2>
+            <h2 className="mb-4 font-semibold text-ink-900">Add a staff member</h2>
             <AddStaffForm emailEnabled={emailEnabled} />
           </div>
 
           {!emailEnabled && (
-            <p className="mt-4 text-xs text-chalk-500">
+            <p className="mt-4 text-xs text-ink-500">
               No email is configured, so sign-in links are handed out from this page. Give each
               coach the link shown when you add them — copy it, or hold up the QR code for them to
               scan. Once they use it they stay signed in, and you can issue a new link any time.

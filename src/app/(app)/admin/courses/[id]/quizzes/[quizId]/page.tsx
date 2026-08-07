@@ -67,14 +67,14 @@ export default async function QuizBuilderPage({
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <div className="space-y-6">
           <section>
-            <h2 className="mb-3 text-lg font-semibold text-chalk-900">Questions</h2>
+            <h2 className="mb-3 text-lg font-semibold text-ink-900">Questions</h2>
             {quiz.questions.length ? (
               <ol className="space-y-3">
                 {quiz.questions.map((question, index) => (
                   <li key={question.id} className="card card-pad">
                     <div className="flex items-start justify-between gap-3">
-                      <p className="font-medium text-chalk-900">
-                        <span className="mr-2 text-chalk-400">{index + 1}.</span>
+                      <p className="font-medium text-ink-900">
+                        <span className="mr-2 text-ink-400">{index + 1}.</span>
                         {question.prompt}
                       </p>
                       <div className="flex shrink-0 items-center gap-2">
@@ -84,7 +84,7 @@ export default async function QuizBuilderPage({
                           <input type="hidden" name="quizId" value={quiz.id} />
                           <input type="hidden" name="courseId" value={courseId} />
                           <SubmitButton
-                            className="text-xs font-medium text-red-700 hover:underline"
+                            className="text-xs font-medium text-maroon-700 hover:underline"
                             pendingLabel="…"
                             confirm="Delete this question? Answers already recorded for it are removed too."
                           >
@@ -94,7 +94,7 @@ export default async function QuizBuilderPage({
                       </div>
                     </div>
 
-                    <p className="mt-1 text-xs text-chalk-500">{KIND_LABEL[question.kind]}</p>
+                    <p className="mt-1 text-xs text-ink-500">{KIND_LABEL[question.kind]}</p>
 
                     {question.choices.length > 0 && (
                       <ul className="mt-2 space-y-1">
@@ -103,8 +103,8 @@ export default async function QuizBuilderPage({
                             key={choice.id}
                             className={`rounded px-2 py-1 text-sm ${
                               choice.isCorrect
-                                ? "bg-field-50 font-medium text-field-800"
-                                : "text-chalk-600"
+                                ? "bg-maroon-50 font-medium text-maroon-800"
+                                : "text-ink-600"
                             }`}
                           >
                             {choice.text}
@@ -117,7 +117,7 @@ export default async function QuizBuilderPage({
                     )}
 
                     {question.rationale && (
-                      <p className="mt-2 text-xs text-chalk-500">
+                      <p className="mt-2 text-xs text-ink-500">
                         <span className="font-semibold">Explanation:</span> {question.rationale}
                       </p>
                     )}
@@ -125,16 +125,16 @@ export default async function QuizBuilderPage({
                 ))}
               </ol>
             ) : (
-              <div className="card card-pad text-sm text-chalk-500">
+              <div className="card card-pad text-sm text-ink-500">
                 No questions yet — add the first one on the right.
               </div>
             )}
           </section>
 
           <section>
-            <h2 className="mb-3 text-lg font-semibold text-chalk-900">Attempts</h2>
+            <h2 className="mb-3 text-lg font-semibold text-ink-900">Attempts</h2>
             {quiz.attempts.length ? (
-              <div className="card divide-y divide-chalk-200">
+              <div className="card divide-y divide-ink-200">
                 {quiz.attempts.map((attempt) => {
                   const pct = percentage(attempt.score, attempt.maxScore);
                   return (
@@ -143,10 +143,10 @@ export default async function QuizBuilderPage({
                       className="flex items-center justify-between gap-3 px-5 py-3"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-chalk-900">
+                        <p className="truncate text-sm font-medium text-ink-900">
                           {displayName(attempt.user)}
                         </p>
-                        <p className="text-xs text-chalk-500">
+                        <p className="text-xs text-ink-500">
                           Attempt {attempt.attemptNo} ·{" "}
                           {attempt.submittedAt
                             ? formatDateTime(attempt.submittedAt)
@@ -169,19 +169,19 @@ export default async function QuizBuilderPage({
                 })}
               </div>
             ) : (
-              <div className="card card-pad text-sm text-chalk-500">No attempts yet.</div>
+              <div className="card card-pad text-sm text-ink-500">No attempts yet.</div>
             )}
           </section>
         </div>
 
         <aside className="space-y-6">
           <section className="card card-pad">
-            <h2 className="mb-4 font-semibold text-chalk-900">Add a question</h2>
+            <h2 className="mb-4 font-semibold text-ink-900">Add a question</h2>
             <QuestionForm quizId={quiz.id} courseId={courseId} />
           </section>
 
           <section className="card card-pad">
-            <h2 className="mb-4 font-semibold text-chalk-900">Quiz settings</h2>
+            <h2 className="mb-4 font-semibold text-ink-900">Quiz settings</h2>
             <QuizSettingsForm
               courseId={courseId}
               quiz={{
@@ -193,7 +193,7 @@ export default async function QuizBuilderPage({
                 published: quiz.published,
               }}
             />
-            <form action={deleteQuiz} className="mt-4 border-t border-chalk-200 pt-4">
+            <form action={deleteQuiz} className="mt-4 border-t border-ink-200 pt-4">
               <input type="hidden" name="quizId" value={quiz.id} />
               <input type="hidden" name="courseId" value={courseId} />
               <SubmitButton

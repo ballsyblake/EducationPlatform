@@ -18,16 +18,16 @@ export function TaskRow({ task }: { task: TaskItem }) {
   return (
     <Link
       href={task.href}
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4 transition-colors hover:bg-chalk-50"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4 transition-colors hover:bg-ink-50"
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <Badge tone={task.kind === "quiz" ? "info" : "muted"}>
             {task.kind === "quiz" ? "Quiz" : "Assignment"}
           </Badge>
-          <p className="truncate font-medium text-chalk-900">{task.title}</p>
+          <p className="truncate font-medium text-ink-900">{task.title}</p>
         </div>
-        <p className="mt-1 text-xs text-chalk-500">
+        <p className="mt-1 text-xs text-ink-500">
           {task.courseTitle}
           {task.dueAt && <> · {formatDateTime(task.dueAt)}</>}
         </p>
@@ -56,7 +56,7 @@ export function TaskRow({ task }: { task: TaskItem }) {
 
 export function TaskList({ tasks }: { tasks: TaskItem[] }) {
   return (
-    <div className="card divide-y divide-chalk-200">
+    <div className="card divide-y divide-ink-200">
       {tasks.map((task) => (
         <TaskRow key={`${task.kind}-${task.id}`} task={task} />
       ))}

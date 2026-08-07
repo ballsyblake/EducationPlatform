@@ -46,40 +46,40 @@ export default async function AdminPage() {
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <section>
-          <h2 className="mb-3 text-lg font-semibold text-chalk-900">Courses</h2>
+          <h2 className="mb-3 text-lg font-semibold text-ink-900">Courses</h2>
           {courses.length ? (
-            <div className="card divide-y divide-chalk-200">
+            <div className="card divide-y divide-ink-200">
               {courses.map((course) => (
                 <Link
                   key={course.id}
                   href={`/admin/courses/${course.id}`}
-                  className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 hover:bg-chalk-50"
+                  className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 hover:bg-ink-50"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="truncate font-medium text-chalk-900">{course.title}</p>
+                      <p className="truncate font-medium text-ink-900">{course.title}</p>
                       {!course.published && <Badge tone="warn">Draft</Badge>}
                     </div>
-                    <p className="mt-0.5 text-xs text-chalk-500">
+                    <p className="mt-0.5 text-xs text-ink-500">
                       {course.season ? `${course.season} · ` : ""}
                       {course._count.enrollments} enrolled · {course._count.assignments}{" "}
                       assignments · {course._count.quizzes} quizzes · {course._count.materials}{" "}
                       materials
                     </p>
                   </div>
-                  <span className="text-sm font-medium text-field-700">Manage →</span>
+                  <span className="text-sm font-medium text-maroon-700">Manage →</span>
                 </Link>
               ))}
             </div>
           ) : (
-            <div className="card card-pad text-sm text-chalk-500">
+            <div className="card card-pad text-sm text-ink-500">
               No courses yet — create your first one on the right.
             </div>
           )}
         </section>
 
         <aside>
-          <h2 className="mb-3 text-lg font-semibold text-chalk-900">New course</h2>
+          <h2 className="mb-3 text-lg font-semibold text-ink-900">New course</h2>
           <div className="card card-pad">
             <CreateCourseForm />
           </div>

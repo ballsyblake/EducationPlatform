@@ -56,14 +56,14 @@ function MaterialBody({ material }: { material: MaterialView }) {
         )}
         {isImage && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={src} alt={material.title} className="max-h-96 rounded-lg border border-chalk-200" />
+          <img src={src} alt={material.title} className="max-h-96 rounded-lg border border-ink-200" />
         )}
-        <div className="flex items-center gap-3 text-xs text-chalk-500">
-          <a href={src} target="_blank" rel="noreferrer" className="font-medium text-field-700 hover:underline">
+        <div className="flex items-center gap-3 text-xs text-ink-500">
+          <a href={src} target="_blank" rel="noreferrer" className="font-medium text-maroon-700 hover:underline">
             {material.upload.filename}
           </a>
           <span>{formatBytes(material.upload.size)}</span>
-          <a href={`${src}?download=1`} className="text-chalk-500 hover:text-field-700">
+          <a href={`${src}?download=1`} className="text-ink-500 hover:text-maroon-700">
             Download
           </a>
         </div>
@@ -90,7 +90,7 @@ function MaterialBody({ material }: { material: MaterialView }) {
           href={material.url}
           target="_blank"
           rel="noreferrer"
-          className="block truncate text-xs font-medium text-field-700 hover:underline"
+          className="block truncate text-xs font-medium text-maroon-700 hover:underline"
         >
           {material.url}
         </a>
@@ -108,9 +108,9 @@ export function MaterialList({ materials }: { materials: MaterialView[] }) {
         <div key={material.id} className="card card-pad">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="font-semibold text-chalk-900">{material.title}</h3>
+              <h3 className="font-semibold text-ink-900">{material.title}</h3>
               {material.description && (
-                <p className="mt-1 text-sm text-chalk-600">{material.description}</p>
+                <p className="mt-1 text-sm text-ink-600">{material.description}</p>
               )}
             </div>
             <Badge tone={material.kind === "VIDEO" ? "info" : "muted"}>

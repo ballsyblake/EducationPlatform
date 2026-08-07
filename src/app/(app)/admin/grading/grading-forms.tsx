@@ -40,7 +40,7 @@ export function GradeSubmissionForm({
               defaultValue={defaultScore ?? ""}
               className="input"
             />
-            <span className="text-sm whitespace-nowrap text-chalk-500">/ {points}</span>
+            <span className="text-sm whitespace-nowrap text-ink-500">/ {points}</span>
           </div>
         </div>
       </div>
@@ -54,7 +54,7 @@ export function GradeSubmissionForm({
           name="feedback"
           rows={3}
           defaultValue={defaultFeedback ?? ""}
-          placeholder="What was good, what to clean up before the next install."
+          placeholder="What was strong, and what to work on next."
           className="input"
         />
       </div>
@@ -92,10 +92,10 @@ export function ReviewAttemptForm({
       <input type="hidden" name="attemptId" value={attemptId} />
 
       {answers.map((answer) => (
-        <div key={answer.id} className="rounded-lg border border-chalk-200 p-3">
-          <p className="text-sm font-medium text-chalk-800">{answer.prompt}</p>
-          <p className="prose-note mt-2 rounded bg-chalk-50 px-3 py-2">
-            {answer.text?.trim() || <em className="text-chalk-400">No answer given</em>}
+        <div key={answer.id} className="rounded-lg border border-ink-200 p-3">
+          <p className="text-sm font-medium text-ink-800">{answer.prompt}</p>
+          <p className="prose-note mt-2 rounded bg-ink-50 px-3 py-2">
+            {answer.text?.trim() || <em className="text-ink-400">No answer given</em>}
           </p>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-[8rem_1fr]">
@@ -114,7 +114,7 @@ export function ReviewAttemptForm({
                   defaultValue={answer.pointsAwarded ?? ""}
                   className="input"
                 />
-                <span className="text-sm whitespace-nowrap text-chalk-500">
+                <span className="text-sm whitespace-nowrap text-ink-500">
                   / {answer.maxPoints}
                 </span>
               </div>

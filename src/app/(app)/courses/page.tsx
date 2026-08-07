@@ -55,13 +55,13 @@ export default async function CoursesPage() {
             >
               <div className="mb-3">
                 {course.season && <p className="section-title">{course.season}</p>}
-                <h2 className="text-lg font-semibold text-chalk-900">{course.title}</h2>
+                <h2 className="text-lg font-semibold text-ink-900">{course.title}</h2>
                 {course.description && (
-                  <p className="mt-1 line-clamp-2 text-sm text-chalk-500">{course.description}</p>
+                  <p className="mt-1 line-clamp-2 text-sm text-ink-500">{course.description}</p>
                 )}
               </div>
 
-              <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-chalk-500">
+              <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-500">
                 <span>{course._count.materials} materials</span>
                 <span>{course._count.assignments} assignments</span>
                 <span>{course._count.quizzes} quizzes</span>
@@ -72,12 +72,12 @@ export default async function CoursesPage() {
                   value={summary.completionPct}
                   tone={summary.overdue ? "warn" : "good"}
                 />
-                <span className="text-xs font-semibold whitespace-nowrap text-chalk-600">
+                <span className="text-xs font-semibold whitespace-nowrap text-ink-600">
                   {summary.completionPct}%
                 </span>
               </div>
               {summary.overdue > 0 && (
-                <p className="mt-2 text-xs font-medium text-red-700">
+                <p className="mt-2 text-xs font-medium text-maroon-700">
                   {summary.overdue} overdue item{summary.overdue === 1 ? "" : "s"}
                 </p>
               )}

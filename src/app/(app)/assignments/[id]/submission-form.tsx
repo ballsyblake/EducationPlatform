@@ -34,7 +34,7 @@ export function SubmissionForm({
             name="text"
             rows={10}
             defaultValue={defaultText}
-            placeholder="Write your answer, install notes, or self-scout here…"
+            placeholder="Write your response here…"
             className="input text-sm"
           />
         </div>
@@ -50,11 +50,10 @@ export function SubmissionForm({
             name="files"
             type="file"
             multiple
-            className="block w-full text-sm text-chalk-600 file:mr-3 file:rounded-lg file:border-0 file:bg-chalk-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-chalk-700 hover:file:bg-chalk-200"
+            className="block w-full text-sm text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-ink-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-ink-700 hover:file:bg-ink-200"
           />
           <p className="hint">
-            Wristband sheets, PDFs, or images. For film, ask your coordinator to post it as a
-            video link.
+            PDFs, documents or images. For video, ask your coordinator to post it as a link.
           </p>
         </div>
       )}

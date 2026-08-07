@@ -79,16 +79,16 @@ export default async function AttemptPage({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="section-title">{awaiting ? "Score so far" : "Score"}</p>
-            <p className="mt-1 text-3xl font-bold text-field-700">
+            <p className="mt-1 text-3xl font-bold text-maroon-700">
               {attempt.score ?? 0}
-              <span className="text-lg font-normal text-chalk-500"> / {attempt.maxScore ?? 0}</span>
+              <span className="text-lg font-normal text-ink-500"> / {attempt.maxScore ?? 0}</span>
               {/* A percentage would understate the result while points are still unawarded. */}
               {!awaiting && pct !== null && (
-                <span className="ml-3 text-lg font-semibold text-chalk-600">{pct}%</span>
+                <span className="ml-3 text-lg font-semibold text-ink-600">{pct}%</span>
               )}
             </p>
             {awaiting && (
-              <p className="mt-1 text-xs text-chalk-500">
+              <p className="mt-1 text-xs text-ink-500">
                 Auto-graded questions only — written answers are still being read.
               </p>
             )}
@@ -100,7 +100,7 @@ export default async function AttemptPage({
               <Badge tone={performance.tone}>{performance.label}</Badge>
             )}
             {attempt.gradedBy && (
-              <span className="text-xs text-chalk-500">
+              <span className="text-xs text-ink-500">
                 Reviewed by {attempt.gradedBy.name ?? attempt.gradedBy.email}
               </span>
             )}
@@ -108,11 +108,11 @@ export default async function AttemptPage({
         </div>
 
         {attempt.feedback && (
-          <div className="mt-4 rounded-lg bg-field-50 px-4 py-3">
-            <p className="mb-1 text-xs font-semibold tracking-wide text-field-700 uppercase">
+          <div className="mt-4 rounded-lg bg-maroon-50 px-4 py-3">
+            <p className="mb-1 text-xs font-semibold tracking-wide text-maroon-700 uppercase">
               Coordinator feedback
             </p>
-            <p className="prose-note text-field-900">{attempt.feedback}</p>
+            <p className="prose-note text-maroon-900">{attempt.feedback}</p>
           </div>
         )}
       </div>
@@ -126,8 +126,8 @@ export default async function AttemptPage({
           return (
             <section key={question.id} className="card card-pad">
               <div className="mb-3 flex items-start justify-between gap-4">
-                <p className="font-medium text-chalk-900">
-                  <span className="mr-2 text-chalk-400">{index + 1}.</span>
+                <p className="font-medium text-ink-900">
+                  <span className="mr-2 text-ink-400">{index + 1}.</span>
                   {question.prompt}
                 </p>
                 <span className="shrink-0">
@@ -142,9 +142,9 @@ export default async function AttemptPage({
               </div>
 
               {question.kind === "SHORT_ANSWER" ? (
-                <div className="rounded-lg bg-chalk-50 px-3 py-2">
+                <div className="rounded-lg bg-ink-50 px-3 py-2">
                   <p className="prose-note">
-                    {answer?.text?.trim() || <em className="text-chalk-400">No answer given</em>}
+                    {answer?.text?.trim() || <em className="text-ink-400">No answer given</em>}
                   </p>
                 </div>
               ) : (
@@ -157,10 +157,10 @@ export default async function AttemptPage({
                         key={choice.id}
                         className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${
                           correct
-                            ? "border-field-300 bg-field-50 text-field-900"
+                            ? "border-maroon-300 bg-maroon-50 text-maroon-900"
                             : chosen
-                              ? "border-red-200 bg-red-50 text-red-900"
-                              : "border-chalk-200 text-chalk-700"
+                              ? "border-maroon-200 bg-maroon-50 text-maroon-900"
+                              : "border-ink-200 text-ink-700"
                         }`}
                       >
                         <span>{choice.text}</span>
@@ -175,14 +175,14 @@ export default async function AttemptPage({
               )}
 
               {answer?.graderComment && (
-                <p className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
+                <p className="mt-3 rounded-lg bg-status-blue-bg px-3 py-2 text-sm text-status-blue-fg">
                   <span className="font-semibold">Note: </span>
                   {answer.graderComment}
                 </p>
               )}
 
               {question.rationale && !pending && (
-                <p className="mt-3 text-sm text-chalk-600">
+                <p className="mt-3 text-sm text-ink-600">
                   <span className="font-semibold">Why: </span>
                   {question.rationale}
                 </p>

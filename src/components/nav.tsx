@@ -23,8 +23,8 @@ export function NavLinks({ links }: { links: NavLink[] }) {
             aria-current={active ? "page" : undefined}
             className={`rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors ${
               active
-                ? "bg-field-700 text-white"
-                : "text-field-100 hover:bg-field-700/60 hover:text-white"
+                ? "bg-maroon-700 text-white"
+                : "text-white/80 hover:bg-maroon-700 hover:text-white"
             }`}
           >
             {link.label}

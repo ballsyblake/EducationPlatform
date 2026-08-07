@@ -64,7 +64,7 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
       <div className="space-y-8">
         {/* ------------------------------ Settings ----------------------------- */}
         <section className="card card-pad">
-          <h2 className="mb-4 text-lg font-semibold text-chalk-900">Course settings</h2>
+          <h2 className="mb-4 text-lg font-semibold text-ink-900">Course settings</h2>
           <form action={updateCourse} className="space-y-4">
             <input type="hidden" name="courseId" value={course.id} />
             <div className="grid gap-4 sm:grid-cols-2">
@@ -98,12 +98,12 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                 className="input"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm text-chalk-700">
+            <label className="flex items-center gap-2 text-sm text-ink-700">
               <input
                 type="checkbox"
                 name="published"
                 defaultChecked={course.published}
-                className="accent-field-600"
+                className="accent-maroon-600"
               />
               Published — coaches can see this course
             </label>
@@ -116,7 +116,7 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
         {/* ------------------------------- Roster ------------------------------ */}
         <section className="card card-pad">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-chalk-900">Roster</h2>
+            <h2 className="text-lg font-semibold text-ink-900">Roster</h2>
             <form action={enrollAllCoaches}>
               <input type="hidden" name="courseId" value={course.id} />
               <SubmitButton className="btn-secondary btn-sm" pendingLabel="Enrolling…">
@@ -126,19 +126,19 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
           </div>
 
           {coaches.length ? (
-            <ul className="divide-y divide-chalk-200">
+            <ul className="divide-y divide-ink-200">
               {coaches.map((coach) => {
                 const enrolled = enrolledIds.has(coach.id);
                 return (
                   <li key={coach.id} className="flex items-center justify-between gap-3 py-2.5">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-chalk-900">
+                      <p className="truncate text-sm font-medium text-ink-900">
                         {displayName(coach)}
                         {coach.role === "ADMIN" && (
-                          <span className="ml-2 text-xs font-normal text-chalk-500">admin</span>
+                          <span className="ml-2 text-xs font-normal text-ink-500">admin</span>
                         )}
                       </p>
-                      <p className="truncate text-xs text-chalk-500">
+                      <p className="truncate text-xs text-ink-500">
                         {coach.title ? `${coach.title} · ` : ""}
                         {coach.email}
                       </p>
@@ -159,9 +159,9 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
               })}
             </ul>
           ) : (
-            <p className="text-sm text-chalk-500">
+            <p className="text-sm text-ink-500">
               No staff yet.{" "}
-              <Link href="/admin/people" className="font-medium text-field-700 hover:underline">
+              <Link href="/admin/people" className="font-medium text-maroon-700 hover:underline">
                 Add coaches
               </Link>
               .
@@ -171,7 +171,7 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
 
         {/* ----------------------------- Assignments --------------------------- */}
         <section>
-          <h2 className="mb-3 text-lg font-semibold text-chalk-900">Assignments</h2>
+          <h2 className="mb-3 text-lg font-semibold text-ink-900">Assignments</h2>
           <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
             <div className="space-y-3">
               {course.assignments.length ? (
@@ -181,11 +181,11 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                       <div>
                         <Link
                           href={`/assignments/${assignment.id}`}
-                          className="font-medium text-chalk-900 hover:underline"
+                          className="font-medium text-ink-900 hover:underline"
                         >
                           {assignment.title}
                         </Link>
-                        <p className="mt-0.5 text-xs text-chalk-500">
+                        <p className="mt-0.5 text-xs text-ink-500">
                           {assignment.points} pts · due {formatDateTime(assignment.dueAt)} ·{" "}
                           {assignment._count.submissions} submission
                           {assignment._count.submissions === 1 ? "" : "s"}
@@ -195,10 +195,10 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                     </div>
 
                     <details className="mt-3">
-                      <summary className="cursor-pointer text-sm font-medium text-field-700">
+                      <summary className="cursor-pointer text-sm font-medium text-maroon-700">
                         Edit
                       </summary>
-                      <div className="mt-3 border-t border-chalk-200 pt-3">
+                      <div className="mt-3 border-t border-ink-200 pt-3">
                         <AssignmentForm
                           courseId={course.id}
                           assignment={{
@@ -228,12 +228,12 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                   </div>
                 ))
               ) : (
-                <div className="card card-pad text-sm text-chalk-500">No assignments yet.</div>
+                <div className="card card-pad text-sm text-ink-500">No assignments yet.</div>
               )}
             </div>
 
             <div className="card card-pad h-fit">
-              <h3 className="mb-4 font-semibold text-chalk-900">New assignment</h3>
+              <h3 className="mb-4 font-semibold text-ink-900">New assignment</h3>
               <AssignmentForm courseId={course.id} />
             </div>
           </div>
@@ -241,7 +241,7 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
 
         {/* -------------------------------- Quizzes ---------------------------- */}
         <section>
-          <h2 className="mb-3 text-lg font-semibold text-chalk-900">Quizzes</h2>
+          <h2 className="mb-3 text-lg font-semibold text-ink-900">Quizzes</h2>
           <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
             <div className="space-y-3">
               {course.quizzes.length ? (
@@ -253,8 +253,8 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-medium text-chalk-900">{quiz.title}</p>
-                        <p className="mt-0.5 text-xs text-chalk-500">
+                        <p className="font-medium text-ink-900">{quiz.title}</p>
+                        <p className="mt-0.5 text-xs text-ink-500">
                           {quiz._count.questions} question
                           {quiz._count.questions === 1 ? "" : "s"} · {quiz._count.attempts} attempt
                           {quiz._count.attempts === 1 ? "" : "s"} · due{" "}
@@ -266,12 +266,12 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                   </Link>
                 ))
               ) : (
-                <div className="card card-pad text-sm text-chalk-500">No quizzes yet.</div>
+                <div className="card card-pad text-sm text-ink-500">No quizzes yet.</div>
               )}
             </div>
 
             <div className="card card-pad h-fit">
-              <h3 className="mb-4 font-semibold text-chalk-900">New quiz</h3>
+              <h3 className="mb-4 font-semibold text-ink-900">New quiz</h3>
               <QuizSettingsForm courseId={course.id} />
             </div>
           </div>
@@ -279,7 +279,7 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
 
         {/* -------------------------------- Library ---------------------------- */}
         <section>
-          <h2 className="mb-3 text-lg font-semibold text-chalk-900">Library</h2>
+          <h2 className="mb-3 text-lg font-semibold text-ink-900">Library</h2>
           <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
             <div className="space-y-3">
               {course.materials.length ? (
@@ -289,8 +289,8 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                     className="card card-pad flex items-start justify-between gap-3"
                   >
                     <div className="min-w-0">
-                      <p className="font-medium text-chalk-900">{material.title}</p>
-                      <p className="mt-0.5 truncate text-xs text-chalk-500">
+                      <p className="font-medium text-ink-900">{material.title}</p>
+                      <p className="mt-0.5 truncate text-xs text-ink-500">
                         {material.upload
                           ? `${material.upload.filename} · ${formatBytes(material.upload.size)}`
                           : material.url}
@@ -310,23 +310,23 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                   </div>
                 ))
               ) : (
-                <div className="card card-pad text-sm text-chalk-500">
+                <div className="card card-pad text-sm text-ink-500">
                   Nothing in the library yet.
                 </div>
               )}
             </div>
 
             <div className="card card-pad h-fit">
-              <h3 className="mb-4 font-semibold text-chalk-900">Add material</h3>
+              <h3 className="mb-4 font-semibold text-ink-900">Add material</h3>
               <MaterialForm courseId={course.id} />
             </div>
           </div>
         </section>
 
         {/* ------------------------------ Danger zone -------------------------- */}
-        <section className="card card-pad border-red-200">
-          <h2 className="mb-2 text-lg font-semibold text-chalk-900">Delete course</h2>
-          <p className="mb-3 text-sm text-chalk-500">
+        <section className="card card-pad border-maroon-200">
+          <h2 className="mb-2 text-lg font-semibold text-ink-900">Delete course</h2>
+          <p className="mb-3 text-sm text-ink-500">
             Removes the course along with its assignments, quizzes, submissions, and library.
           </p>
           <form action={deleteCourse}>

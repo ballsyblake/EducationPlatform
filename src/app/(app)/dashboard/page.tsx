@@ -43,18 +43,18 @@ export default async function DashboardPage() {
       {queue && queue.total > 0 && (
         <Link
           href="/admin/grading"
-          className="mb-6 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 transition-colors hover:bg-amber-100"
+          className="mb-6 flex items-center justify-between rounded-xl border border-highlight-orange/40 bg-status-orange-bg px-5 py-4 transition-colors hover:bg-status-orange-bg"
         >
           <div>
-            <p className="font-semibold text-amber-900">
+            <p className="font-semibold text-status-orange-fg">
               {queue.total} item{queue.total === 1 ? "" : "s"} waiting on your feedback
             </p>
-            <p className="text-sm text-amber-800">
+            <p className="text-sm text-status-orange-fg">
               {queue.submissions} submission{queue.submissions === 1 ? "" : "s"} ·{" "}
               {queue.attempts} quiz attempt{queue.attempts === 1 ? "" : "s"}
             </p>
           </div>
-          <span className="text-sm font-semibold text-amber-900">Open grading →</span>
+          <span className="text-sm font-semibold text-status-orange-fg">Open grading →</span>
         </Link>
       )}
 
@@ -81,7 +81,7 @@ export default async function DashboardPage() {
       <div className="card card-pad mb-8">
         <div className="mb-2 flex items-center justify-between">
           <p className="section-title">Overall completion</p>
-          <p className="text-sm font-semibold text-chalk-700">
+          <p className="text-sm font-semibold text-ink-700">
             {summary.completed} of {summary.total}
           </p>
         </div>
@@ -89,7 +89,7 @@ export default async function DashboardPage() {
       </div>
 
       <section className="mb-8">
-        <h2 className="mb-3 text-lg font-semibold text-chalk-900">Up next</h2>
+        <h2 className="mb-3 text-lg font-semibold text-ink-900">Up next</h2>
         {upNext.length ? (
           <TaskList tasks={upNext} />
         ) : (
@@ -112,8 +112,8 @@ export default async function DashboardPage() {
       {recentlyGraded.length > 0 && (
         <section>
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-chalk-900">Recently graded</h2>
-            <Link href="/grades" className="text-sm font-medium text-field-700 hover:underline">
+            <h2 className="text-lg font-semibold text-ink-900">Recently graded</h2>
+            <Link href="/grades" className="text-sm font-medium text-maroon-700 hover:underline">
               All grades &amp; feedback →
             </Link>
           </div>

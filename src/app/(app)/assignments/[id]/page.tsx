@@ -71,7 +71,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
           )}
 
           <section className="card card-pad">
-            <h2 className="mb-4 text-lg font-semibold text-chalk-900">
+            <h2 className="mb-4 text-lg font-semibold text-ink-900">
               {locked ? "Your submission" : "Submit your work"}
             </h2>
 
@@ -86,18 +86,18 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
                           href={`/api/files/${file.id}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="font-medium text-field-700 hover:underline"
+                          className="font-medium text-maroon-700 hover:underline"
                         >
                           {file.filename}
                         </a>
-                        <span className="ml-2 text-xs text-chalk-500">
+                        <span className="ml-2 text-xs text-ink-500">
                           {formatBytes(file.size)}
                         </span>
                       </li>
                     ))}
                   </ul>
                 ) : null}
-                <p className="text-xs text-chalk-500">
+                <p className="text-xs text-ink-500">
                   Turned in {formatDateTime(submission?.submittedAt)}
                 </p>
               </div>
@@ -113,16 +113,16 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
                             href={`/api/files/${file.id}`}
                             target="_blank"
                             rel="noreferrer"
-                            className="font-medium text-field-700 hover:underline"
+                            className="font-medium text-maroon-700 hover:underline"
                           >
                             {file.filename}
                           </a>
-                          <span className="text-xs text-chalk-500">{formatBytes(file.size)}</span>
+                          <span className="text-xs text-ink-500">{formatBytes(file.size)}</span>
                           <form action={removeAttachment}>
                             <input type="hidden" name="uploadId" value={file.id} />
                             <input type="hidden" name="assignmentId" value={assignment.id} />
                             <SubmitButton
-                              className="text-xs font-medium text-red-700 hover:underline"
+                              className="text-xs font-medium text-maroon-700 hover:underline"
                               pendingLabel="Removing…"
                             >
                               Remove
@@ -151,32 +151,32 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
             {graded ? (
               <div className="space-y-3">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold text-field-700">{submission.score}</span>
-                  <span className="text-sm text-chalk-500">/ {assignment.points}</span>
+                  <span className="text-3xl font-bold text-maroon-700">{submission.score}</span>
+                  <span className="text-sm text-ink-500">/ {assignment.points}</span>
                 </div>
                 {submission.feedback ? (
                   <p className="prose-note">{submission.feedback}</p>
                 ) : (
-                  <p className="text-sm text-chalk-500">No written comments.</p>
+                  <p className="text-sm text-ink-500">No written comments.</p>
                 )}
-                <p className="text-xs text-chalk-500">
+                <p className="text-xs text-ink-500">
                   Graded {formatDateTime(submission.gradedAt)}
                   {submission.gradedBy && ` by ${submission.gradedBy.name ?? submission.gradedBy.email}`}
                 </p>
               </div>
             ) : submission?.status === "RETURNED" ? (
               <div className="space-y-2">
-                <p className="text-sm font-medium text-amber-800">
+                <p className="text-sm font-medium text-status-orange-fg">
                   Sent back for revision — update your work and turn it in again.
                 </p>
                 {submission.feedback && <p className="prose-note">{submission.feedback}</p>}
               </div>
             ) : locked ? (
-              <p className="text-sm text-chalk-500">
+              <p className="text-sm text-ink-500">
                 Turned in and waiting on your coordinator&apos;s review.
               </p>
             ) : (
-              <p className="text-sm text-chalk-500">
+              <p className="text-sm text-ink-500">
                 Feedback appears here once your work has been reviewed.
               </p>
             )}
@@ -186,24 +186,24 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
             <h2 className="mb-2 section-title">Details</h2>
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between gap-3">
-                <dt className="text-chalk-500">Course</dt>
-                <dd className="text-right font-medium text-chalk-800">
+                <dt className="text-ink-500">Course</dt>
+                <dd className="text-right font-medium text-ink-800">
                   {assignment.course.title}
                 </dd>
               </div>
               <div className="flex justify-between gap-3">
-                <dt className="text-chalk-500">Points</dt>
-                <dd className="font-medium text-chalk-800">{assignment.points}</dd>
+                <dt className="text-ink-500">Points</dt>
+                <dd className="font-medium text-ink-800">{assignment.points}</dd>
               </div>
               <div className="flex justify-between gap-3">
-                <dt className="text-chalk-500">Due</dt>
-                <dd className="text-right font-medium text-chalk-800">
+                <dt className="text-ink-500">Due</dt>
+                <dd className="text-right font-medium text-ink-800">
                   {formatDateTime(assignment.dueAt)}
                 </dd>
               </div>
               <div className="flex justify-between gap-3">
-                <dt className="text-chalk-500">Accepts</dt>
-                <dd className="text-right font-medium text-chalk-800">
+                <dt className="text-ink-500">Accepts</dt>
+                <dd className="text-right font-medium text-ink-800">
                   {[assignment.allowText && "Text", assignment.allowFiles && "Files"]
                     .filter(Boolean)
                     .join(" + ") || "—"}

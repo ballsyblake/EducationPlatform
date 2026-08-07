@@ -31,11 +31,11 @@ export function InviteCallout({ invite, message }: { invite: Invite; message?: s
   const expires = new Date(invite.expiresAt);
 
   return (
-    <div className="space-y-3 rounded-lg border border-field-200 bg-field-50 px-3 py-3">
-      {message && <p className="text-sm text-field-800">{message}</p>}
+    <div className="space-y-3 rounded-lg border border-maroon-200 bg-maroon-50 px-3 py-3">
+      {message && <p className="text-sm text-maroon-800">{message}</p>}
 
       <div className="rounded bg-white px-2 py-2">
-        <p className="font-mono text-xs break-all text-chalk-800">{invite.url}</p>
+        <p className="font-mono text-xs break-all text-ink-800">{invite.url}</p>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -59,7 +59,7 @@ export function InviteCallout({ invite, message }: { invite: Invite; message?: s
         />
       )}
 
-      <p className="text-xs text-field-700">
+      <p className="text-xs text-maroon-700">
         Send it to {invite.email} however you like — text, Slack, or hold up the QR code. Works
         once, and expires{" "}
         {expires.toLocaleDateString("en-US", { month: "short", day: "numeric" })}.

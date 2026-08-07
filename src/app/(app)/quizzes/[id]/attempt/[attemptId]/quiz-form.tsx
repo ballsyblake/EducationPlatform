@@ -33,11 +33,11 @@ export function QuizForm({
           <legend className="sr-only">Question {index + 1}</legend>
 
           <div className="mb-3 flex items-start justify-between gap-4">
-            <p className="font-medium text-chalk-900">
-              <span className="mr-2 text-chalk-400">{index + 1}.</span>
+            <p className="font-medium text-ink-900">
+              <span className="mr-2 text-ink-400">{index + 1}.</span>
               {question.prompt}
             </p>
-            <span className="shrink-0 text-xs text-chalk-500">
+            <span className="shrink-0 text-xs text-ink-500">
               {question.points} pt{question.points === 1 ? "" : "s"}
             </span>
           </div>
@@ -54,15 +54,15 @@ export function QuizForm({
               {question.choices.map((choice) => (
                 <label
                   key={choice.id}
-                  className="flex cursor-pointer items-start gap-3 rounded-lg border border-chalk-200 px-3 py-2 text-sm hover:bg-chalk-50 has-checked:border-field-400 has-checked:bg-field-50"
+                  className="flex cursor-pointer items-start gap-3 rounded-lg border border-ink-200 px-3 py-2 text-sm hover:bg-ink-50 has-checked:border-maroon-400 has-checked:bg-maroon-50"
                 >
                   <input
                     type="radio"
                     name={`q_${question.id}`}
                     value={choice.id}
-                    className="mt-0.5 accent-field-600"
+                    className="mt-0.5 accent-maroon-600"
                   />
-                  <span className="text-chalk-800">{choice.text}</span>
+                  <span className="text-ink-800">{choice.text}</span>
                 </label>
               ))}
             </div>
@@ -79,7 +79,7 @@ export function QuizForm({
         >
           Submit quiz
         </SubmitButton>
-        <p className="text-xs text-chalk-500">
+        <p className="text-xs text-ink-500">
           Unanswered questions are marked incorrect.
         </p>
       </div>

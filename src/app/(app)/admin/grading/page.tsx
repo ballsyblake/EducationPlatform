@@ -65,7 +65,7 @@ export default async function GradingPage({
 
       {attempts.length > 0 && (
         <section className="mb-10">
-          <h2 className="mb-3 text-lg font-semibold text-chalk-900">Quiz attempts to review</h2>
+          <h2 className="mb-3 text-lg font-semibold text-ink-900">Quiz attempts to review</h2>
           <div className="space-y-4">
             {attempts.map((attempt) => {
               const shortAnswers: ReviewableAnswer[] = attempt.answers
@@ -83,8 +83,8 @@ export default async function GradingPage({
                 <div key={attempt.id} className="card card-pad">
                   <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="font-semibold text-chalk-900">{displayName(attempt.user)}</p>
-                      <p className="text-xs text-chalk-500">
+                      <p className="font-semibold text-ink-900">{displayName(attempt.user)}</p>
+                      <p className="text-xs text-ink-500">
                         {attempt.quiz.course.title} · {attempt.quiz.title} · attempt{" "}
                         {attempt.attemptNo} · submitted {formatDateTime(attempt.submittedAt)}
                       </p>
@@ -107,15 +107,15 @@ export default async function GradingPage({
       )}
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-chalk-900">Assignment submissions</h2>
+        <h2 className="mb-3 text-lg font-semibold text-ink-900">Assignment submissions</h2>
         {submissions.length ? (
           <div className="space-y-4">
             {submissions.map((submission) => (
               <div key={submission.id} className="card card-pad">
                 <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="font-semibold text-chalk-900">{displayName(submission.user)}</p>
-                    <p className="text-xs text-chalk-500">
+                    <p className="font-semibold text-ink-900">{displayName(submission.user)}</p>
+                    <p className="text-xs text-ink-500">
                       {submission.assignment.course.title} · {submission.assignment.title} ·
                       submitted {formatDateTime(submission.submittedAt)}
                     </p>
@@ -133,11 +133,11 @@ export default async function GradingPage({
                   <div>
                     <p className="section-title mb-2">Submission</p>
                     {submission.text ? (
-                      <p className="prose-note rounded-lg bg-chalk-50 px-3 py-2">
+                      <p className="prose-note rounded-lg bg-ink-50 px-3 py-2">
                         {submission.text}
                       </p>
                     ) : (
-                      <p className="text-sm text-chalk-400">No written response.</p>
+                      <p className="text-sm text-ink-400">No written response.</p>
                     )}
 
                     {submission.files.length > 0 && (
@@ -148,11 +148,11 @@ export default async function GradingPage({
                               href={`/api/files/${file.id}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="font-medium text-field-700 hover:underline"
+                              className="font-medium text-maroon-700 hover:underline"
                             >
                               {file.filename}
                             </a>
-                            <span className="ml-2 text-xs text-chalk-500">
+                            <span className="ml-2 text-xs text-ink-500">
                               {formatBytes(file.size)}
                             </span>
                           </li>
@@ -170,8 +170,8 @@ export default async function GradingPage({
                     />
 
                     {submission.status === "SUBMITTED" && (
-                      <details className="mt-4 border-t border-chalk-200 pt-3">
-                        <summary className="cursor-pointer text-sm font-medium text-chalk-600">
+                      <details className="mt-4 border-t border-ink-200 pt-3">
+                        <summary className="cursor-pointer text-sm font-medium text-ink-600">
                           Return for revision instead
                         </summary>
                         <form action={returnForRevision} className="mt-3 space-y-2">

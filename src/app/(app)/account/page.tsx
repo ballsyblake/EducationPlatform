@@ -23,16 +23,16 @@ export default async function AccountPage() {
         <h2 className="mb-2 section-title">Account details</h2>
         <dl className="space-y-2 text-sm">
           <div className="flex justify-between gap-3">
-            <dt className="text-chalk-500">Email</dt>
-            <dd className="font-medium text-chalk-800">{user.email}</dd>
+            <dt className="text-ink-500">Email</dt>
+            <dd className="font-medium text-ink-800">{user.email}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-chalk-500">Name</dt>
-            <dd className="font-medium text-chalk-800">{user.name ?? "—"}</dd>
+            <dt className="text-ink-500">Name</dt>
+            <dd className="font-medium text-ink-800">{user.name ?? "—"}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-chalk-500">Role on staff</dt>
-            <dd className="font-medium text-chalk-800">{user.title ?? "—"}</dd>
+            <dt className="text-ink-500">Role on staff</dt>
+            <dd className="font-medium text-ink-800">{user.title ?? "—"}</dd>
           </div>
         </dl>
         <p className="hint mt-3">Your coordinator can update these from the Staff page.</p>
@@ -40,17 +40,17 @@ export default async function AccountPage() {
 
       <section className="card card-pad mt-6">
         <h2 className="mb-2 section-title">Signed-in devices</h2>
-        <p className="mb-3 text-sm text-chalk-600">
+        <p className="mb-3 text-sm text-ink-600">
           There&apos;s no password on this account — you stay signed in on each device you&apos;ve
           opened a sign-in link on. Sign the others out if you&apos;ve used a shared or borrowed
           one.
         </p>
 
-        <ul className="mb-4 space-y-1 text-sm text-chalk-700">
+        <ul className="mb-4 space-y-1 text-sm text-ink-700">
           {sessions.map((session, index) => (
             <li key={session.id} className="flex justify-between gap-3">
               <span>{index === 0 ? "This device" : `Device ${index + 1}`}</span>
-              <span className="text-xs text-chalk-500">
+              <span className="text-xs text-ink-500">
                 last used {formatDateTime(session.lastSeenAt)}
               </span>
             </li>

@@ -64,8 +64,8 @@ export function AddStaffForm({ emailEnabled }: { emailEnabled: boolean }) {
       </div>
 
       {emailEnabled && (
-        <label className="flex items-center gap-2 text-sm text-chalk-700">
-          <input type="checkbox" name="sendEmail" className="accent-field-600" />
+        <label className="flex items-center gap-2 text-sm text-ink-700">
+          <input type="checkbox" name="sendEmail" className="accent-maroon-600" />
           Email the link instead of showing it here
         </label>
       )}
@@ -76,7 +76,7 @@ export function AddStaffForm({ emailEnabled }: { emailEnabled: boolean }) {
         (state.invite ? (
           <InviteCallout invite={state.invite} message={state.message} />
         ) : (
-          <p className="rounded-lg bg-field-50 px-3 py-2 text-sm text-field-800">{state.message}</p>
+          <p className="rounded-lg bg-maroon-50 px-3 py-2 text-sm text-maroon-800">{state.message}</p>
         ))}
 
       <SubmitButton className="btn-primary w-full" pendingLabel="Adding…">

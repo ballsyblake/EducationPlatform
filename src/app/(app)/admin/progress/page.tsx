@@ -94,8 +94,8 @@ export default async function ProgressPage({
               <div key={row.user.id} className="card card-pad">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="font-semibold text-chalk-900">{displayName(row.user)}</p>
-                    <p className="text-xs text-chalk-500">
+                    <p className="font-semibold text-ink-900">{displayName(row.user)}</p>
+                    <p className="text-xs text-ink-500">
                       {row.user.title ? `${row.user.title} · ` : ""}
                       {row.user.email}
                     </p>
@@ -116,7 +116,7 @@ export default async function ProgressPage({
                     value={row.summary.completionPct}
                     tone={overdue ? "warn" : "good"}
                   />
-                  <span className="text-xs font-semibold whitespace-nowrap text-chalk-600">
+                  <span className="text-xs font-semibold whitespace-nowrap text-ink-600">
                     {row.summary.completed}/{row.summary.total}
                   </span>
                 </div>
@@ -129,7 +129,7 @@ export default async function ProgressPage({
                         <li key={`${task.kind}-${task.id}`}>
                           <span
                             className={`badge ${
-                              late ? "bg-red-100 text-red-800" : "bg-chalk-100 text-chalk-600"
+                              late ? "bg-maroon-100 text-maroon-800" : "bg-ink-100 text-ink-600"
                             }`}
                             title={task.dueAt ? `Due ${formatDateTime(task.dueAt)}` : "No due date"}
                           >
@@ -139,7 +139,7 @@ export default async function ProgressPage({
                       );
                     })}
                     {row.summary.outstanding > openItems.length && (
-                      <li className="badge bg-chalk-100 text-chalk-500">
+                      <li className="badge bg-ink-100 text-ink-500">
                         +{row.summary.outstanding - openItems.length} more
                       </li>
                     )}

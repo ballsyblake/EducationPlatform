@@ -20,7 +20,7 @@ export function CreateCourseForm() {
           id="course-title"
           name="title"
           required
-          placeholder="Cover 3 Install"
+          placeholder="Defending Principles"
           className="input"
         />
       </div>
@@ -45,8 +45,8 @@ export function CreateCourseForm() {
         />
       </div>
 
-      <label className="flex items-center gap-2 text-sm text-chalk-700">
-        <input type="checkbox" name="published" className="accent-field-600" />
+      <label className="flex items-center gap-2 text-sm text-ink-700">
+        <input type="checkbox" name="published" className="accent-maroon-600" />
         Publish immediately
       </label>
 

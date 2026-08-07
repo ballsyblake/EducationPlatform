@@ -101,6 +101,42 @@ link that goes out.
 Free options exist if you want email without a bill: a Gmail app password works
 over SMTP, as does Brevo's free tier. Neither is required.
 
+## Brand
+
+The interface follows the Football Queensland Brand Guidelines (V2.0).
+
+**Colour.** Maroon `#88133D` leads, with Deep Maroon `#621333` as the second
+primary — they sit at `maroon-600` and `maroon-800` so the token always resolves
+to the exact brand value rather than an approximation. Neutrals are tints of
+black, per the note that black is a text colour or a 10% tint as a background
+and never a main brand colour; `ink-100` is that 10% tint. The four highlight
+colours appear only as small tinted fills behind dark text — at full strength
+they are far too light to read as type.
+
+Two decisions worth knowing, both open to override:
+
+- **The palette has no red**, so anything urgent — overdue work, errors,
+  destructive buttons — speaks in Maroon, and destructive actions are set apart
+  by shape (outlined) rather than hue. If you would rather have a conventional
+  red for danger, that is a deliberate departure from the guidelines and needs a
+  call from Marketing.
+- **A positive figure uses the darkened green** rather than Maroon, so an
+  all-clear on the dashboard does not read as an alarm.
+
+**Type.** Gibson is the brand typeface. It is licensed, so it is not bundled;
+the guidelines name Arial as the substitute where Gibson is unavailable, which
+is what renders. Add a licensed Gibson webfont and it takes over automatically —
+the stack is `--font-brand`. Main headlines are SemiBold, all caps and tracked
+out to match the logo (the `.headline` class); sub-headings and body stay in
+sentence case.
+
+**Logo.** No logo is drawn anywhere in this codebase. The guidelines forbid
+re-creating, re-drawing, or typesetting it, so the app renders official artwork
+when supplied and otherwise shows its own name in brand type. See
+[`public/brand/README.md`](public/brand/README.md) for how to add the files —
+including which version belongs on the Deep Maroon header versus the white
+sign-in page.
+
 ## Security notes
 
 Requesting a link for an address that isn't on staff returns the same

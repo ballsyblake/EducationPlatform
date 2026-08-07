@@ -41,7 +41,7 @@ export function MaterialForm({ courseId }: { courseId: string }) {
             id="material-title"
             name="title"
             required
-            placeholder="Cover 3 beaters — cut-ups"
+            placeholder="Defending as a unit — session video"
             className="input"
           />
         </div>
@@ -72,11 +72,11 @@ export function MaterialForm({ courseId }: { courseId: string }) {
             id="material-file"
             name="file"
             type="file"
-            className="block w-full text-sm text-chalk-600 file:mr-3 file:rounded-lg file:border-0 file:bg-chalk-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-chalk-700 hover:file:bg-chalk-200"
+            className="block w-full text-sm text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-ink-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-ink-700 hover:file:bg-ink-200"
           />
           <p className="hint">
-            Playbook PDFs, install docs, or images. Post film as a video link instead — uploads
-            are capped, and YouTube/Vimeo play inline.
+            Session plans, PDFs or images. Post video as a link instead — uploads are capped,
+            and YouTube/Vimeo play inline.
           </p>
         </div>
       ) : (
@@ -142,7 +142,7 @@ export function AssignmentForm({
           name="title"
           required
           defaultValue={assignment?.title}
-          placeholder="Self-scout: 3rd &amp; medium tendencies"
+          placeholder="Session plan: defending in wide areas"
           className="input"
         />
       </div>
@@ -156,7 +156,7 @@ export function AssignmentForm({
           name="instructions"
           rows={4}
           defaultValue={assignment?.instructions ?? ""}
-          placeholder="What the coach needs to turn in, and what you're looking for."
+          placeholder="What the coach needs to submit, and what you're looking for."
           className="input"
         />
       </div>
@@ -189,13 +189,13 @@ export function AssignmentForm({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-4 text-sm text-chalk-700">
+      <div className="flex flex-wrap gap-4 text-sm text-ink-700">
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
             name="allowText"
             defaultChecked={assignment?.allowText ?? true}
-            className="accent-field-600"
+            className="accent-maroon-600"
           />
           Written response
         </label>
@@ -204,7 +204,7 @@ export function AssignmentForm({
             type="checkbox"
             name="allowFiles"
             defaultChecked={assignment?.allowFiles ?? true}
-            className="accent-field-600"
+            className="accent-maroon-600"
           />
           File uploads
         </label>
@@ -213,7 +213,7 @@ export function AssignmentForm({
             type="checkbox"
             name="published"
             defaultChecked={assignment?.published ?? true}
-            className="accent-field-600"
+            className="accent-maroon-600"
           />
           Visible to coaches
         </label>
@@ -259,7 +259,7 @@ export function QuizSettingsForm({
           name="title"
           required
           defaultValue={quiz?.title}
-          placeholder="Cover 3 rules check"
+          placeholder="Laws of the game — check"
           className="input"
         />
       </div>
@@ -306,12 +306,12 @@ export function QuizSettingsForm({
         </div>
       </div>
 
-      <label className="flex items-center gap-2 text-sm text-chalk-700">
+      <label className="flex items-center gap-2 text-sm text-ink-700">
         <input
           type="checkbox"
           name="published"
           defaultChecked={quiz?.published ?? true}
-          className="accent-field-600"
+          className="accent-maroon-600"
         />
         Visible to coaches
       </label>
@@ -348,7 +348,7 @@ export function QuestionForm({ quizId, courseId }: { quizId: string; courseId: s
           name="prompt"
           rows={2}
           required
-          placeholder="With Cover 3, who has the flat to the field?"
+          placeholder="When is a player in an offside position?"
           className="input"
         />
       </div>
@@ -396,7 +396,7 @@ export function QuestionForm({ quizId, courseId }: { quizId: string; courseId: s
                 value={i}
                 defaultChecked={i === 0}
                 aria-label={`Option ${i + 1} is correct`}
-                className="accent-field-600"
+                className="accent-maroon-600"
               />
               <input
                 name={`choice_${i}`}
@@ -421,7 +421,7 @@ export function QuestionForm({ quizId, courseId }: { quizId: string; courseId: s
       )}
 
       {kind === "SHORT_ANSWER" && (
-        <p className="rounded-lg bg-chalk-100 px-3 py-2 text-sm text-chalk-600">
+        <p className="rounded-lg bg-ink-100 px-3 py-2 text-sm text-ink-600">
           Written answers can&apos;t be auto-graded — this quiz will land in your grading queue
           after a coach submits it.
         </p>

@@ -54,7 +54,7 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
         <div className="card card-pad mb-8">
           <div className="mb-2 flex items-center justify-between">
             <p className="section-title">Your progress in this course</p>
-            <p className="text-sm font-semibold text-chalk-700">
+            <p className="text-sm font-semibold text-ink-700">
               {summary.completed} of {summary.total} complete
               {summary.average !== null && ` · ${summary.average}% avg`}
             </p>
@@ -64,7 +64,7 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
       )}
 
       <section className="mb-8">
-        <h2 className="mb-3 text-lg font-semibold text-chalk-900">Assigned work</h2>
+        <h2 className="mb-3 text-lg font-semibold text-ink-900">Assigned work</h2>
         {tasks.length ? (
           <TaskList tasks={tasks} />
         ) : (
@@ -76,10 +76,10 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-chalk-900">
+        <h2 className="mb-3 text-lg font-semibold text-ink-900">
           Library
-          <span className="ml-2 text-sm font-normal text-chalk-500">
-            playbooks, install docs, and film
+          <span className="ml-2 text-sm font-normal text-ink-500">
+            session plans, resources and video
           </span>
         </h2>
         {course.materials.length ? (
@@ -87,7 +87,7 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
         ) : (
           <EmptyState
             title="Nothing in the library yet"
-            description="Playbook PDFs, cut-ups, and install videos posted by your coordinator show up here."
+            description="Session plans, resources and video posted by your coordinator show up here."
           />
         )}
       </section>
