@@ -1,10 +1,26 @@
-# Coach Education
+# Football Queensland platform
 
-A Canvas-style learning platform for association football, built for Football
-Queensland. Coach educators post coursework; coaches complete assignments, take
-quizzes, and get feedback. Sign-in is passwordless — there are no passwords
-anywhere in the system — and running it needs no email server. See
-[Signing in](#signing-in).
+Two products for association football in Queensland, in one deployment:
+
+- **[Coach Education](#coach-education)** — a Canvas-style learning platform.
+  Coach educators post coursework; coaches complete assignments, take quizzes,
+  and get feedback.
+- **[Club Development & Assessment](#club-development--assessment-cda)** — the
+  CDA Portal. Football Queensland rates each affiliated club once a year across
+  four domains and awards a shield.
+
+They share one account system, one database and one deploy. Sign-in is
+passwordless — there are no passwords anywhere in the system — and running it
+needs no email server. See [Signing in](#signing-in).
+
+An account has exactly one role. `ADMIN` works in both products; `COACH`
+belongs to Coach Education; `CLUB` and `ASSESSOR` belong to the CDA Portal.
+Signing in lands you in whichever product is yours, and admins get a link
+across in the header.
+
+---
+
+# Coach Education
 
 ## What it does
 
@@ -28,6 +44,97 @@ anywhere in the system — and running it needs no email server. See
 coach submits. Written answers can't be auto-graded, so an attempt containing
 one lands in the grading queue as `AWAITING_REVIEW` until an educator reads it
 and awards points. Assignment submissions are always graded by a human.
+
+---
+
+# Club Development & Assessment (CDA)
+
+Football Queensland assesses affiliated clubs each year to determine how well
+they develop players and operate as a football organisation. Clubs are rated
+across four domains and awarded a shield — Bronze, Silver, Gold or Platinum.
+
+## The rating
+
+| Domain                       | Default weight | How it is scored                                                            |
+| ---------------------------- | -------------- | --------------------------------------------------------------------------- |
+| **Technical Qualifications** | 30%            | From the club's staff register — qualification, experience, employment type |
+| **Planning**                 | 20%            | 13 criteria scored by assessors                                             |
+| **Delivery**                 | 30%            | 14 criteria scored by assessors                                             |
+| **Outcomes**                 | 20%            | 13 criteria scored by assessors                                             |
+
+Forty criteria across the three assessed domains, each carrying 163 evidence
+points between them. An assessor never awards a star directly: they tick the
+evidence points they saw, and the count maps to a 0–3 star band whose
+thresholds are shown beside it. Stars are recomputed server-side on save and
+never read from the form.
+
+**Non-Negotiables.** Nine mandatory checks — a qualified Technical Director,
+Blue Card compliance, female coaching presence, minimum coaching ratios, all
+players registered, governance and AGM, member protection, insurance and
+facilities, and financial standing with FQ. Failing any one means no shield at
+all, whatever the score. An unverified check counts against eligibility exactly
+as a failure does: a shield awarded on unchecked evidence is the outcome the
+gate exists to prevent.
+
+Weights and shield thresholds are stored **per cycle**, so re-tuning next year's
+rubric cannot change what a club was awarded in a year already published. The
+full rubric is visible in the app at `/cda/cdu/rubric`.
+
+## The three roles
+
+**Club.** The club's designated administrator. Enters the technical staff
+register, declares the nine Non-Negotiables, reports participation figures, and
+submits. Sees only their own club, and only their shield, overall percentage,
+four domain scores and Non-Negotiable verdicts — no weights, no thresholds, no
+criterion-level stars, no assessor names.
+
+**Assessor.** Scores the clubs assigned to them, up to three assessors per club.
+Sees only their own scores, never the other assessors' — three independent
+judgements is the point, and one visible score anchors the next two. Has
+read-only access to everything the club submitted, so Outcomes can be scored
+against the club's own figures.
+
+**Admin / CDU.** Football Queensland's Club Development Unit. Manages clubs,
+the assessor pool and the cycle; verifies Non-Negotiables; reconciles the
+assessors into one score; locks and releases the rating.
+
+## The flow
+
+1. Club enters staff, metrics and Non-Negotiable declarations, then submits.
+2. Up to three assessors score Planning, Delivery and Outcomes independently.
+3. When the last assessor submits, the club moves to reconciliation on its own.
+4. The CDU accepts everything the assessors agreed on in one action, then works
+   through what is actually split. Each row pre-selects the median; departing
+   from it asks for a rationale.
+5. Locking computes the weighted total, determines the shield, applies the
+   Non-Negotiable gate, and **freezes** all of it onto the assessment row.
+6. Releasing makes the rating visible to the club.
+
+Before the lock every view recomputes live, which keeps the CDU's in-flight
+picture honest. After it, the frozen columns are read back — so a criterion
+reworded next March cannot move a rating a club was given in June. Unlocking
+clears the frozen columns rather than leaving a stale result beside a live one.
+
+## Trying it
+
+```bash
+npm run cda:seed     # catalogue + six demo clubs at every stage of the flow
+```
+
+| Email                            | Role                                              |
+| -------------------------------- | ------------------------------------------------- |
+| `head.coach@example.com`         | Admin / CDU — the whole cycle                     |
+| `admin@cityside.example.com`     | Club — Brisbane Cityside, rated Gold              |
+| `admin@rockycentral.example.com` | Club — Rockhampton, ineligible on two checks      |
+| `admin@tropics.example.com`      | Club — Cairns, still entering data                |
+| `a.baptiste@fq.example.com`      | Assessor — five clubs, one part-scored            |
+| `n.calloway@fq.example.com`      | Assessor — two clubs                              |
+
+`npm run cda:catalog` seeds only the criteria, Non-Negotiables and
+qualification ladder. It is additive and never overwrites wording the CDU has
+since edited, so it is safe to run on every deploy.
+
+---
 
 ## Stack
 
@@ -320,7 +427,9 @@ a hosted database.
 | `npm run db:migrate` | Create and apply a migration (local development)   |
 | `npm run db:deploy`  | Apply pending migrations (SQLite or Turso)         |
 | `npm run db:seed`    | Reset seeded data and reload the sample program    |
-| `npm run db:reset`   | Drop the database, re-migrate, and re-seed         |
+| `npm run cda:catalog` | Seed CDA criteria, Non-Negotiables and qualifications (additive, safe on every deploy) |
+| `npm run cda:seed`   | The catalogue, plus demo clubs, assessors and assessments |
+| `npm run db:reset`   | Drop the database, re-migrate, and re-seed both products |
 | `npm run db:studio`  | Browse the database in Prisma Studio               |
 | `npm run bootstrap:admin` | Grant admin access to `ADMIN_EMAILS` and print a sign-in link |
 
@@ -346,13 +455,16 @@ The one SQLite-specific workaround in application code is in
 
 ```
 prisma/
-  schema.prisma        Data model
+  schema.prisma        Data model for both products
   seed.ts              Sample coaches, courses, and graded history
+  cda-catalog.ts       The FQ rubric as shipped: 40 criteria, 9 Non-Negotiables,
+                       the AFC/FA qualification ladder
+  cda-seed.ts          Catalogue seeding (additive) and demo clubs (destructive)
 src/
   app/
     login/             Sign-in link request
     auth/verify/       Token consumption → session
-    (app)/             Everything behind authentication
+    (app)/             Coach Education, behind authentication
       account/         Your details and signed-in devices
       dashboard/       Coach home
       courses/         Course list, detail, and library
@@ -360,6 +472,11 @@ src/
       quizzes/         Taking a quiz and reading results
       grades/          Score and feedback history
       admin/           Courses, quiz builder, grading queue, progress, staff
+    (cda)/cda/         Club Development & Assessment
+      club/            Staff register, Non-Negotiables, participation, rating
+      assess/          An assessor's clubs and the scoring screen
+      cdu/             Cycle board, clubs, assessors, rubric,
+                       reconciliation, lock and release
     api/files/[id]/    Authorization-checked file streaming
   lib/
     auth.ts            Sign-in links, sliding sessions, role guards
@@ -368,7 +485,18 @@ src/
     coursework.ts      Task aggregation and progress summaries
     uploads.ts         File validation and database-backed storage
     adapter.ts         Picks SQLite or Turso from DATABASE_URL
+    cda/
+      rubric.ts        Role weights, points, star thresholds — the fixed rubric
+      scoring.ts       Pure scoring: domains, shield, eligibility, agreement
+      assessment.ts    Assembles an assessment; freezes the result at lock
+      access.ts        Club / assessor / CDU authorization
 scripts/
   migrate.ts           Applies pending migrations to SQLite or Turso
   bootstrap-admin.ts   Ensures ADMIN_EMAILS can sign in; prints a link
+  seed-cda.ts          Seeds the CDA catalogue, optionally with demo data
 ```
+
+`src/lib/cda/scoring.ts` touches no database — it takes plain rows and returns
+plain results. That is what makes the rubric testable, and what lets the
+reconciliation screen show the total a criterion *would* produce before
+anything is written down.

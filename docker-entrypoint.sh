@@ -31,5 +31,12 @@ npx tsx scripts/migrate.ts
 echo "[boot] checking admin accounts…"
 npx tsx scripts/bootstrap-admin.ts
 
+# Adds any CDA criteria, Non-Negotiables or qualifications this image ships that
+# the database hasn't got yet. Additive only: rows that already exist are left
+# alone, so wording the Club Development Unit has edited since is never
+# overwritten. No demo data — that needs `npm run cda:seed` explicitly.
+echo "[boot] syncing the CDA rubric catalogue…"
+npx tsx scripts/seed-cda.ts
+
 echo "[boot] starting server on port ${PORT:-3000}"
 exec npx next start --port "${PORT:-3000}" --hostname 0.0.0.0

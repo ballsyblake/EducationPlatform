@@ -44,6 +44,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
 
           <div className="order-2 ml-auto flex items-center gap-3 md:order-3">
+            {/* The only way into the club development portal from this side.
+                An admin lands here after signing in, so without this the other
+                product is reachable only by typing the URL. */}
+            {isAdmin(user) && (
+              <Link
+                href="/cda"
+                className="hidden rounded-lg px-2 py-1 text-xs font-medium text-white/70 hover:bg-maroon-700 hover:text-white lg:block"
+              >
+                Club Development →
+              </Link>
+            )}
+
             <Link href="/account" className="flex items-center gap-3 hover:opacity-90">
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-medium">{displayName(user)}</p>

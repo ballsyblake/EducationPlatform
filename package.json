@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A Canvas-style coach education platform for association football.",
+  "description": "Coach education and club development for Football Queensland.",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
