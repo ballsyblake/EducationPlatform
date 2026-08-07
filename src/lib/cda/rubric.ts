@@ -200,6 +200,16 @@ export const STAFF_ROLE_SPECS: Record<StaffRole, StaffRoleSpec> = {
 export const STAFF_ROLE_ORDER = Object.keys(STAFF_ROLE_SPECS) as StaffRole[];
 
 /**
+ * Football Queensland's cap on how many assessors may score one club.
+ *
+ * Policy rather than schema, so it lives here and is enforced in the assign
+ * action — raising it should not require a migration. It can't live in the
+ * actions file itself: that carries "use server", where only async functions
+ * may be exported.
+ */
+export const MAX_ASSESSORS_PER_CLUB = 3;
+
+/**
  * A goalkeeping licence in an outfield role — or the reverse — is a real
  * qualification, just not the one the role calls for, so it scores at half.
  * Community certificates are general-purpose and never discounted.

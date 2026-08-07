@@ -72,7 +72,12 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
 
   const criteria = await prisma.criterion.findMany({
     where: { active: true, domain: { in: [...ASSESSED_DOMAINS] } },
-    orderBy: [{ domain: "asc" }, { position: "asc" }],
+    // Position alone, deliberately. Positions are assigned across the whole
+    // catalogue in domain order, so this yields Planning → Delivery → Outcomes.
+    // Ordering by `domain` first would not: SQLite stores enums as TEXT, so
+    // "asc" is alphabetical — Delivery, Outcomes, Planning — which is neither
+    // the schema's order nor the order FQ presents the domains in.
+    orderBy: [{ position: "asc" }, { code: "asc" }],
     select: { id: true, code: true, title: true, domain: true, weight: true },
   });
 

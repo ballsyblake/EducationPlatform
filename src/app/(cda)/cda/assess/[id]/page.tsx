@@ -43,7 +43,9 @@ export default async function AssessPage({
         include: { evidence: { select: { subCriterionId: true } } },
       },
     },
-    orderBy: [{ domain: "asc" }, { position: "asc" }],
+    // Position, not domain: SQLite sorts the enum as TEXT, which would order
+    // the domains alphabetically rather than the way FQ presents them.
+    orderBy: [{ position: "asc" }, { code: "asc" }],
   });
 
   const staffCount = await prisma.staffMember.count({ where: { assessmentId: id } });
