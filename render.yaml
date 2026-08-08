@@ -1,5 +1,11 @@
 # Render blueprint — free tier.
 #
+# One service, two products: Coach Education at /dashboard and the Club
+# Development & Assessment portal at /cda. They share this deployment, the
+# database and the account system, so there is nothing extra to configure for
+# the CDA portal — no new environment variables, and the rubric catalogue seeds
+# itself on boot.
+#
 # In the Render dashboard: New → Blueprint, point it at this repo, and fill in
 # the env vars marked `sync: false` when prompted.
 #
@@ -11,6 +17,9 @@
 # wake them. Everything else behaves normally.
 services:
   - type: web
+    # Render matches services by name, so this stays `coach-lms` even though the
+    # app now serves both products. Renaming it here would orphan the running
+    # service and stand up a new one at a different URL.
     name: coach-lms
     runtime: docker
     dockerfilePath: ./Dockerfile
@@ -21,6 +30,10 @@ services:
     envVars:
       # Comma-separated addresses granted admin access on boot. On the first
       # deploy a sign-in link for each is printed to the logs.
+      #
+      # These accounts are admins of both products, and the CDA portal has no
+      # other way in on a fresh deploy: club and assessor accounts are created
+      # from /cda/cdu, which only an admin can reach.
       - key: ADMIN_EMAILS
         sync: false
 
