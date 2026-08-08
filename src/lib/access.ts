@@ -31,6 +31,8 @@ export async function canAccessUpload(user: User, uploadId: string) {
     include: {
       material: { select: { courseId: true } },
       submissionFileOf: { select: { userId: true, assignment: { select: { courseId: true } } } },
+      staffCertificateOf: { select: { assessmentId: true } },
+      nonNegotiableProofOf: { select: { assessmentId: true } },
     },
   });
   if (!upload) return null;
@@ -47,6 +49,36 @@ export async function canAccessUpload(user: User, uploadId: string) {
   // Submission attachment: readable by its author only.
   if (upload.submissionFileOf) {
     return upload.submissionFileOf.userId === user.id ? upload : null;
+  }
+
+  // CDA evidence — a staff qualification certificate or a Non-Negotiable
+  // attachment. Both are readable by the club that uploaded it and by an
+  // assessor assigned to that assessment; an assessor who has since been
+  // unassigned loses access along with everything else about the club.
+  const assessmentId =
+    upload.staffCertificateOf?.assessmentId ?? upload.nonNegotiableProofOf?.assessmentId;
+
+  if (assessmentId) {
+    if (user.role === "ASSESSOR") {
+      const assigned = await prisma.assessorAssignment.findUnique({
+        where: { assessmentId_assessorId: { assessmentId, assessorId: user.id } },
+      });
+      return assigned ? upload : null;
+    }
+
+    if (user.role === "CLUB") {
+      const assessment = await prisma.clubAssessment.findUnique({
+        where: { id: assessmentId },
+        select: { clubId: true },
+      });
+      if (!assessment) return null;
+      const membership = await prisma.clubMembership.findUnique({
+        where: { userId_clubId: { userId: user.id, clubId: assessment.clubId } },
+      });
+      return membership ? upload : null;
+    }
+
+    return null;
   }
 
   return null;

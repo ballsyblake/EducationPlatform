@@ -277,6 +277,18 @@ export function isAdmin(user: Pick<User, "role"> | null | undefined) {
   return user?.role === "ADMIN";
 }
 
+/**
+ * Where an account belongs after signing in.
+ *
+ * One instance serves two products. A club administrator and an FQ assessor
+ * have no business in the coach-education app at all, so they go straight to
+ * the CDA portal; an ADMIN works in both and lands on the coach dashboard,
+ * which carries a link across.
+ */
+export function homePathFor(user: Pick<User, "role">) {
+  return user.role === "CLUB" || user.role === "ASSESSOR" ? "/cda" : "/dashboard";
+}
+
 /** Constant-time compare, for anywhere a secret is checked outside the DB. */
 export function safeEqual(a: string, b: string) {
   const bufA = Buffer.from(a);

@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { BrandLogo } from "@/components/brand";
 import { NavLinks, type NavLink } from "@/components/nav";
-import { isAdmin, requireUser } from "@/lib/auth";
+import { homePathFor, isAdmin, requireUser } from "@/lib/auth";
 import { displayName, initials } from "@/lib/format";
 
 const COACH_LINKS: NavLink[] = [
@@ -19,6 +20,13 @@ const ADMIN_LINKS: NavLink[] = [
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+
+  // A club administrator or an assessor has a valid account for the other
+  // product in this instance, not this one. Sending them on beats showing them
+  // a coach dashboard with nothing on it.
+  const home = homePathFor(user);
+  if (home !== "/dashboard") redirect(home);
+
   const links = isAdmin(user) ? [...COACH_LINKS, ...ADMIN_LINKS] : COACH_LINKS;
 
   return (
@@ -31,8 +39,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <BrandLogo variant="light" />
           </Link>
 
-          <div className="order-3 w-full md:order-2 md:w-auto md:flex-1">
-            <NavLinks links={links} />
+          <div className="order-3 flex w-full items-center gap-2 md:order-2 md:w-auto md:flex-1">
+            <div className="min-w-0 flex-1">
+              <NavLinks links={links} />
+            </div>
+
+            {/* The only way into the club development portal from this side, so
+                it sits with the navigation and is never hidden at any width.
+                Outlined rather than filled: it leaves this product entirely
+                rather than moving between pages within it. */}
+            {isAdmin(user) && (
+              <Link
+                href="/cda"
+                className="shrink-0 rounded-lg border border-white/40 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-white hover:bg-maroon-700"
+              >
+                Club Development →
+              </Link>
+            )}
           </div>
 
           <div className="order-2 ml-auto flex items-center gap-3 md:order-3">

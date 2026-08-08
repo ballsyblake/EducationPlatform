@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A Canvas-style coach education platform for association football.",
+  "description": "Coach education and club development for Football Queensland.",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
@@ -15,7 +15,9 @@
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma migrate reset --force && npm run db:seed",
+    "cda:catalog": "tsx scripts/seed-cda.ts",
+    "cda:seed": "tsx scripts/seed-cda.ts --demo",
+    "db:reset": "prisma migrate reset --force && npm run db:seed && npm run cda:seed",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts"
   },
   "repository": {

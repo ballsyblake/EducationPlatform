@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { consumeLoginToken } from "@/lib/auth";
+import { consumeLoginToken, homePathFor } from "@/lib/auth";
 
 /**
  * Redirects with a relative Location on purpose.
@@ -21,5 +21,5 @@ export async function GET(request: NextRequest) {
   const user = await consumeLoginToken(token);
   if (!user) return redirectTo("/login?error=expired");
 
-  return redirectTo("/dashboard");
+  return redirectTo(homePathFor(user));
 }
