@@ -46,22 +46,25 @@ export default async function CdaLayout({ children }: { children: React.ReactNod
             </span>
           </Link>
 
-          <div className="order-3 w-full md:order-2 md:w-auto md:flex-1">
-            <NavLinks links={links} />
-          </div>
+          <div className="order-3 flex w-full items-center gap-2 md:order-2 md:w-auto md:flex-1">
+            <div className="min-w-0 flex-1">
+              <NavLinks links={links} />
+            </div>
 
-          <div className="order-2 ml-auto flex items-center gap-3 md:order-3">
-            {/* An ADMIN works in both products, so the way back is always
-                visible. Nobody else ever sees this link. */}
+            {/* An ADMIN works in both products, so the way back sits with the
+                navigation and is never hidden at any width. Nobody else ever
+                sees this link. */}
             {user.cda === "ADMIN" && (
               <Link
                 href="/dashboard"
-                className="hidden rounded-lg px-2 py-1 text-xs font-medium text-white/70 hover:bg-maroon-700 hover:text-white lg:block"
+                className="shrink-0 rounded-lg border border-white/40 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-white hover:bg-maroon-700"
               >
                 Coach Education →
               </Link>
             )}
+          </div>
 
+          <div className="order-2 ml-auto flex items-center gap-3 md:order-3">
             <Link href="/account" className="flex items-center gap-3 hover:opacity-90">
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-medium">{displayName(user)}</p>

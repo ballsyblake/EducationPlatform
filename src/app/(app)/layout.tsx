@@ -39,23 +39,26 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <BrandLogo variant="light" />
           </Link>
 
-          <div className="order-3 w-full md:order-2 md:w-auto md:flex-1">
-            <NavLinks links={links} />
-          </div>
+          <div className="order-3 flex w-full items-center gap-2 md:order-2 md:w-auto md:flex-1">
+            <div className="min-w-0 flex-1">
+              <NavLinks links={links} />
+            </div>
 
-          <div className="order-2 ml-auto flex items-center gap-3 md:order-3">
-            {/* The only way into the club development portal from this side.
-                An admin lands here after signing in, so without this the other
-                product is reachable only by typing the URL. */}
+            {/* The only way into the club development portal from this side, so
+                it sits with the navigation and is never hidden at any width.
+                Outlined rather than filled: it leaves this product entirely
+                rather than moving between pages within it. */}
             {isAdmin(user) && (
               <Link
                 href="/cda"
-                className="hidden rounded-lg px-2 py-1 text-xs font-medium text-white/70 hover:bg-maroon-700 hover:text-white lg:block"
+                className="shrink-0 rounded-lg border border-white/40 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-white hover:bg-maroon-700"
               >
                 Club Development →
               </Link>
             )}
+          </div>
 
+          <div className="order-2 ml-auto flex items-center gap-3 md:order-3">
             <Link href="/account" className="flex items-center gap-3 hover:opacity-90">
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-medium">{displayName(user)}</p>
