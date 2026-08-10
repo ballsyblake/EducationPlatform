@@ -231,39 +231,64 @@ export const QUALIFICATION_STREAM_LABELS: Record<QualificationStream, string> = 
 /* Stars                                                                      */
 /* -------------------------------------------------------------------------- */
 
-export const MAX_STARS = 3;
+/** The top of the scale for most line items. A few go to 4 — see maxScore. */
+export const DEFAULT_MAX_SCORE = 3;
+
+/** No line item may exceed this, whatever a criterion is configured with. */
+export const ABSOLUTE_MAX_SCORE = 4;
 
 export type StarThresholds = {
   oneStarAt: number;
   twoStarAt: number;
   threeStarAt: number;
+  fourStarAt?: number | null;
+  maxScore?: number;
 };
 
 /**
- * Turns ticked evidence points into a star rating.
+ * Turns ticked evidence points into a score.
  *
- * Thresholds are per-criterion so the CDU can make one criterion harder than
- * another, but they're always read highest-first — a criterion whose thresholds
- * were edited into a non-ascending order still behaves sensibly rather than
- * silently awarding the wrong band.
+ * Read highest band first, so a criterion whose thresholds were edited into a
+ * non-ascending order still behaves sensibly rather than silently awarding the
+ * wrong band. The top band is only reachable when the criterion actually goes
+ * to 4 and has a threshold for it — otherwise a stray `fourStarAt` on a
+ * three-point item can't push a score past its own maximum.
  */
 export function starsFromEvidence(met: number, thresholds: StarThresholds): number {
-  if (met >= thresholds.threeStarAt) return 3;
-  if (met >= thresholds.twoStarAt) return 2;
-  if (met >= thresholds.oneStarAt) return 1;
+  const max = thresholds.maxScore ?? DEFAULT_MAX_SCORE;
+
+  if (max >= 4 && thresholds.fourStarAt != null && met >= thresholds.fourStarAt) return 4;
+  if (met >= thresholds.threeStarAt) return Math.min(3, max);
+  if (met >= thresholds.twoStarAt) return Math.min(2, max);
+  if (met >= thresholds.oneStarAt) return Math.min(1, max);
   return 0;
 }
 
 /**
- * Default thresholds for a criterion with `count` sub-criteria: three stars for
- * all of them, two for roughly two thirds, one for at least one. Seeded, then
- * editable.
+ * Default thresholds for a criterion with `count` evidence points.
+ *
+ * Modelled on Football Queensland's own bands: the top score needs all or
+ * nearly all of them, and the bands below divide the rest roughly evenly. A
+ * four-point item gets an extra band at the top rather than a shifted one, so
+ * three still means what it means everywhere else.
  */
-export function defaultThresholds(count: number): StarThresholds {
+export function defaultThresholds(count: number, maxScore = DEFAULT_MAX_SCORE): StarThresholds {
+  if (maxScore >= 4) {
+    return {
+      oneStarAt: Math.max(1, Math.ceil(count * 0.2)),
+      twoStarAt: Math.max(2, Math.ceil(count * 0.4)),
+      threeStarAt: Math.max(3, Math.ceil(count * 0.7)),
+      fourStarAt: Math.max(4, count - 1),
+      maxScore,
+    };
+  }
+
   return {
     oneStarAt: 1,
     twoStarAt: Math.max(2, Math.ceil((count * 2) / 3)),
     threeStarAt: Math.max(3, count),
+    fourStarAt: null,
+    maxScore,
   };
 }
 
@@ -272,10 +297,11 @@ export const STAR_LABELS = [
   "Developing",
   "Established",
   "Leading",
+  "Exemplary",
 ] as const;
 
 export function starLabel(stars: number) {
-  return STAR_LABELS[Math.max(0, Math.min(MAX_STARS, stars))];
+  return STAR_LABELS[Math.max(0, Math.min(ABSOLUTE_MAX_SCORE, stars))];
 }
 
 /* -------------------------------------------------------------------------- */

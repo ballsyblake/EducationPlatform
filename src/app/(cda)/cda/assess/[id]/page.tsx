@@ -80,6 +80,8 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
     oneStarAt: criterion.oneStarAt,
     twoStarAt: criterion.twoStarAt,
     threeStarAt: criterion.threeStarAt,
+    fourStarAt: criterion.fourStarAt,
+    maxScore: criterion.maxScore,
   };
 
   return (
@@ -108,7 +110,11 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
               : "Clubs in this pool"
           }
         />
-        <StatTile label="Weighting" value={`×${criterion.weight}`} hint="Within its domain" />
+        <StatTile
+          label="Worth"
+          value={`${criterion.maxScore * criterion.weight} pts`}
+          hint={`Max ${criterion.maxScore} × weighting ${criterion.weight}`}
+        />
         <StatTile
           label="Evidence points"
           value={criterion.subCriteria.length}
@@ -183,7 +189,7 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
                   {c.savedScore === null ? (
                     <Badge tone="muted">—</Badge>
                   ) : (
-                    <Stars value={c.savedScore} size="sm" />
+                    <Stars value={c.savedScore} max={criterion.maxScore} size="sm" />
                   )}
                 </a>
               ))}

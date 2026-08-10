@@ -69,10 +69,12 @@ export default async function RubricPage() {
         <div className="mb-6 card card-pad">
           <h2 className="mb-2 font-semibold text-ink-900">{cycle.name} weighting</h2>
           <p className="text-sm text-ink-600">
-            Technical Qualifications {cycle.technicalWeight}% · Planning {cycle.planningWeight}% ·
-            Delivery {cycle.deliveryWeight}% · Outcomes {cycle.outcomesWeight}%. A shield needs
-            Bronze {cycle.bronzeMin}%, Silver {cycle.silverMin}%, Gold {cycle.goldMin}%, Platinum{" "}
-            {cycle.platinumMin}% — and all nine Non-Negotiables met, whatever the score.
+            Every line item is worth its score times its weighting, and the rating is those points
+            summed across all four domains. Technical Qualifications contributes{" "}
+            {cycle.technicalMaxPoints} points; the other three take theirs from the line items
+            below. A shield needs Bronze {cycle.bronzeMin}%, Silver {cycle.silverMin}%, Gold{" "}
+            {cycle.goldMin}%, Platinum {cycle.platinumMin}% — and all nine Non-Negotiables met,
+            whatever the score.
           </p>
         </div>
       )}
@@ -189,7 +191,6 @@ export default async function RubricPage() {
 
       {ASSESSED.map((domain) => {
         const inDomain = criteria.filter((c) => c.domain === domain);
-        const weightTotal = inDomain.reduce((n, c) => n + c.weight, 0);
 
         return (
           <section key={domain} className="mb-8">
@@ -208,10 +209,10 @@ export default async function RubricPage() {
                       Evidence
                     </th>
                     <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">
-                      1 / 2 / 3 stars at
+                      Bands at
                     </th>
                     <th className="px-4 py-2 text-right text-xs font-semibold text-ink-500 uppercase">
-                      Weight
+                      Points
                     </th>
                   </tr>
                 </thead>
@@ -230,13 +231,13 @@ export default async function RubricPage() {
                       </td>
                       <td className="px-3 py-2 tabular-nums text-ink-600">
                         {c.oneStarAt} / {c.twoStarAt} / {c.threeStarAt}
+                        {c.fourStarAt != null && ` / ${c.fourStarAt}`}
                       </td>
-                      <td className="px-4 py-2 text-right">
-                        {c.weight > 1 ? (
-                          <Badge tone="info">×{c.weight}</Badge>
-                        ) : (
-                          <span className="text-ink-400">×1</span>
-                        )}
+                      <td className="px-4 py-2 text-right whitespace-nowrap">
+                        <span className="tabular-nums text-ink-700">
+                          {c.maxScore} × {c.weight}
+                        </span>
+                        <span className="ml-1 text-ink-400">= {c.maxScore * c.weight}</span>
                       </td>
                     </tr>
                   ))}
@@ -244,9 +245,11 @@ export default async function RubricPage() {
                 <tfoot>
                   <tr className="border-t-2 border-ink-200 bg-ink-50 text-xs text-ink-600">
                     <td className="px-4 py-2" colSpan={4}>
-                      {inDomain.length} criteria, {weightTotal * 3} points available
+                      {inDomain.length} line items
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums">Σ {weightTotal}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      Σ {inDomain.reduce((n, c) => n + c.maxScore * c.weight, 0)} points
+                    </td>
                   </tr>
                 </tfoot>
               </table>

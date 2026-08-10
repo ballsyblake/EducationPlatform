@@ -1,4 +1,4 @@
-import { MAX_STARS, starLabel } from "@/lib/cda/rubric";
+import { DEFAULT_MAX_SCORE, starLabel } from "@/lib/cda/rubric";
 
 /**
  * A 0–3 star rating, for display.
@@ -9,10 +9,13 @@ import { MAX_STARS, starLabel } from "@/lib/cda/rubric";
  */
 export function Stars({
   value,
+  max = DEFAULT_MAX_SCORE,
   size = "md",
   showLabel = false,
 }: {
   value: number | null;
+  /** The criterion's own maximum — most are 3, a few are 4. */
+  max?: number;
   size?: "sm" | "md";
   showLabel?: boolean;
 }) {
@@ -25,10 +28,10 @@ export function Stars({
   return (
     <span
       className="inline-flex items-center gap-1"
-      title={`${value} of ${MAX_STARS} — ${starLabel(value)}`}
+      title={`${value} of ${max} — ${starLabel(value)}`}
     >
-      <span className="inline-flex gap-0.5" role="img" aria-label={`${value} of ${MAX_STARS} stars`}>
-        {Array.from({ length: MAX_STARS }, (_, i) => (
+      <span className="inline-flex gap-0.5" role="img" aria-label={`${value} of ${max} stars`}>
+        {Array.from({ length: max }, (_, i) => (
           <StarGlyph key={i} filled={i < value} className={dimension} />
         ))}
       </span>
@@ -62,12 +65,16 @@ export function StarScale({
   oneStarAt,
   twoStarAt,
   threeStarAt,
+  fourStarAt,
+  maxScore = DEFAULT_MAX_SCORE,
   total,
   met,
 }: {
   oneStarAt: number;
   twoStarAt: number;
   threeStarAt: number;
+  fourStarAt?: number | null;
+  maxScore?: number;
   total: number;
   met: number;
 }) {
@@ -75,13 +82,14 @@ export function StarScale({
     { stars: 1, at: oneStarAt },
     { stars: 2, at: twoStarAt },
     { stars: 3, at: threeStarAt },
+    ...(maxScore >= 4 && fourStarAt != null ? [{ stars: 4, at: fourStarAt }] : []),
   ];
 
   return (
     <p className="text-xs text-ink-500">
-      {met} of {total} evidence points met.{" "}
+      {met} of {total} evidence points met. Scored out of {maxScore}:{" "}
       {bands
-        .map((b) => `${b.at}+ → ${b.stars} star${b.stars === 1 ? "" : "s"}`)
+        .map((b) => `${b.at}+ → ${b.stars}`)
         .join(" · ")}
     </p>
   );

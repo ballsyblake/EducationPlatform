@@ -131,13 +131,41 @@ export const NON_NEGOTIABLES: SeedNonNegotiable[] = [
   },
 ];
 
+/**
+ * Weighting scale, matching Football Queensland's own: 4, 6, 8 or 10.
+ *
+ * A line item is worth `maxScore x weight` points, and those points are summed
+ * across every domain to produce the rating — so a weighting is not a hint
+ * about relative importance, it is literally how many points the item puts on
+ * the table.
+ */
+export const WEIGHT = {
+  /** Supporting detail. */
+  LOW: 4,
+  /** The default. */
+  STANDARD: 6,
+  /** Carries more than most. */
+  HIGH: 8,
+  /** The heaviest items in the catalogue. */
+  CRITICAL: 10,
+} as const;
+
 export type SeedCriterion = {
   code: string;
   title: string;
   description: string;
-  /** Relative weight within the domain. 2 marks a criterion that carries more. */
+  /** Points multiplier on FQ's scale. Defaults to WEIGHT.STANDARD. */
   weight?: number;
-  /** Evidence points an assessor ticks. Their count sets the star thresholds. */
+  /**
+   * Top of this item's scale. Almost always 3. Set to 4 only where the item
+   * genuinely distinguishes a level above "fully met" — FQ does this for
+   * observation items like D8, where the difference between a good session and
+   * an exceptional one is the thing being measured.
+   */
+  maxScore?: number;
+  /** Whether the item is judged from documents or from watching. */
+  mode?: "EVIDENCE" | "OBSERVATION";
+  /** Evidence points an assessor ticks. Their count sets the thresholds. */
   evidence: string[];
 };
 
@@ -156,7 +184,7 @@ const PLANNING: SeedCriterion[] = [
     title: "Youth development plan",
     description:
       "A documented, multi-year plan for how players are developed from entry through to senior football.",
-    weight: 2,
+    weight: WEIGHT.CRITICAL,
     evidence: [
       "A written plan exists and names the person accountable for it.",
       "It covers every age band from MiniRoos to senior.",
@@ -170,7 +198,8 @@ const PLANNING: SeedCriterion[] = [
     title: "Playing philosophy and style of play",
     description:
       "A stated style of play that connects what is coached on the training pitch to how teams play on match day.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
+    maxScore: 4,
     evidence: [
       "The playing philosophy is documented in club language, not copied wholesale.",
       "It is expressed in principles of play, in and out of possession.",
@@ -195,7 +224,7 @@ const PLANNING: SeedCriterion[] = [
     title: "Age-appropriate curriculum",
     description:
       "What is coached at each age band is defined and aligned to the Football Australia National Football Curriculum.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
     evidence: [
       "A curriculum document sets the technical focus for each age band.",
       "It aligns to the National Football Curriculum's stages of development.",
@@ -231,7 +260,7 @@ const PLANNING: SeedCriterion[] = [
     title: "Coach education policy",
     description:
       "A documented commitment to developing the club's own coaches, with a budget behind it.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
     evidence: [
       "A written coach education policy exists.",
       "The club funds or subsidises accreditation courses.",
@@ -269,7 +298,7 @@ const PLANNING: SeedCriterion[] = [
     title: "Female football strategy",
     description:
       "A plan for growing and sustaining female participation, with someone accountable for it.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
     evidence: [
       "A written female football strategy exists with growth targets.",
       "A named person is accountable for delivering it.",
@@ -307,6 +336,7 @@ const PLANNING: SeedCriterion[] = [
     title: "Facility and resource planning",
     description:
       "Pitches, equipment and budget are planned against what the programs actually require.",
+    weight: WEIGHT.LOW,
     evidence: [
       "Training allocations are planned across the whole club, not first-come.",
       "Equipment is inventoried and replaced on a schedule.",
@@ -325,7 +355,9 @@ const DELIVERY: SeedCriterion[] = [
     code: "DL-01",
     title: "Session organisation",
     description: "The session is set up and run so that time is spent playing, not queueing.",
-    weight: 2,
+    weight: WEIGHT.CRITICAL,
+    maxScore: 4,
+    mode: "OBSERVATION",
     evidence: [
       "Equipment and areas are set up before players arrive.",
       "Transitions between activities take under two minutes.",
@@ -337,7 +369,8 @@ const DELIVERY: SeedCriterion[] = [
     code: "DL-02",
     title: "Session content aligned to curriculum",
     description: "What is being coached matches the club's stated curriculum for that age band.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
+    mode: "OBSERVATION",
     evidence: [
       "A written session plan is available on request.",
       "The session's topic matches the curriculum block for that period.",
@@ -349,7 +382,8 @@ const DELIVERY: SeedCriterion[] = [
     code: "DL-03",
     title: "Coaching intervention",
     description: "The coach intervenes at the right moments, and lets play run at others.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
+    mode: "OBSERVATION",
     evidence: [
       "Interventions are timed to natural stoppages where possible.",
       "The coach lets play continue when the learning is happening.",
@@ -362,7 +396,8 @@ const DELIVERY: SeedCriterion[] = [
     title: "Use of questioning",
     description:
       "Players are asked to work out answers rather than only being told them.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
+    mode: "OBSERVATION",
     evidence: [
       "Open questions are used, not only closed ones.",
       "Players are given time to answer before the coach fills the silence.",
@@ -374,6 +409,7 @@ const DELIVERY: SeedCriterion[] = [
     code: "DL-05",
     title: "Demonstration and explanation",
     description: "Information is delivered so players can act on it.",
+    mode: "OBSERVATION",
     evidence: [
       "Demonstrations are accurate and visible to everyone.",
       "Explanations are short and use consistent club terminology.",
@@ -385,7 +421,8 @@ const DELIVERY: SeedCriterion[] = [
     code: "DL-06",
     title: "Player engagement and ball-rolling time",
     description: "Players are involved, active, and touching the ball.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
+    mode: "OBSERVATION",
     evidence: [
       "Every player is active for the great majority of the session.",
       "There are no lines waiting for a turn.",
@@ -397,6 +434,7 @@ const DELIVERY: SeedCriterion[] = [
     code: "DL-07",
     title: "Differentiation",
     description: "The session works for the strongest and the weakest player in it.",
+    mode: "OBSERVATION",
     evidence: [
       "Activities are adjusted for individuals during the session.",
       "Constraints are varied rather than only group size.",
@@ -408,7 +446,8 @@ const DELIVERY: SeedCriterion[] = [
     code: "DL-08",
     title: "Match-day management",
     description: "How the coach manages the team on match day.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
+    mode: "OBSERVATION",
     evidence: [
       "A clear pre-match routine is followed.",
       "Substitutions are planned rather than reactive.",
@@ -420,6 +459,7 @@ const DELIVERY: SeedCriterion[] = [
     code: "DL-09",
     title: "Match-day player communication",
     description: "What the coach says to players during a match, and how.",
+    mode: "OBSERVATION",
     evidence: [
       "Instructions are concise and actionable, not a running commentary.",
       "Players are not criticised in front of others.",
@@ -431,6 +471,7 @@ const DELIVERY: SeedCriterion[] = [
     code: "DL-10",
     title: "Goalkeeper-specific delivery",
     description: "Goalkeepers receive appropriate, specific coaching.",
+    mode: "OBSERVATION",
     evidence: [
       "Goalkeepers receive dedicated technical work each week.",
       "Goalkeeping work is integrated into team sessions as well.",
@@ -442,7 +483,8 @@ const DELIVERY: SeedCriterion[] = [
     code: "DL-11",
     title: "Coach–player environment",
     description: "The environment the coach creates around the group.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
+    mode: "OBSERVATION",
     evidence: [
       "Players are comfortable making mistakes.",
       "The coach knows and uses every player's name.",
@@ -476,6 +518,7 @@ const DELIVERY: SeedCriterion[] = [
     code: "DL-14",
     title: "Parent and spectator management",
     description: "Sideline behaviour is actively managed rather than tolerated.",
+    weight: WEIGHT.LOW,
     evidence: [
       "A code of conduct is published and referenced.",
       "Parents are briefed at the start of the season.",
@@ -494,7 +537,7 @@ const OUTCOMES: SeedCriterion[] = [
     code: "OU-01",
     title: "Player retention",
     description: "Players stay at the club season to season.",
-    weight: 2,
+    weight: WEIGHT.CRITICAL,
     evidence: [
       "Retention is measured and reported each season.",
       "Overall retention is at or above 80%.",
@@ -506,7 +549,7 @@ const OUTCOMES: SeedCriterion[] = [
     code: "OU-02",
     title: "Participation growth",
     description: "Total registered participation is stable or growing.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
     evidence: [
       "Total registrations have grown year on year.",
       "Growth is spread across age bands rather than concentrated in one.",
@@ -518,7 +561,7 @@ const OUTCOMES: SeedCriterion[] = [
     code: "OU-03",
     title: "Female participation growth",
     description: "Female registrations and teams are growing.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
     evidence: [
       "Female registrations have grown year on year.",
       "Female teams are fielded in more than one age band.",
@@ -541,7 +584,7 @@ const OUTCOMES: SeedCriterion[] = [
     code: "OU-05",
     title: "Youth game time",
     description: "Youth-pathway players get meaningful minutes.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
     evidence: [
       "Game time is recorded for youth-pathway players.",
       "A stated minimum game-time policy exists.",
@@ -575,7 +618,7 @@ const OUTCOMES: SeedCriterion[] = [
     code: "OU-08",
     title: "Coach accreditation growth",
     description: "The club's coaches are becoming better qualified.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
     evidence: [
       "The number of accredited coaches has grown year on year.",
       "At least one coach has moved up a licence level this cycle.",
@@ -609,7 +652,7 @@ const OUTCOMES: SeedCriterion[] = [
     code: "OU-11",
     title: "Female coach development",
     description: "Female coaches are being recruited, qualified and retained.",
-    weight: 2,
+    weight: WEIGHT.HIGH,
     evidence: [
       "The number of female coaches has grown year on year.",
       "A female coach has gained an accreditation this cycle.",
@@ -632,6 +675,7 @@ const OUTCOMES: SeedCriterion[] = [
     code: "OU-13",
     title: "Community and school engagement",
     description: "The club is connected to the community it recruits from.",
+    weight: WEIGHT.LOW,
     evidence: [
       "The club runs programs in local schools.",
       "Partnerships exist with at least two community organisations.",

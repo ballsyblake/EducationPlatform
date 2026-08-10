@@ -46,6 +46,7 @@ export default async function ReconcilePage({
       code: a.criterion.code,
       title: a.criterion.title,
       weight: a.criterion.weight,
+      maxScore: a.criterion.maxScore,
       level: a.level,
       spread: a.spread,
       suggested: a.suggested,

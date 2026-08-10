@@ -11,8 +11,8 @@
  *                    to CDA data, for a fresh instance only.
  */
 import type { PrismaClient } from "../generated/prisma/client.ts";
-import { defaultThresholds } from "../src/lib/cda/rubric.ts";
-import { CRITERIA, NON_NEGOTIABLES, QUALIFICATIONS } from "./cda-catalog.ts";
+import { defaultThresholds, starsFromEvidence } from "../src/lib/cda/rubric.ts";
+import { CRITERIA, NON_NEGOTIABLES, QUALIFICATIONS, WEIGHT } from "./cda-catalog.ts";
 
 /* -------------------------------------------------------------------------- */
 /* Catalogue                                                                  */
@@ -41,13 +41,28 @@ export async function seedCatalog(prisma: PrismaClient) {
   let position = 0;
   for (const { domain, criteria } of CRITERIA) {
     for (const c of criteria) {
-      const thresholds = defaultThresholds(c.evidence.length);
+      const maxScore = c.maxScore ?? 3;
+      const { maxScore: _ignored, ...thresholds } = defaultThresholds(c.evidence.length, maxScore);
       const existing = await prisma.criterion.findUnique({ where: { code: c.code } });
 
       if (existing) {
+        // Wording is the CDU's and is never touched — they reword criteria and
+        // evidence points between cycles and that must survive a deploy.
+        //
+        // The scoring structure is not theirs: weighting, maximum, bands and
+        // mode are set in this file and have no editor in the app, so a release
+        // that re-tunes them has to be able to land. Leaving them alone instead
+        // meant a rubric change could only ever reach a fresh database, which
+        // is how the catalogue quietly kept its old weights through a rescale.
         await prisma.criterion.update({
           where: { code: c.code },
-          data: { position: position++ },
+          data: {
+            position: position++,
+            weight: c.weight ?? WEIGHT.STANDARD,
+            maxScore,
+            mode: c.mode ?? "EVIDENCE",
+            ...thresholds,
+          },
         });
         continue;
       }
@@ -58,7 +73,9 @@ export async function seedCatalog(prisma: PrismaClient) {
           code: c.code,
           title: c.title,
           description: c.description,
-          weight: c.weight ?? 1,
+          weight: c.weight ?? WEIGHT.STANDARD,
+          maxScore,
+          mode: c.mode ?? "EVIDENCE",
           position: position++,
           ...thresholds,
           subCriteria: {
@@ -547,8 +564,7 @@ export async function seedDemo(prisma: PrismaClient) {
           const target = Math.max(0, Math.min(1, strength + bias + (random() - 0.5) * 0.3));
           const met = Math.round(target * criterion.subCriteria.length);
 
-          const stars =
-            met >= criterion.threeStarAt ? 3 : met >= criterion.twoStarAt ? 2 : met >= criterion.oneStarAt ? 1 : 0;
+          const stars = starsFromEvidence(met, criterion);
 
           await prisma.assessorScore.create({
             data: {

@@ -19,7 +19,6 @@ import type { Domain, Shield } from "@prisma-client";
 import {
   EMPLOYMENT_POINTS,
   MAX_STAFF_POINTS,
-  MAX_STARS,
   STAFF_ROLE_SPECS,
   experiencePoints,
   streamMultiplier,
@@ -91,6 +90,9 @@ export type RoleBreakdown = {
 
 export type TechnicalResult = {
   percent: number;
+  /** The domain's points, scaled onto the same currency as the line items. */
+  earned: number;
+  available: number;
   roles: RoleBreakdown[];
   staffCount: number;
   /** Roles the club has nobody in. The most actionable thing on the report. */
@@ -104,8 +106,20 @@ export type TechnicalResult = {
  * fill them; any slot left empty scores zero. Roles are then combined by
  * weight, so failing to appoint a Technical Director costs five times what
  * failing to appoint a MiniRoos Coordinator does.
+ *
+ * `maxPoints` converts the result into the same currency as the line items so
+ * the four domains can be added together. The staff rubric counts in units of
+ * its own — fifteen points per person, ten roles, differing slot counts — and
+ * those numbers have no relationship to a line item's `maxScore x weight`.
+ * Adding them raw would make Technical dwarf everything else. So the domain is
+ * scored as a ratio first and given its points afterwards, which is also how FQ
+ * does it: their Technical maximum comes from a table of team profiles rather
+ * than from the rubric's internals.
  */
-export function scoreTechnicalDomain(staff: ScorableStaff[]): TechnicalResult {
+export function scoreTechnicalDomain(
+  staff: ScorableStaff[],
+  maxPoints: number,
+): TechnicalResult {
   const roles: RoleBreakdown[] = (
     Object.keys(STAFF_ROLE_SPECS) as (keyof typeof STAFF_ROLE_SPECS)[]
   ).map((role) => {
@@ -137,9 +151,14 @@ export function scoreTechnicalDomain(staff: ScorableStaff[]): TechnicalResult {
 
   const totalWeight = roles.reduce((sum, r) => sum + r.weight, 0);
   const weighted = roles.reduce((sum, r) => sum + r.ratio * r.weight, 0);
+  const ratio = totalWeight === 0 ? 0 : weighted / totalWeight;
 
   return {
-    percent: totalWeight === 0 ? 0 : (weighted / totalWeight) * 100,
+    percent: ratio * 100,
+    // Rounded, so the domain contributes whole points like every line item does
+    // and a report's columns add up when read.
+    earned: Math.round(ratio * maxPoints),
+    available: maxPoints,
     roles,
     staffCount: staff.length,
     unfilledRoles: roles.filter((r) => r.declared === 0),
@@ -156,6 +175,7 @@ export type ScorableCriterion = {
   title: string;
   domain: Domain;
   weight: number;
+  maxScore: number;
 };
 
 export type CriterionOutcome = {
@@ -167,14 +187,20 @@ export type CriterionOutcome = {
 export type DomainResult = {
   domain: Domain;
   percent: number;
+  /** Points earned: sum of score x weight. */
   earned: number;
+  /** Points available: sum of maxScore x weight. */
   available: number;
   scored: number;
   total: number;
 };
 
 /**
- * Scores one star-based domain.
+ * Scores one line-item domain, in points.
+ *
+ * A line item is worth `score x weight`, out of `maxScore x weight` — which is
+ * how Football Queensland's own sheets read, and why the maximum has to come
+ * from the criterion rather than a constant.
  *
  * Unscored criteria stay in the denominator. Dropping them would let a
  * half-finished assessment show a flattering percentage that collapses the
@@ -184,7 +210,10 @@ export type DomainResult = {
 export function scoreStarDomain(domain: Domain, outcomes: CriterionOutcome[]): DomainResult {
   const forDomain = outcomes.filter((o) => o.criterion.domain === domain);
 
-  const available = forDomain.reduce((sum, o) => sum + o.criterion.weight * MAX_STARS, 0);
+  const available = forDomain.reduce(
+    (sum, o) => sum + o.criterion.weight * o.criterion.maxScore,
+    0,
+  );
   const earned = forDomain.reduce((sum, o) => sum + (o.stars ?? 0) * o.criterion.weight, 0);
 
   return {
@@ -236,13 +265,6 @@ export function checkEligibility(items: NonNegotiableState[]): EligibilityResult
 /* Weighted total and shield                                                  */
 /* -------------------------------------------------------------------------- */
 
-export type CycleWeights = {
-  technicalWeight: number;
-  planningWeight: number;
-  deliveryWeight: number;
-  outcomesWeight: number;
-};
-
 export type ShieldThresholds = {
   bronzeMin: number;
   silverMin: number;
@@ -250,13 +272,19 @@ export type ShieldThresholds = {
   platinumMin: number;
 };
 
-export type DomainPercentages = Record<Domain, number>;
+/** Points earned and available for one domain. */
+export type DomainPoints = { earned: number; available: number };
 
 export type RatingResult = {
-  domains: DomainPercentages;
-  weights: Record<Domain, number>;
+  /** Each domain's percentage, for display only — it contributes nothing. */
+  domains: Record<Domain, number>;
+  points: Record<Domain, DomainPoints>;
+  /** What share of the whole rating each domain turned out to carry. */
+  shares: Record<Domain, number>;
   /** Each domain's contribution to the total, in percentage points. */
   contributions: Record<Domain, number>;
+  earned: number;
+  available: number;
   percent: number;
   eligibility: EligibilityResult;
   /** The shield the score earns, before the Non-Negotiable gate. */
@@ -273,53 +301,55 @@ export function shieldFor(percent: number, t: ShieldThresholds): Shield {
   return "NONE";
 }
 
+const DOMAINS: Domain[] = ["TECHNICAL", "PLANNING", "DELIVERY", "OUTCOMES"];
+
 /**
- * Combines the four domains into the rating.
+ * Combines the four domains into the rating, by adding up points.
  *
- * Weights are normalised rather than assumed to total 100, so a cycle
- * configured 30/20/30/25 by mistake still produces a coherent percentage
- * instead of one that can't reach 100.
+ * This is Football Queensland's arithmetic, and it is not the same as scoring
+ * each domain to a percentage and then averaging those percentages by weight.
+ * Every line item contributes `score x weight` towards one grand total, and a
+ * domain's influence is simply how many points it happens to contain — 490 of
+ * FQ's 1314 sit in Delivery, so Delivery is 37% of the rating, and nobody
+ * configured that anywhere.
+ *
+ * The practical difference: under the weighted-average method a domain with few
+ * points still counts for its full configured share, so one bad mark in a small
+ * domain moves the total as much as several in a large one. Summing points
+ * makes every mark worth the same everywhere, which is what makes the weightings
+ * on the line items mean anything.
  */
 export function computeRating(
-  domains: DomainPercentages,
-  cycle: CycleWeights & ShieldThresholds,
+  points: Record<Domain, DomainPoints>,
+  cycle: ShieldThresholds,
   nonNegotiables: NonNegotiableState[],
 ): RatingResult {
-  const weights: Record<Domain, number> = {
-    TECHNICAL: cycle.technicalWeight,
-    PLANNING: cycle.planningWeight,
-    DELIVERY: cycle.deliveryWeight,
-    OUTCOMES: cycle.outcomesWeight,
-  };
+  const earned = DOMAINS.reduce((sum, d) => sum + points[d].earned, 0);
+  const available = DOMAINS.reduce((sum, d) => sum + points[d].available, 0);
 
-  const totalWeight =
-    weights.TECHNICAL + weights.PLANNING + weights.DELIVERY + weights.OUTCOMES;
+  const domains = {} as Record<Domain, number>;
+  const shares = {} as Record<Domain, number>;
+  const contributions = {} as Record<Domain, number>;
 
-  const contributions = {
-    TECHNICAL: 0,
-    PLANNING: 0,
-    DELIVERY: 0,
-    OUTCOMES: 0,
-  } as Record<Domain, number>;
-
-  for (const domain of Object.keys(weights) as Domain[]) {
-    contributions[domain] =
-      totalWeight === 0 ? 0 : (domains[domain] * weights[domain]) / totalWeight;
+  for (const domain of DOMAINS) {
+    const p = points[domain];
+    domains[domain] = p.available === 0 ? 0 : (p.earned / p.available) * 100;
+    shares[domain] = available === 0 ? 0 : (p.available / available) * 100;
+    contributions[domain] = available === 0 ? 0 : (p.earned / available) * 100;
   }
 
-  const percent =
-    contributions.TECHNICAL +
-    contributions.PLANNING +
-    contributions.DELIVERY +
-    contributions.OUTCOMES;
+  const percent = available === 0 ? 0 : (earned / available) * 100;
 
   const eligibility = checkEligibility(nonNegotiables);
   const provisionalShield = shieldFor(percent, cycle);
 
   return {
     domains,
-    weights,
+    points,
+    shares,
     contributions,
+    earned,
+    available,
     percent,
     eligibility,
     provisionalShield,

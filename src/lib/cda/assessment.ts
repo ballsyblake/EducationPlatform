@@ -81,7 +81,10 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     // "asc" is alphabetical — Delivery, Outcomes, Planning — which is neither
     // the schema's order nor the order FQ presents the domains in.
     orderBy: [{ position: "asc" }, { code: "asc" }],
-    select: { id: true, code: true, title: true, domain: true, weight: true },
+    select: {
+      id: true, code: true, title: true, domain: true,
+      weight: true, maxScore: true,
+    },
   });
 
   /* ------------------------------- Technical ------------------------------ */
@@ -101,6 +104,7 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
           }
         : null,
     })),
+    assessment.cycle.technicalMaxPoints,
   );
 
   /* --------------------------- Assessor agreement -------------------------- */
@@ -182,10 +186,10 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
 
   const live = computeRating(
     {
-      TECHNICAL: technical.percent,
-      PLANNING: domains.PLANNING!.percent,
-      DELIVERY: domains.DELIVERY!.percent,
-      OUTCOMES: domains.OUTCOMES!.percent,
+      TECHNICAL: { earned: technical.earned, available: technical.available },
+      PLANNING: { earned: domains.PLANNING!.earned, available: domains.PLANNING!.available },
+      DELIVERY: { earned: domains.DELIVERY!.earned, available: domains.DELIVERY!.available },
+      OUTCOMES: { earned: domains.OUTCOMES!.earned, available: domains.OUTCOMES!.available },
     },
     assessment.cycle,
     nonNegotiables,
@@ -199,6 +203,9 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
   const rating: RatingResult = frozen
     ? {
         ...live,
+        // The frozen percentages are what the club was told. The points columns
+        // stay live: they describe the current catalogue, and are only ever
+        // shown as supporting detail beside the frozen figures.
         domains: {
           TECHNICAL: assessment.technicalPct ?? 0,
           PLANNING: assessment.planningPct ?? 0,

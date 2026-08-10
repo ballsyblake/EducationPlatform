@@ -11,10 +11,7 @@ export type CycleSettingsData = {
   id: string;
   name: string;
   status: string;
-  technicalWeight: number;
-  planningWeight: number;
-  deliveryWeight: number;
-  outcomesWeight: number;
+  technicalMaxPoints: number;
   bronzeMin: number;
   silverMin: number;
   goldMin: number;
@@ -32,12 +29,7 @@ const STATUSES = [
 export function CycleSettings({ cycle }: { cycle: CycleSettingsData }) {
   const [state, formAction] = useActionState(updateCycle, initialState);
 
-  const [weights, setWeights] = useState({
-    technicalWeight: String(cycle.technicalWeight),
-    planningWeight: String(cycle.planningWeight),
-    deliveryWeight: String(cycle.deliveryWeight),
-    outcomesWeight: String(cycle.outcomesWeight),
-  });
+  const [technicalMaxPoints, setTechnicalMaxPoints] = useState(String(cycle.technicalMaxPoints));
   const [thresholds, setThresholds] = useState({
     bronzeMin: String(cycle.bronzeMin),
     silverMin: String(cycle.silverMin),
@@ -45,15 +37,6 @@ export function CycleSettings({ cycle }: { cycle: CycleSettingsData }) {
     platinumMin: String(cycle.platinumMin),
   });
   const [status, setStatus] = useState(cycle.status);
-
-  const total = Object.values(weights).reduce((n, v) => n + (Number(v) || 0), 0);
-
-  const weightFields = [
-    { key: "technicalWeight", label: "Technical" },
-    { key: "planningWeight", label: "Planning" },
-    { key: "deliveryWeight", label: "Delivery" },
-    { key: "outcomesWeight", label: "Outcomes" },
-  ] as const;
 
   const thresholdFields = [
     { key: "bronzeMin", label: "Bronze" },
@@ -69,8 +52,8 @@ export function CycleSettings({ cycle }: { cycle: CycleSettingsData }) {
       <div>
         <h2 className="font-semibold text-ink-900">Cycle settings</h2>
         <p className="mt-1 text-xs text-ink-500">
-          Weights and thresholds apply to this cycle only. Ratings already released keep the numbers
-          they were locked with.
+          These apply to this cycle only. Ratings already released keep the numbers they were locked
+          with.
         </p>
       </div>
 
@@ -93,30 +76,28 @@ export function CycleSettings({ cycle }: { cycle: CycleSettingsData }) {
         </select>
       </div>
 
-      <fieldset>
-        <legend className="label">Domain weights</legend>
-        <div className="grid grid-cols-2 gap-2">
-          {weightFields.map((f) => (
-            <label key={f.key} className="text-xs text-ink-600">
-              {f.label}
-              <input
-                name={f.key}
-                type="number"
-                min={0}
-                max={100}
-                className="input mt-1"
-                value={weights[f.key]}
-                onChange={(e) => setWeights((w) => ({ ...w, [f.key]: e.target.value }))}
-              />
-            </label>
-          ))}
-        </div>
-        {/* Live, because a total that isn't 100 is normalised rather than
-            rejected — better to see it than to be surprised by it. */}
-        <p className={`hint ${total === 100 ? "" : "text-maroon-700"}`}>
-          Totals {total}%{total === 100 ? "" : " — will be normalised when scoring"}
+      <div>
+        <label className="label" htmlFor="technical-max">
+          Technical Qualifications points
+        </label>
+        <input
+          id="technical-max"
+          name="technicalMaxPoints"
+          type="number"
+          min={0}
+          max={5000}
+          className="input"
+          value={technicalMaxPoints}
+          onChange={(e) => setTechnicalMaxPoints(e.target.value)}
+        />
+        {/* The only domain whose maximum is set rather than derived: it has no
+            line items to add up. Raising it raises Technical's share of the
+            rating and lowers everything else's. */}
+        <p className="hint">
+          Planning, Delivery and Outcomes take their points from their own line items. Technical has
+          none, so its maximum is set here — and that decides its share of the rating.
         </p>
-      </fieldset>
+      </div>
 
       <fieldset>
         <legend className="label">Shield thresholds</legend>

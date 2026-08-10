@@ -6,7 +6,7 @@ import { z } from "zod";
 import { createInviteLink, normalizeEmail } from "@/lib/auth";
 import { requireCdu } from "@/lib/cda/access";
 import { activeCycle, ensureAssessment, freezeResult, loadAssessment } from "@/lib/cda/assessment";
-import { MAX_ASSESSORS_PER_CLUB, MAX_STARS } from "@/lib/cda/rubric";
+import { MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
 import { prisma } from "@/lib/db";
 
 export type CduFormState = {
@@ -431,8 +431,20 @@ export async function resolveCriterion(
   const criterionId = String(formData.get("criterionId") ?? "");
   const stars = Number(formData.get("stars"));
 
-  if (!Number.isInteger(stars) || stars < 0 || stars > MAX_STARS) {
-    return { status: "error", message: `Choose a rating from 0 to ${MAX_STARS}.` };
+  // Bounded by the criterion's own maximum, not a constant — resolving a
+  // three-point item to 4 would put a club above the maximum the report says it
+  // was measured against.
+  const criterion = await prisma.criterion.findUnique({
+    where: { id: criterionId },
+    select: { maxScore: true, code: true },
+  });
+  if (!criterion) return { status: "error", message: "That criterion no longer exists." };
+
+  if (!Number.isInteger(stars) || stars < 0 || stars > criterion.maxScore) {
+    return {
+      status: "error",
+      message: `${criterion.code} is scored from 0 to ${criterion.maxScore}.`,
+    };
   }
 
   const assessment = await prisma.clubAssessment.findUnique({ where: { id: assessmentId } });
@@ -644,10 +656,7 @@ export async function reopenForClub(
 /* -------------------------------------------------------------------------- */
 
 const cycleSchema = z.object({
-  technicalWeight: z.coerce.number().int().min(0).max(100),
-  planningWeight: z.coerce.number().int().min(0).max(100),
-  deliveryWeight: z.coerce.number().int().min(0).max(100),
-  outcomesWeight: z.coerce.number().int().min(0).max(100),
+  technicalMaxPoints: z.coerce.number().int().min(0).max(5000),
   bronzeMin: z.coerce.number().int().min(0).max(100),
   silverMin: z.coerce.number().int().min(0).max(100),
   goldMin: z.coerce.number().int().min(0).max(100),
@@ -660,7 +669,10 @@ export async function updateCycle(_prev: CduFormState, formData: FormData): Prom
 
   const parsed = cycleSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
-    return { status: "error", message: "Weights and thresholds must be whole numbers from 0 to 100." };
+    return {
+      status: "error",
+      message: "Thresholds must be whole numbers from 0 to 100, and Technical points from 0 to 5000.",
+    };
   }
 
   const d = parsed.data;
@@ -670,12 +682,6 @@ export async function updateCycle(_prev: CduFormState, formData: FormData): Prom
       status: "error",
       message: "Shield thresholds must increase: Bronze < Silver < Gold < Platinum.",
     };
-  }
-
-  const totalWeight =
-    d.technicalWeight + d.planningWeight + d.deliveryWeight + d.outcomesWeight;
-  if (totalWeight === 0) {
-    return { status: "error", message: "At least one domain must carry some weight." };
   }
 
   // Any published assessment in this cycle has its numbers frozen on its own
@@ -699,11 +705,9 @@ export async function updateCycle(_prev: CduFormState, formData: FormData): Prom
   return {
     status: "ok",
     message:
-      totalWeight === 100
-        ? published > 0
-          ? `Saved. ${published} already-published rating${published === 1 ? "" : "s"} are unaffected — their results are frozen.`
-          : "Cycle settings saved."
-        : `Saved. Weights total ${totalWeight}%, so they'll be normalised when scoring.`,
+      published > 0
+        ? `Saved. ${published} already-published rating${published === 1 ? " is" : "s are"} unaffected — their results are frozen.`
+        : "Cycle settings saved.",
   };
 }
 

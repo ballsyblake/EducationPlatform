@@ -33,7 +33,13 @@ export function ClubScoreCard({
   assignmentId: string;
   club: ClubScoreData;
   subCriteria: { id: string; text: string }[];
-  thresholds: { oneStarAt: number; twoStarAt: number; threeStarAt: number };
+  thresholds: {
+    oneStarAt: number;
+    twoStarAt: number;
+    threeStarAt: number;
+    fourStarAt: number | null;
+    maxScore: number;
+  };
   editable: boolean;
 }) {
   const [state, formAction] = useActionState(saveScore, initialState);
@@ -97,7 +103,7 @@ export function ClubScoreCard({
         </div>
 
         <div className="text-right">
-          <Stars value={score} />
+          <Stars value={score} max={thresholds.maxScore} />
           <p className="mt-1 text-xs font-medium text-ink-600">{starLabel(score)}</p>
         </div>
       </div>
