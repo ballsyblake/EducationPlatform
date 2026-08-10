@@ -73,8 +73,22 @@ function loadAssessmentRow(id: string) {
 export async function loadAssessment(id: string): Promise<AssessmentOverview> {
   const assessment = await loadAssessmentRow(id);
 
+  // Scoped to the club's tier. Tier 2 is assessed on a subset of the same coded
+  // items, so its maximum points — and therefore its percentage — come from
+  // fewer line items. Scoring every club against all of them would give a Tier 2
+  // club a denominator it was never assessed against.
+  const tier =
+    (assessment.tierId
+      ? await prisma.tier.findUnique({ where: { id: assessment.tierId } })
+      : null) ?? (await prisma.tier.findFirst({ orderBy: { position: "asc" } }));
+  const tierId = tier?.id ?? null;
+
   const criteria = await prisma.criterion.findMany({
-    where: { active: true, domain: { in: [...ASSESSED_DOMAINS] } },
+    where: {
+      active: true,
+      domain: { in: [...ASSESSED_DOMAINS] },
+      ...(tierId ? { tiers: { some: { id: tierId } } } : {}),
+    },
     // Position alone, deliberately. Positions are assigned across the whole
     // catalogue in domain order, so this yields Planning → Delivery → Outcomes.
     // Ordering by `domain` first would not: SQLite stores enums as TEXT, so
@@ -83,7 +97,7 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     orderBy: [{ position: "asc" }, { code: "asc" }],
     select: {
       id: true, code: true, title: true, domain: true,
-      weight: true, maxScore: true,
+      weight: true, maxScore: true, area: true,
     },
   });
 
@@ -104,7 +118,8 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
           }
         : null,
     })),
-    assessment.cycle.technicalMaxPoints,
+    // A tier may state its own Technical maximum; most inherit the cycle's.
+    tier?.technicalMaxPoints ?? assessment.cycle.technicalMaxPoints,
   );
 
   /* --------------------------- Assessor agreement -------------------------- */

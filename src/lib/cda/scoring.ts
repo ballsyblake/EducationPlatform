@@ -176,6 +176,8 @@ export type ScorableCriterion = {
   domain: Domain;
   weight: number;
   maxScore: number;
+  /** FQ's macro-area within the domain, e.g. "Match Day Observations". */
+  area: string | null;
 };
 
 export type CriterionOutcome = {

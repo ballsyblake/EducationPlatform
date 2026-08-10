@@ -34,7 +34,7 @@ export default async function RubricPage() {
   const [criteria, qualifications, nonNegotiables] = await Promise.all([
     prisma.criterion.findMany({
       where: { active: true },
-      include: { _count: { select: { subCriteria: true } } },
+      include: { _count: { select: { subCriteria: true } }, tiers: { orderBy: { position: "asc" } } },
       // Position, not domain: SQLite sorts the enum as TEXT, which would order
       // the domains alphabetically rather than the way FQ presents them.
       orderBy: [{ position: "asc" }, { code: "asc" }],
@@ -206,6 +206,9 @@ export default async function RubricPage() {
                       Criterion
                     </th>
                     <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">
+                      Tiers
+                    </th>
+                    <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">
                       Evidence
                     </th>
                     <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">
@@ -217,14 +220,40 @@ export default async function RubricPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-100">
-                  {inDomain.map((c) => (
+                  {inDomain.flatMap((c, i) => {
+                    // FQ's report is organised by macro-area, each with its own
+                    // subtotal — so the rubric reads the same way.
+                    const newArea = c.area && c.area !== inDomain[i - 1]?.area;
+                    const areaItems = inDomain.filter((x) => x.area === c.area);
+                    const rows = [];
+                    if (newArea) {
+                      rows.push(
+                        <tr key={`a-${c.area}`} className="bg-ink-50">
+                          <td colSpan={5} className="px-4 py-1.5 text-xs font-semibold text-ink-600">
+                            {c.area}
+                          </td>
+                          <td className="px-4 py-1.5 text-right text-xs font-semibold tabular-nums text-ink-600">
+                            {areaItems.reduce((n, x) => n + x.maxScore * x.weight, 0)}
+                          </td>
+                        </tr>,
+                      );
+                    }
+                    rows.push(
                     <tr key={c.id}>
                       <td className="px-4 py-2 text-xs text-ink-400">{c.code}</td>
                       <td className="px-3 py-2">
                         <span className="text-ink-800">{c.title}</span>
+                        {c.evidenceProvisional && (
+                          <span className="ml-2">
+                            <Badge tone="warn">Wording provisional</Badge>
+                          </span>
+                        )}
                         {c.description && (
                           <p className="text-xs text-ink-500">{c.description}</p>
                         )}
+                      </td>
+                      <td className="px-3 py-2 text-xs whitespace-nowrap text-ink-500">
+                        {c.tiers.map((t) => t.code).join(", ") || "—"}
                       </td>
                       <td className="px-3 py-2 tabular-nums text-ink-600">
                         {c._count.subCriteria}
@@ -239,12 +268,13 @@ export default async function RubricPage() {
                         </span>
                         <span className="ml-1 text-ink-400">= {c.maxScore * c.weight}</span>
                       </td>
-                    </tr>
-                  ))}
+                    </tr>);
+                    return rows;
+                  })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-ink-200 bg-ink-50 text-xs text-ink-600">
-                    <td className="px-4 py-2" colSpan={4}>
+                    <td className="px-4 py-2" colSpan={5}>
                       {inDomain.length} line items
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums">

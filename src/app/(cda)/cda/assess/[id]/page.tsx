@@ -90,7 +90,8 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
         title={`${criterion.code} — ${criterion.title}`}
         subtitle={
           <>
-            Pool {pool.name} · {DOMAIN_LABELS[criterion.domain]} ·{" "}
+            Pool {pool.name} · {DOMAIN_LABELS[criterion.domain]}
+            {criterion.area ? ` · ${criterion.area}` : ""} ·{" "}
             {criterion.mode === "OBSERVATION" ? "Observation based" : "Evidence based"} ·{" "}
             {pool.cycle.name}
           </>
@@ -137,6 +138,14 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
                 </li>
               ))}
             </ol>
+            {criterion.evidenceProvisional && (
+              <p className="mt-3 rounded-lg bg-status-orange-bg px-3 py-2 text-xs text-status-orange-fg">
+                These evidence points are a working draft, not Football Queensland&apos;s published
+                wording for this line item. Score against them as written and raise anything that
+                reads wrong with the Club Assessment Unit.
+              </p>
+            )}
+
             <div className="mt-3 border-t border-ink-200 pt-3">
               <StarScale
                 {...thresholds}

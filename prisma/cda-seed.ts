@@ -12,11 +12,20 @@
  */
 import type { PrismaClient } from "../generated/prisma/client.ts";
 import { defaultThresholds, starsFromEvidence } from "../src/lib/cda/rubric.ts";
-import { CRITERIA, NON_NEGOTIABLES, QUALIFICATIONS, WEIGHT } from "./cda-catalog.ts";
+import { CRITERIA, NON_NEGOTIABLES, QUALIFICATIONS } from "./cda-catalog.ts";
 
 /* -------------------------------------------------------------------------- */
 /* Catalogue                                                                  */
 /* -------------------------------------------------------------------------- */
+
+const TIERS = [
+  // 330 is FQ's own Technical maximum for a Tier 1 club on their 2026 CASE 2
+  // team profile. Tier 2 is scaled to keep Technical at about a quarter of the
+  // rating there too, rather than ballooning to 44% because the tier is
+  // assessed on a third of the line items.
+  { code: "T1", name: "Tier 1", technicalMaxPoints: 330 },
+  { code: "T2", name: "Tier 2", technicalMaxPoints: 112 },
+];
 
 export async function seedCatalog(prisma: PrismaClient) {
   for (const [i, q] of QUALIFICATIONS.entries()) {
@@ -38,11 +47,38 @@ export async function seedCatalog(prisma: PrismaClient) {
     });
   }
 
+  // Tiers first: criteria attach to them, and a Tier 2 club is assessed on a
+  // subset of the same coded items rather than a different catalogue.
+  for (const [i, t] of TIERS.entries()) {
+    await prisma.tier.upsert({
+      where: { code: t.code },
+      update: { name: t.name, position: i, technicalMaxPoints: t.technicalMaxPoints },
+      create: { ...t, position: i },
+    });
+  }
+  const tierIds = new Map(
+    (await prisma.tier.findMany()).map((t) => [t.code, t.id]),
+  );
+
   let position = 0;
   for (const { domain, criteria } of CRITERIA) {
     for (const c of criteria) {
       const maxScore = c.maxScore ?? 3;
-      const { maxScore: _ignored, ...thresholds } = defaultThresholds(c.evidence.length, maxScore);
+      // FQ states the bands for its own items; anything without them falls back
+      // to the shape of FQ's, derived from the number of evidence points.
+      const derived = defaultThresholds(c.evidence.length, maxScore);
+      const thresholds = {
+        oneStarAt: c.oneStarAt ?? derived.oneStarAt,
+        twoStarAt: c.twoStarAt ?? derived.twoStarAt,
+        threeStarAt: c.threeStarAt ?? derived.threeStarAt,
+        fourStarAt: maxScore >= 4 ? (c.fourStarAt ?? derived.fourStarAt ?? null) : null,
+      };
+      const tiers = {
+        set: (c.tiers ?? ["T1"])
+          .map((code) => tierIds.get(code))
+          .filter((id): id is string => Boolean(id))
+          .map((id) => ({ id })),
+      };
       const existing = await prisma.criterion.findUnique({ where: { code: c.code } });
 
       if (existing) {
@@ -58,9 +94,12 @@ export async function seedCatalog(prisma: PrismaClient) {
           where: { code: c.code },
           data: {
             position: position++,
-            weight: c.weight ?? WEIGHT.STANDARD,
+            weight: c.weight ?? 6,
             maxScore,
             mode: c.mode ?? "EVIDENCE",
+            area: c.area ?? null,
+            evidenceProvisional: c.evidenceProvisional ?? false,
+            tiers,
             ...thresholds,
           },
         });
@@ -72,10 +111,13 @@ export async function seedCatalog(prisma: PrismaClient) {
           domain,
           code: c.code,
           title: c.title,
-          description: c.description,
-          weight: c.weight ?? WEIGHT.STANDARD,
+          description: c.description ?? null,
+          weight: c.weight ?? 6,
           maxScore,
           mode: c.mode ?? "EVIDENCE",
+          area: c.area ?? null,
+          evidenceProvisional: c.evidenceProvisional ?? false,
+          tiers: { connect: tiers.set },
           position: position++,
           ...thresholds,
           subCriteria: {
@@ -84,6 +126,19 @@ export async function seedCatalog(prisma: PrismaClient) {
         },
       });
     }
+  }
+
+  // Anything active that this release no longer ships is retired rather than
+  // deleted: scores already reference it and deleting would take them with it.
+  // Inactive criteria are excluded from scoring, so a retired item stops
+  // counting without erasing the history of when it did.
+  const shipped = CRITERIA.flatMap((d) => d.criteria.map((c) => c.code));
+  const retired = await prisma.criterion.updateMany({
+    where: { active: true, code: { notIn: shipped } },
+    data: { active: false },
+  });
+  if (retired.count > 0) {
+    console.log(`[cda] retired ${retired.count} criteria no longer in the catalogue`);
   }
 
   const counts = {
@@ -336,6 +391,21 @@ const POOLS = [
   },
 ];
 
+/**
+ * Assessment tier per club. Tier 2 clubs are assessed on 18 of the 54 line
+ * items, so their maximum — and therefore their percentage — is computed from a
+ * smaller denominator. Two of the demo clubs sit in Tier 2 so that path is
+ * actually exercised rather than merely supported.
+ */
+const CLUB_TIER: Record<string, string> = {
+  "brisbane-cityside": "T1",
+  "sunshine-coast-wanderers": "T1",
+  "redlands-united": "T1",
+  "rockhampton-central": "T2",
+  "toowoomba-ranges": "T1",
+  "cairns-tropics": "T2",
+};
+
 /** Where each club's own record sits, independent of its pool's progress. */
 const CLUB_STATE: Record<string, string> = {
   "brisbane-cityside": "PUBLISHED",
@@ -391,9 +461,10 @@ export async function seedDemo(prisma: PrismaClient) {
   const nonNegotiables = await prisma.nonNegotiable.findMany({ orderBy: { position: "asc" } });
   const criteria = await prisma.criterion.findMany({
     where: { active: true, domain: { in: ["PLANNING", "DELIVERY", "OUTCOMES"] } },
-    include: { subCriteria: { orderBy: { position: "asc" } } },
+    include: { subCriteria: { orderBy: { position: "asc" } }, tiers: true },
     orderBy: { position: "asc" },
   });
+  const tierIds = new Map((await prisma.tier.findMany()).map((t) => [t.code, t.id]));
 
   /* -------------------------- Pools, clubs, staff -------------------------- */
 
@@ -438,6 +509,7 @@ export async function seedDemo(prisma: PrismaClient) {
           clubId: club.id,
           cycleId: cycle.id,
           poolId: pool.id,
+          tierId: tierIds.get(CLUB_TIER[slug] ?? "T1") ?? null,
           status: published ? "PUBLISHED" : (state as never),
           clubSubmittedAt: state === "IN_PROGRESS" ? null : new Date("2026-04-18"),
         },
@@ -554,8 +626,13 @@ export async function seedDemo(prisma: PrismaClient) {
 
           const full = await prisma.clubAssessment.findUniqueOrThrow({
             where: { id: clubAssessment.id },
-            select: { club: { select: { slug: true } } },
+            select: { tierId: true, club: { select: { slug: true } } },
           });
+
+          // A Tier 2 club isn't assessed on most of the catalogue, so scoring it
+          // there would invent marks against items nobody looked at.
+          if (full.tierId && !criterion.tiers.some((t) => t.id === full.tierId)) continue;
+
           const strength = strengthBySlug.get(full.club.slug) ?? 0.5;
 
           // Slot 2 runs slightly harsher than slot 1, which is what produces the

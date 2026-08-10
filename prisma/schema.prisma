@@ -412,8 +412,11 @@ model Cycle {
   ///
   /// Changing this moves Technical's share of the total, and therefore
   /// everything else's. It is per-cycle so that a published year keeps the
-  /// balance it was actually judged under.
-  technicalMaxPoints Int @default(270)
+  /// balance it was actually judged under. A tier may override it.
+  ///
+  /// 330 is Football Queensland's own figure for a Tier 1 club on their 2026
+  /// CASE 2 team profile.
+  technicalMaxPoints Int @default(330)
 
   /// Minimum weighted-total percentage for each shield.
   bronzeMin   Int @default(40)
@@ -488,6 +491,11 @@ model ClubAssessment {
   poolId String?
   pool   Pool?   @relation(fields: [poolId], references: [id], onDelete: SetNull)
 
+  /// Which set of line items this club is assessed on. Null falls back to the
+  /// first tier, so a club added before tiers are set up is still assessable.
+  tierId String?
+  tier   Tier?   @relation(fields: [tierId], references: [id], onDelete: SetNull)
+
   staff          StaffMember[]
   scores         AssessorScore[]
   finalScores    FinalScore[]
@@ -498,6 +506,28 @@ model ClubAssessment {
   @@index([cycleId])
   @@index([status])
   @@index([poolId])
+  @@index([tierId])
+}
+
+/// An assessment tier. Tier 2 clubs are assessed on a subset of the same line
+/// items Tier 1 clubs are — same codes, same wording, fewer of them — so a
+/// club's maximum points depend on its tier, and the tier has to be part of the
+/// data rather than a label on the club.
+model Tier {
+  id       String @id @default(cuid())
+  code     String @unique
+  name     String
+  position Int    @default(0)
+
+  /// Points available for Technical Qualifications at this tier, overriding the
+  /// cycle's figure. A Tier 2 club fields fewer teams and is assessed on fewer
+  /// line items, so holding Technical at the Tier 1 maximum would make it 44% of
+  /// their rating instead of a quarter. FQ derives the real figure from a table
+  /// of team profiles; this is the same idea, per tier.
+  technicalMaxPoints Int?
+
+  criteria    Criterion[]
+  assessments ClubAssessment[]
 }
 
 /// A group of clubs assessed together within a cycle.
@@ -656,20 +686,30 @@ enum AssessmentMode {
 /// a score directly: they tick the evidence points they saw, and the count maps
 /// to a band.
 model Criterion {
-  id          String         @id @default(cuid())
-  domain      Domain
-  code        String         @unique
-  title       String
-  description String?
+  id                  String         @id @default(cuid())
+  domain              Domain
+  code                String         @unique
+  title               String
+  description         String?
   /// Evidence-based items and observation-based items run on separate
   /// timetables and are assessed by different people, so the distinction has to
   /// survive into the data rather than living in someone's spreadsheet.
-  mode        AssessmentMode @default(EVIDENCE)
+  mode                AssessmentMode @default(EVIDENCE)
+  /// The macro-area this item is grouped under within its domain. FQ's report
+  /// is structured around these: each carries its own subtotal, its own grade
+  /// and its own paragraph of feedback.
+  area                String?
+  /// Which tiers are assessed on this item.
+  tiers               Tier[]
+  /// True while the evidence points are this project's wording rather than
+  /// Football Queensland's. Surfaced in the app so nobody mistakes a placeholder
+  /// for the real rubric.
+  evidenceProvisional Boolean        @default(false)
   /// Points multiplier. On Football Queensland's scale this is 4, 6, 8 or 10 —
   /// a line item is worth `maxScore * weight` points towards its domain.
-  weight      Int            @default(6)
-  position    Int            @default(0)
-  active      Boolean        @default(true)
+  weight              Int            @default(6)
+  position            Int            @default(0)
+  active              Boolean        @default(true)
 
   /// The top of this item's scale. Usually 3; a few go to 4, which is why it
   /// can't be a constant — FQ's D8 awards 4 for 9-10 evidence points met and
