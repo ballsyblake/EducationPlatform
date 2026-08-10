@@ -19,9 +19,13 @@ export default async function AssessorsPage() {
     where: { role: "ASSESSOR" },
     include: {
       sessions: { select: { lastSeenAt: true }, orderBy: { lastSeenAt: "desc" }, take: 1 },
-      assessorAssignments: {
-        where: cycle ? { assessment: { cycleId: cycle.id } } : undefined,
-        include: { assessment: { include: { club: true } } },
+      criterionAssignments: {
+        where: cycle ? { pool: { cycleId: cycle.id } } : undefined,
+        include: {
+          criterion: { select: { code: true, title: true } },
+          pool: { select: { id: true, name: true, _count: { select: { assessments: true } } } },
+        },
+        orderBy: { criterion: { position: "asc" } },
       },
     },
     orderBy: [{ active: "desc" }, { name: "asc" }],
@@ -32,18 +36,18 @@ export default async function AssessorsPage() {
   });
 
   const scoreCounts = await prisma.assessorScore.groupBy({
-    by: ["assessorId", "assessmentId"],
+    by: ["assessorId", "criterionId"],
     where: cycle ? { assessment: { cycleId: cycle.id } } : undefined,
     _count: { _all: true },
   });
   const scored = new Map(
-    scoreCounts.map((c) => [`${c.assessorId}:${c.assessmentId}`, c._count._all]),
+    scoreCounts.map((c) => [`${c.assessorId}:${c.criterionId}`, c._count._all]),
   );
 
   const active = assessors.filter((a) => a.active);
-  const totalAssignments = active.reduce((n, a) => n + a.assessorAssignments.length, 0);
+  const totalAssignments = active.reduce((n, a) => n + a.criterionAssignments.length, 0);
   const outstanding = active.reduce(
-    (n, a) => n + a.assessorAssignments.filter((x) => !x.submittedAt).length,
+    (n, a) => n + a.criterionAssignments.filter((x) => !x.submittedAt).length,
     0,
   );
 
@@ -56,7 +60,7 @@ export default async function AssessorsPage() {
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatTile label="Active assessors" value={active.length} />
-        <StatTile label="Club assignments" value={totalAssignments} />
+        <StatTile label="Line items held" value={totalAssignments} />
         <StatTile
           label="Outstanding"
           value={outstanding}
@@ -110,22 +114,25 @@ export default async function AssessorsPage() {
                     </div>
                   </div>
 
-                  {a.assessorAssignments.length > 0 ? (
+                  {a.criterionAssignments.length > 0 ? (
                     <ul className="mt-3 flex flex-wrap gap-2">
-                      {a.assessorAssignments.map((assignment) => {
-                        const n = scored.get(`${a.id}:${assignment.assessmentId}`) ?? 0;
+                      {a.criterionAssignments.map((assignment) => {
+                        const clubs = assignment.pool._count.assessments;
+                        const n = Math.min(scored.get(`${a.id}:${assignment.criterionId}`) ?? 0, clubs);
                         return (
                           <li key={assignment.id}>
                             <Link
-                              href={`/cda/cdu/assessments/${assignment.assessmentId}`}
+                              href={`/cda/cdu/pools/${assignment.pool.id}`}
+                              title={assignment.criterion.title}
                               className="flex items-center gap-2 rounded-lg border border-ink-200 px-2.5 py-1 text-xs hover:bg-ink-50"
                             >
-                              <span className="text-ink-700">{assignment.assessment.club.name}</span>
+                              <span className="text-ink-400">Pool {assignment.pool.name}</span>
+                              <span className="text-ink-700">{assignment.criterion.code}</span>
                               {assignment.submittedAt ? (
                                 <Badge tone="good">In</Badge>
                               ) : (
                                 <span className="tabular-nums text-ink-400">
-                                  {n}/{criteriaCount}
+                                  {n}/{clubs}
                                 </span>
                               )}
                             </Link>
@@ -134,7 +141,7 @@ export default async function AssessorsPage() {
                       })}
                     </ul>
                   ) : (
-                    <p className="mt-2 text-xs text-ink-400">No clubs assigned this cycle.</p>
+                    <p className="mt-2 text-xs text-ink-400">No line items allocated this cycle.</p>
                   )}
                 </div>
               ))}
@@ -149,8 +156,9 @@ export default async function AssessorsPage() {
           </div>
 
           <p className="mt-4 text-xs text-ink-500">
-            Assessors are assigned to clubs from the assessment page, up to three per club. Removing
-            an assessor from a club deletes the scores they gave it.
+            Assessors are allocated a line item across a whole pool, from that pool&apos;s page.
+            Slots 1 and 2 assess independently; slot 3 exists only to break a split between them.
+            Removing an assessor from a line item deletes the scores they gave it across the pool.
           </p>
         </aside>
       </div>

@@ -12,7 +12,7 @@ const CLUB_LINKS: NavLink[] = [
   { href: "/cda/club/rating", label: "Our rating" },
 ];
 
-const ASSESSOR_LINKS: NavLink[] = [{ href: "/cda/assess", label: "My clubs" }];
+const ASSESSOR_LINKS: NavLink[] = [{ href: "/cda/assess", label: "My line items" }];
 
 const CDU_LINKS: NavLink[] = [
   { href: "/cda/cdu", label: "Cycle" },

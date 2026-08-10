@@ -46,9 +46,12 @@ export type AssessmentOverview = {
   rating: RatingResult;
   /** True when the stored, frozen result is what's being shown. */
   frozen: boolean;
-  assessors: { id: string; name: string; submittedAt: Date | null }[];
+  /** Everyone holding a line item on this club's pool, with their progress. */
+  assessors: { id: string; name: string; items: number; submitted: number }[];
   criteria: ScorableCriterion[];
   unresolved: CriterionAgreement[];
+  /** Criteria nobody has been assigned yet — invisible otherwise. */
+  unassigned: CriterionAgreement[];
 };
 
 function loadAssessmentRow(id: string) {
@@ -57,8 +60,8 @@ function loadAssessmentRow(id: string) {
     include: {
       club: true,
       cycle: true,
+      pool: true,
       staff: { include: { qualification: true }, orderBy: { name: "asc" } },
-      assessors: { include: { assessor: true } },
       scores: { include: { assessor: true } },
       finalScores: true,
       nonNegotiables: { include: { nonNegotiable: true } },
@@ -102,24 +105,37 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
 
   /* --------------------------- Assessor agreement -------------------------- */
 
-  const assessors = assessment.assessors
-    .map((a) => ({
-      id: a.assessorId,
-      name: displayName(a.assessor),
-      submittedAt: a.submittedAt,
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  // Assessors are now per line item, so each criterion has its own two or three
+  // — not one panel covering the whole club. The comparison is drawn from the
+  // assignments in this club's pool, which is also what makes an unassigned
+  // criterion visibly unassigned rather than merely unscored.
+  const assignments = assessment.poolId
+    ? await prisma.criterionAssignment.findMany({
+        where: { poolId: assessment.poolId },
+        include: { assessor: true },
+        orderBy: { slot: "asc" },
+      })
+    : [];
+
+  const byCriterion = new Map<string, typeof assignments>();
+  for (const a of assignments) {
+    const list = byCriterion.get(a.criterionId) ?? [];
+    list.push(a);
+    byCriterion.set(a.criterionId, list);
+  }
 
   const finalByCriterion = new Map(assessment.finalScores.map((f) => [f.criterionId, f]));
 
   const agreements = criteria.map((criterion) => {
-    const entries: AssessorStar[] = assessors.map((a) => {
+    const held = byCriterion.get(criterion.id) ?? [];
+
+    const entries: AssessorStar[] = held.map((a) => {
       const score = assessment.scores.find(
-        (s) => s.assessorId === a.id && s.criterionId === criterion.id,
+        (s) => s.assessorId === a.assessorId && s.criterionId === criterion.id,
       );
       return {
-        assessorId: a.id,
-        assessorName: a.name,
+        assessorId: a.assessorId,
+        assessorName: displayName(a.assessor),
         stars: score ? score.stars : null,
         comment: score?.comment ?? null,
       };
@@ -127,6 +143,16 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
 
     return assessAgreement(criterion, entries, finalByCriterion.get(criterion.id)?.stars ?? null);
   });
+
+  // Everyone with a hand in this club, for the summary panels.
+  const assessors = [...new Map(assignments.map((a) => [a.assessorId, a])).values()]
+    .map((a) => ({
+      id: a.assessorId,
+      name: displayName(a.assessor),
+      items: assignments.filter((x) => x.assessorId === a.assessorId).length,
+      submitted: assignments.filter((x) => x.assessorId === a.assessorId && x.submittedAt).length,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   /* ------------------------------- Domains -------------------------------- */
 
@@ -196,6 +222,7 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     assessors,
     criteria,
     unresolved: agreements.filter((a) => a.final === null),
+    unassigned: agreements.filter((a) => a.entries.length === 0),
   };
 }
 

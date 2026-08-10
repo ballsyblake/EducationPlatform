@@ -208,27 +208,28 @@ export async function setUserActive(formData: FormData) {
 /* Assessor assignment                                                        */
 /* -------------------------------------------------------------------------- */
 
-export async function assignAssessor(
+/**
+ * Allocates one line item, across one pool, to one assessor.
+ *
+ * Slots 1 and 2 assess independently. Slot 3 exists only to break a split
+ * between them and is normally left empty — filling it as a matter of course
+ * turns a tiebreaker into a third opinion and costs a third of the assessing
+ * effort for nothing.
+ */
+export async function assignCriterion(
   _prev: CduFormState,
   formData: FormData,
 ): Promise<CduFormState> {
   await requireCdu();
 
-  const assessmentId = String(formData.get("assessmentId") ?? "");
+  const poolId = String(formData.get("poolId") ?? "");
+  const criterionId = String(formData.get("criterionId") ?? "");
   const assessorId = String(formData.get("assessorId") ?? "");
+  const slot = Number(formData.get("slot") ?? 1);
+
   if (!assessorId) return { status: "error", message: "Choose an assessor." };
-
-  const assessment = await prisma.clubAssessment.findUnique({
-    where: { id: assessmentId },
-    include: { _count: { select: { assessors: true } } },
-  });
-  if (!assessment) return { status: "error", message: "That assessment no longer exists." };
-
-  if (assessment._count.assessors >= MAX_ASSESSORS_PER_CLUB) {
-    return {
-      status: "error",
-      message: `A club can have at most ${MAX_ASSESSORS_PER_CLUB} assessors.`,
-    };
+  if (!Number.isInteger(slot) || slot < 1 || slot > MAX_ASSESSORS_PER_CLUB) {
+    return { status: "error", message: `Slot must be 1 to ${MAX_ASSESSORS_PER_CLUB}.` };
   }
 
   const assessor = await prisma.user.findFirst({
@@ -236,34 +237,133 @@ export async function assignAssessor(
   });
   if (!assessor) return { status: "error", message: "That assessor isn't available." };
 
+  const existing = await prisma.criterionAssignment.findUnique({
+    where: { poolId_criterionId_slot: { poolId, criterionId, slot } },
+  });
+  if (existing) {
+    return { status: "error", message: `Slot ${slot} is already filled for this line item.` };
+  }
+
   try {
-    await prisma.assessorAssignment.create({ data: { assessmentId, assessorId } });
+    await prisma.criterionAssignment.create({ data: { poolId, criterionId, assessorId, slot } });
   } catch {
-    // The unique index is the real guard against a double submit.
-    return { status: "error", message: "That assessor is already assigned to this club." };
+    // The second unique index catches the same person in two slots.
+    return { status: "error", message: "That assessor already holds this line item." };
   }
 
   refresh();
-  return { status: "ok", message: `${assessor.name ?? assessor.email} assigned.` };
+  return { status: "ok", message: `${assessor.name ?? assessor.email} assigned to slot ${slot}.` };
 }
 
 /**
- * Removes an assessor from a club.
+ * Removes a line item from an assessor.
  *
- * Their scores go with them. Leaving orphaned scores behind would mean the
- * reconciliation view showing a column headed by someone no longer on the club,
- * and those scores silently counting towards the median.
+ * Their scores for it go too, across every club in the pool. Leaving them
+ * behind would mean the reconciliation view showing a column headed by someone
+ * who no longer holds the item, with those scores still counting towards the
+ * median.
  */
-export async function unassignAssessor(formData: FormData) {
+export async function unassignCriterion(formData: FormData) {
+  await requireCdu();
+  const assignmentId = String(formData.get("assignmentId") ?? "");
+
+  const assignment = await prisma.criterionAssignment.findUnique({
+    where: { id: assignmentId },
+    select: { poolId: true, criterionId: true, assessorId: true },
+  });
+  if (!assignment) return;
+
+  const clubs = await prisma.clubAssessment.findMany({
+    where: { poolId: assignment.poolId },
+    select: { id: true },
+  });
+
+  await prisma.$transaction([
+    prisma.assessorScore.deleteMany({
+      where: {
+        assessorId: assignment.assessorId,
+        criterionId: assignment.criterionId,
+        assessmentId: { in: clubs.map((c) => c.id) },
+      },
+    }),
+    prisma.criterionAssignment.delete({ where: { id: assignmentId } }),
+  ]);
+
+  refresh();
+}
+
+/** Hands a submitted line item back to its assessor to change. */
+export async function reopenAssignment(formData: FormData) {
+  await requireCdu();
+  const assignmentId = String(formData.get("assignmentId") ?? "");
+
+  const assignment = await prisma.criterionAssignment.findUnique({
+    where: { id: assignmentId },
+    select: { poolId: true },
+  });
+  if (!assignment) return;
+
+  await prisma.criterionAssignment.update({
+    where: { id: assignmentId },
+    data: { submittedAt: null },
+  });
+
+  // Reopening one item pulls the pool's clubs back out of reconciliation, since
+  // the assessment they were moved on the strength of is no longer complete.
+  await prisma.clubAssessment.updateMany({
+    where: { poolId: assignment.poolId, status: "RECONCILING", lockedAt: null },
+    data: { status: "IN_ASSESSMENT" },
+  });
+
+  refresh();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Pools                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export async function createPool(_prev: CduFormState, formData: FormData): Promise<CduFormState> {
+  await requireCdu();
+
+  const cycleId = String(formData.get("cycleId") ?? "");
+  const name = String(formData.get("name") ?? "").trim().toUpperCase();
+
+  if (!name) return { status: "error", message: "Give the pool a name." };
+  if (name.length > 12) return { status: "error", message: "Keep pool names short — “A”, “B”, “C”." };
+
+  const existing = await prisma.pool.findUnique({ where: { cycleId_name: { cycleId, name } } });
+  if (existing) return { status: "error", message: `Pool ${name} already exists in this cycle.` };
+
+  const count = await prisma.pool.count({ where: { cycleId } });
+  await prisma.pool.create({ data: { cycleId, name, position: count } });
+
+  refresh();
+  return { status: "ok", message: `Pool ${name} created.` };
+}
+
+/**
+ * Moves a club into a pool — or out of one.
+ *
+ * Scores already recorded stay put. They belong to (club, criterion, assessor)
+ * and remain valid evidence of what that assessor judged; what changes is who
+ * is responsible for the club's remaining line items.
+ */
+export async function setClubPool(formData: FormData) {
   await requireCdu();
 
   const assessmentId = String(formData.get("assessmentId") ?? "");
-  const assessorId = String(formData.get("assessorId") ?? "");
+  const poolId = String(formData.get("poolId") ?? "");
 
-  await prisma.$transaction([
-    prisma.assessorScore.deleteMany({ where: { assessmentId, assessorId } }),
-    prisma.assessorAssignment.deleteMany({ where: { assessmentId, assessorId } }),
-  ]);
+  const assessment = await prisma.clubAssessment.findUnique({
+    where: { id: assessmentId },
+    select: { lockedAt: true },
+  });
+  if (!assessment || assessment.lockedAt) return;
+
+  await prisma.clubAssessment.update({
+    where: { id: assessmentId },
+    data: { poolId: poolId || null },
+  });
 
   refresh();
 }

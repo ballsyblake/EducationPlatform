@@ -77,25 +77,28 @@ export async function currentClub(userId: string) {
 /**
  * Loads an assessment the user is allowed to read, or 404s.
  *
- * `include` is passed straight through so callers get exactly the shape they
- * need from one authorized query, rather than authorizing and then re-fetching.
+ * An assessor's reach is no longer "this club". They hold particular line items
+ * across a pool, so they reach a club when they hold at least one line item in
+ * that club's pool — and even then they may only score the items they hold.
+ * Use `assignedCriterionIds` for the second half of that.
  */
 export async function requireAssessmentAccess(user: User, assessmentId: string) {
   const assessment = await prisma.clubAssessment.findUnique({
     where: { id: assessmentId },
-    include: {
-      club: true,
-      cycle: true,
-      assessors: { select: { assessorId: true, submittedAt: true } },
-    },
+    include: { club: true, cycle: true, pool: true },
   });
   if (!assessment) notFound();
 
   if (user.role === "ADMIN") return assessment;
 
   if (user.role === "ASSESSOR") {
-    const assigned = assessment.assessors.some((a) => a.assessorId === user.id);
-    if (!assigned) notFound();
+    // A club not yet placed in a pool has no assessors by definition.
+    if (!assessment.poolId) notFound();
+    const holds = await prisma.criterionAssignment.findFirst({
+      where: { poolId: assessment.poolId, assessorId: user.id },
+      select: { id: true },
+    });
+    if (!holds) notFound();
     return assessment;
   }
 
@@ -108,6 +111,37 @@ export async function requireAssessmentAccess(user: User, assessmentId: string) 
   }
 
   notFound();
+}
+
+/**
+ * The line items an assessor may score on a given club.
+ *
+ * Everything an assessor writes is checked against this. Holding one item in a
+ * pool gets you through the door; it must not get you the other thirty-nine.
+ */
+export async function assignedCriterionIds(assessorId: string, poolId: string | null) {
+  if (!poolId) return new Set<string>();
+  const held = await prisma.criterionAssignment.findMany({
+    where: { poolId, assessorId },
+    select: { criterionId: true },
+  });
+  return new Set(held.map((h) => h.criterionId));
+}
+
+/**
+ * Loads one of this assessor's line-item assignments — the unit their scoring
+ * screen is built around — or 404s.
+ */
+export async function requireAssignment(assessorId: string, assignmentId: string) {
+  const assignment = await prisma.criterionAssignment.findUnique({
+    where: { id: assignmentId },
+    include: {
+      criterion: { include: { subCriteria: { orderBy: { position: "asc" } } } },
+      pool: { include: { cycle: true } },
+    },
+  });
+  if (!assignment || assignment.assessorId !== assessorId) notFound();
+  return assignment;
 }
 
 /**

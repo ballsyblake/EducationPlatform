@@ -21,21 +21,38 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
   const overview = await loadAssessment(id);
   const { assessment, technical, rating, agreements, frozen } = overview;
 
-  const [pool, scoreCounts] = await Promise.all([
-    prisma.user.findMany({
-      where: { role: "ASSESSOR", active: true },
-      include: { _count: { select: { assessorAssignments: true } } },
-      orderBy: { name: "asc" },
+  const [pools, poolDetail] = await Promise.all([
+    prisma.pool.findMany({
+      where: { cycleId: assessment.cycleId },
+      orderBy: { position: "asc" },
+      select: { id: true, name: true },
     }),
-    prisma.assessorScore.groupBy({
-      by: ["assessorId"],
-      where: { assessmentId: id },
-      _count: { _all: true },
-    }),
+    assessment.poolId
+      ? prisma.pool.findUnique({
+          where: { id: assessment.poolId },
+          include: {
+            _count: { select: { assessments: true } },
+            assignments: { select: { criterionId: true, submittedAt: true } },
+          },
+        })
+      : null,
   ]);
 
-  const scoredBy = new Map(scoreCounts.map((c) => [c.assessorId, c._count._all]));
-  const assignedIds = new Set(assessment.assessors.map((a) => a.assessorId));
+  // "Allocated" counts line items with at least one assessor; "submitted" only
+  // those where every allocated slot is in, since one outstanding slot means the
+  // item isn't finished.
+  const poolSummary = poolDetail
+    ? {
+        id: poolDetail.id,
+        name: poolDetail.name,
+        clubs: poolDetail._count.assessments,
+        assigned: new Set(poolDetail.assignments.map((a) => a.criterionId)).size,
+        submitted: [...new Set(poolDetail.assignments.map((a) => a.criterionId))].filter((cid) =>
+          poolDetail.assignments.filter((a) => a.criterionId === cid).every((a) => a.submittedAt),
+        ).length,
+        criteriaTotal: agreements.length,
+      }
+    : null;
 
   const checks: VerifyItem[] = assessment.nonNegotiables.map((n) => ({
     id: n.id,
@@ -209,23 +226,10 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
 
           <AssessorPanel
             assessmentId={id}
-            criteriaCount={agreements.length}
+            pool={poolSummary}
+            pools={pools}
+            assessors={overview.assessors}
             locked={locked}
-            assigned={assessment.assessors.map((a) => ({
-              id: a.assessorId,
-              name: displayName(a.assessor),
-              email: a.assessor.email,
-              submittedAt: a.submittedAt,
-              scored: scoredBy.get(a.assessorId) ?? 0,
-            }))}
-            available={pool
-              .filter((p) => !assignedIds.has(p.id))
-              .map((p) => ({
-                id: p.id,
-                name: displayName(p),
-                email: p.email,
-                load: p._count.assessorAssignments,
-              }))}
           />
 
           <div className="card card-pad">

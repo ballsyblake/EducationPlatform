@@ -75,7 +75,7 @@ export default async function ReconcilePage({
     <>
       <PageHeader
         title={`Reconcile — ${assessment.club.name}`}
-        subtitle={`${assessment.assessors.length} assessors · ${assessment.cycle.name}`}
+        subtitle={`${overview.assessors.length} assessors · ${assessment.cycle.name}`}
         breadcrumb={{ href: `/cda/cdu/assessments/${id}`, label: "Assessment" }}
       />
 

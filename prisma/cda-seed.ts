@@ -152,11 +152,23 @@ const CLUBS = [
   },
 ];
 
+/**
+ * The assessor pool.
+ *
+ * Larger than it needs to be for six clubs, because vertical assessment spreads
+ * work by line item: forty items across two pools is eighty allocations, and a
+ * pool of four would give everyone twenty line items each. FQ's own sheet shows
+ * seven or eight names across eighteen items.
+ */
 const ASSESSORS = [
   { email: "n.calloway@fq.example.com", name: "Nina Calloway", title: "Club Development Assessor" },
   { email: "d.marchetti@fq.example.com", name: "Dario Marchetti", title: "Technical Assessor" },
   { email: "a.baptiste@fq.example.com", name: "Aimee Baptiste", title: "Club Development Assessor" },
   { email: "k.oyelaran@fq.example.com", name: "Kola Oyelaran", title: "Regional Assessor" },
+  { email: "s.whitlam@fq.example.com", name: "Sara Whitlam", title: "Technical Assessor" },
+  { email: "j.pereira@fq.example.com", name: "Joel Pereira", title: "Club Development Assessor" },
+  { email: "r.stavros@fq.example.com", name: "Ruth Stavros", title: "Observation Assessor" },
+  { email: "b.iremonger@fq.example.com", name: "Ben Iremonger", title: "Observation Assessor" },
 ];
 
 /**
@@ -282,18 +294,42 @@ function staffFor(strength: number, random: () => number): StaffTemplate[] {
 }
 
 /**
- * How each club's assessment should be left, so that every screen in the app
- * has something real behind it: a finished rating, a live reconciliation with
- * genuine splits, a half-scored assessment, and clubs still entering data.
+ * Pools, and where each one has got to.
+ *
+ * Progress is a property of the pool now, not of a club: every line item is
+ * allocated across the whole pool and scored across the whole pool, so clubs in
+ * a pool move through assessment together. Pool A is finished; Pool B is
+ * mid-flight with some line items still unallocated.
  */
-const SCENARIOS = [
-  { slug: "brisbane-cityside", state: "PUBLISHED", assessors: 3 },
-  { slug: "sunshine-coast-wanderers", state: "RECONCILING", assessors: 3 },
-  { slug: "redlands-united", state: "IN_ASSESSMENT", assessors: 3 },
-  { slug: "toowoomba-ranges", state: "SUBMITTED", assessors: 2 },
-  { slug: "cairns-tropics", state: "IN_PROGRESS", assessors: 0 },
-  { slug: "rockhampton-central", state: "PUBLISHED_INELIGIBLE", assessors: 3 },
-] as const;
+const POOLS = [
+  {
+    name: "A",
+    complete: true,
+    clubs: [
+      "brisbane-cityside",
+      "sunshine-coast-wanderers",
+      "redlands-united",
+      "rockhampton-central",
+    ],
+  },
+  {
+    name: "B",
+    complete: false,
+    clubs: ["toowoomba-ranges", "cairns-tropics"],
+  },
+];
+
+/** Where each club's own record sits, independent of its pool's progress. */
+const CLUB_STATE: Record<string, string> = {
+  "brisbane-cityside": "PUBLISHED",
+  "rockhampton-central": "PUBLISHED_INELIGIBLE",
+  "sunshine-coast-wanderers": "RECONCILING",
+  "redlands-united": "RECONCILING",
+  "toowoomba-ranges": "IN_ASSESSMENT",
+  // Still entering its own data, so nobody can score it yet — which is exactly
+  // the case the "clubs not yet submitted" count on the scoring screen exists for.
+  "cairns-tropics": "IN_PROGRESS",
+};
 
 export async function seedDemo(prisma: PrismaClient) {
   const random = makeRandom(20260807);
@@ -305,8 +341,9 @@ export async function seedDemo(prisma: PrismaClient) {
   await prisma.nonNegotiableResult.deleteMany();
   await prisma.clubMetric.deleteMany();
   await prisma.staffMember.deleteMany();
-  await prisma.assessorAssignment.deleteMany();
+  await prisma.criterionAssignment.deleteMany();
   await prisma.clubAssessment.deleteMany();
+  await prisma.pool.deleteMany();
   await prisma.clubMembership.deleteMany();
   await prisma.club.deleteMany();
   await prisma.cycle.deleteMany();
@@ -324,25 +361,16 @@ export async function seedDemo(prisma: PrismaClient) {
     },
   });
 
-  // A closed prior year, so a club's dashboard can show movement rather than a
-  // rating in a vacuum.
   const priorCycle = await prisma.cycle.create({
     data: { year: 2025, name: "2025 Club Rating", status: "PUBLISHED" },
   });
 
-  /* ------------------------------ Assessors ------------------------------- */
-
   const assessors = await Promise.all(
-    ASSESSORS.map((a) =>
-      prisma.user.create({ data: { ...a, role: "ASSESSOR" } }),
-    ),
+    ASSESSORS.map((a) => prisma.user.create({ data: { ...a, role: "ASSESSOR" } })),
   );
-
-  /* -------------------------------- Clubs --------------------------------- */
 
   const qualifications = await prisma.qualification.findMany();
   const qualByCode = new Map(qualifications.map((q) => [q.code, q]));
-
   const nonNegotiables = await prisma.nonNegotiable.findMany({ orderBy: { position: "asc" } });
   const criteria = await prisma.criterion.findMany({
     where: { active: true, domain: { in: ["PLANNING", "DELIVERY", "OUTCOMES"] } },
@@ -350,212 +378,232 @@ export async function seedDemo(prisma: PrismaClient) {
     orderBy: { position: "asc" },
   });
 
-  for (const spec of CLUBS) {
-    const scenario = SCENARIOS.find((s) => s.slug === spec.slug)!;
+  /* -------------------------- Pools, clubs, staff -------------------------- */
 
-    const club = await prisma.club.create({
-      data: {
-        name: spec.name,
-        slug: spec.slug,
-        zone: spec.zone,
-        tier: spec.tier,
-        contactName: spec.admin.name,
-        contactEmail: spec.admin.email,
-        members: {
-          create: {
-            user: {
-              create: {
-                email: spec.admin.email,
-                name: spec.admin.name,
-                title: "Club Administrator",
-                role: "CLUB",
+  const strengthBySlug = new Map(CLUBS.map((c) => [c.slug, c.strength]));
+
+  for (const [poolIndex, poolSpec] of POOLS.entries()) {
+    const pool = await prisma.pool.create({
+      data: { cycleId: cycle.id, name: poolSpec.name, position: poolIndex },
+    });
+
+    for (const slug of poolSpec.clubs) {
+      const spec = CLUBS.find((c) => c.slug === slug)!;
+      const state = CLUB_STATE[slug];
+      const published = state.startsWith("PUBLISHED");
+      const ineligible = state === "PUBLISHED_INELIGIBLE";
+
+      const club = await prisma.club.create({
+        data: {
+          name: spec.name,
+          slug: spec.slug,
+          zone: spec.zone,
+          tier: spec.tier,
+          contactName: spec.admin.name,
+          contactEmail: spec.admin.email,
+          members: {
+            create: {
+              user: {
+                create: {
+                  email: spec.admin.email,
+                  name: spec.admin.name,
+                  title: "Club Administrator",
+                  role: "CLUB",
+                },
               },
             },
           },
         },
-      },
-    });
+      });
 
-    const published = scenario.state.startsWith("PUBLISHED");
-    const ineligible = scenario.state === "PUBLISHED_INELIGIBLE";
-
-    const assessment = await prisma.clubAssessment.create({
-      data: {
-        clubId: club.id,
-        cycleId: cycle.id,
-        status: published ? "PUBLISHED" : (scenario.state as never),
-        clubSubmittedAt: scenario.state === "IN_PROGRESS" ? null : new Date("2026-04-18"),
-      },
-    });
-
-    /* ------------------------------- Staff -------------------------------- */
-
-    for (const s of staffFor(spec.strength, random)) {
-      await prisma.staffMember.create({
+      const assessment = await prisma.clubAssessment.create({
         data: {
-          assessmentId: assessment.id,
-          name: s.name,
-          staffRole: s.role as never,
-          qualificationId: qualByCode.get(s.qual)?.id ?? null,
-          yearsExperience: s.years,
-          employment: s.employment as never,
-          gender: s.gender as never,
-          // The weakest club has a gap in its Blue Card register, which is what
-          // makes its Non-Negotiable failure visible in the staff list too.
-          blueCard: !(ineligible && random() < 0.25),
-          blueCardExpiry: new Date("2028-06-30"),
+          clubId: club.id,
+          cycleId: cycle.id,
+          poolId: pool.id,
+          status: published ? "PUBLISHED" : (state as never),
+          clubSubmittedAt: state === "IN_PROGRESS" ? null : new Date("2026-04-18"),
         },
       });
-    }
 
-    /* ------------------------------ Metrics ------------------------------- */
+      for (const s of staffFor(spec.strength, random)) {
+        await prisma.staffMember.create({
+          data: {
+            assessmentId: assessment.id,
+            name: s.name,
+            staffRole: s.role as never,
+            qualificationId: qualByCode.get(s.qual)?.id ?? null,
+            yearsExperience: s.years,
+            employment: s.employment as never,
+            gender: s.gender as never,
+            blueCard: !(ineligible && random() < 0.25),
+            blueCardExpiry: new Date("2028-06-30"),
+          },
+        });
+      }
 
-    const base = Math.round(300 + spec.strength * 500);
-    const metrics: Record<string, [number, number]> = {
-      total_registered: [base, Math.round(base * (0.92 + spec.strength * 0.1))],
-      female_registered: [Math.round(base * 0.3), Math.round(base * 0.26)],
-      youth_registered: [Math.round(base * 0.34), Math.round(base * 0.33)],
-      miniroos_registered: [Math.round(base * 0.28), Math.round(base * 0.29)],
-      retention_rate: [Math.round(62 + spec.strength * 28), Math.round(60 + spec.strength * 25)],
-      female_teams: [Math.round(2 + spec.strength * 7), Math.round(1 + spec.strength * 6)],
-      youth_game_time: [Math.round(50 + spec.strength * 40), Math.round(48 + spec.strength * 35)],
-      coaches_accredited: [Math.round(6 + spec.strength * 22), Math.round(5 + spec.strength * 18)],
-    };
+      const base = Math.round(300 + spec.strength * 500);
+      const metrics: Record<string, [number, number]> = {
+        total_registered: [base, Math.round(base * (0.92 + spec.strength * 0.1))],
+        female_registered: [Math.round(base * 0.3), Math.round(base * 0.26)],
+        youth_registered: [Math.round(base * 0.34), Math.round(base * 0.33)],
+        miniroos_registered: [Math.round(base * 0.28), Math.round(base * 0.29)],
+        retention_rate: [Math.round(62 + spec.strength * 28), Math.round(60 + spec.strength * 25)],
+        female_teams: [Math.round(2 + spec.strength * 7), Math.round(1 + spec.strength * 6)],
+        youth_game_time: [Math.round(50 + spec.strength * 40), Math.round(48 + spec.strength * 35)],
+        coaches_accredited: [Math.round(6 + spec.strength * 22), Math.round(5 + spec.strength * 18)],
+      };
 
-    if (scenario.state !== "IN_PROGRESS") {
-      for (const [key, [value, priorValue]] of Object.entries(metrics)) {
-        await prisma.clubMetric.create({
-          data: { assessmentId: assessment.id, key, value, priorValue },
+      if (state !== "IN_PROGRESS") {
+        for (const [key, [value, priorValue]] of Object.entries(metrics)) {
+          await prisma.clubMetric.create({
+            data: { assessmentId: assessment.id, key, value, priorValue },
+          });
+        }
+      }
+
+      for (const [i, nn] of nonNegotiables.entries()) {
+        const fails = ineligible && (nn.code === "NN-2" || nn.code === "NN-3");
+        const answered = state !== "IN_PROGRESS" || i < 4;
+
+        await prisma.nonNegotiableResult.create({
+          data: {
+            assessmentId: assessment.id,
+            nonNegotiableId: nn.id,
+            clubDeclared: answered ? !fails : null,
+            clubNote: answered && !fails ? "Evidence held on file and available on request." : null,
+            verdict: published ? (fails ? "FAIL" : "PASS") : state === "RECONCILING" ? "PASS" : "PENDING",
+            adminNote: fails ? FAILURE_NOTES[nn.code] : null,
+            verifiedAt: published || state === "RECONCILING" ? new Date("2026-06-02") : null,
+          },
         });
       }
     }
 
-    /* -------------------------- Non-Negotiables --------------------------- */
+    /* ----------------------- Allocate the line items ---------------------- */
 
-    for (const [i, nn] of nonNegotiables.entries()) {
-      // The ineligible club fails Blue Card compliance and the female coaching
-      // presence check — the two its staff register visibly can't support.
-      const fails = ineligible && (nn.code === "NN-2" || nn.code === "NN-3");
-      const answered = scenario.state !== "IN_PROGRESS" || i < 4;
+    // Round-robin through the assessor pool, offset per pool so the same person
+    // doesn't hold the same item in both — that would defeat the independence
+    // the two slots exist to provide.
+    const poolClubs = await prisma.clubAssessment.findMany({
+      where: { poolId: pool.id },
+      select: { id: true, status: true },
+    });
+    const scorable = poolClubs.filter(
+      (c) => c.status === "SUBMITTED" || c.status === "IN_ASSESSMENT" || c.status === "RECONCILING" || c.status === "PUBLISHED",
+    );
 
-      await prisma.nonNegotiableResult.create({
-        data: {
-          assessmentId: assessment.id,
-          nonNegotiableId: nn.id,
-          clubDeclared: answered ? !fails : null,
-          clubNote: answered && !fails ? "Evidence held on file and available on request." : null,
-          verdict: published ? (fails ? "FAIL" : "PASS") : scenario.state === "RECONCILING" ? "PASS" : "PENDING",
-          adminNote: fails ? FAILURE_NOTES[nn.code] : null,
-          verifiedAt: published || scenario.state === "RECONCILING" ? new Date("2026-06-02") : null,
-        },
-      });
-    }
+    for (const [i, criterion] of criteria.entries()) {
+      // Pool B leaves the tail of the catalogue unallocated, so the CDU's
+      // allocation screen has real gaps to fill.
+      if (!poolSpec.complete && i >= Math.floor(criteria.length * 0.6)) continue;
 
-    /* ------------------------------ Assessors ----------------------------- */
+      const slots = [1, 2];
+      // A handful of items also carry a tiebreaker, which is what the third slot
+      // is actually for.
+      if (poolSpec.complete && i % 9 === 4) slots.push(3);
 
-    if (scenario.assessors === 0) continue;
+      for (const slot of slots) {
+        const assessor =
+          assessors[(i * 2 + slot + poolIndex * 3) % assessors.length];
 
-    // Rotate the pool so no assessor carries every club, and every club gets a
-    // different mix — which is what makes the CDU's comparison view worth having.
-    const offset = CLUBS.indexOf(spec);
-    const assigned = Array.from({ length: scenario.assessors }, (_, i) => assessors[(offset + i) % assessors.length]);
+        // Skip rather than collide when the rotation lands on someone who
+        // already holds this item in this pool.
+        const clash = await prisma.criterionAssignment.findFirst({
+          where: { poolId: pool.id, criterionId: criterion.id, assessorId: assessor.id },
+        });
+        if (clash) continue;
 
-    for (const assessor of assigned) {
-      await prisma.assessorAssignment.create({
-        data: {
-          assessmentId: assessment.id,
-          assessorId: assessor.id,
-          submittedAt:
-            scenario.state === "IN_ASSESSMENT" || scenario.state === "SUBMITTED"
-              ? null
-              : new Date("2026-05-20"),
-        },
-      });
-    }
+        // Pool B leaves some allocated items unsubmitted so an assessor has
+        // live work waiting for them.
+        const submitted = poolSpec.complete || i % 3 === 0;
 
-    /* ------------------------------- Scores ------------------------------- */
-
-    // SUBMITTED means the club is done and the assessors haven't started, so it
-    // gets assignments and no scores — that's the state an assessor sees when
-    // they open a club for the first time. IN_ASSESSMENT stops part-way, which
-    // is the state they see when they come back to finish one.
-    const coverage = scenario.state === "SUBMITTED" ? 0 : scenario.state === "IN_ASSESSMENT" ? 0.45 : 1;
-
-    for (const [ai, assessor] of assigned.entries()) {
-      for (const criterion of criteria) {
-        if (random() > coverage) continue;
-
-        // Each assessor's view of the club wobbles around its true strength.
-        // Assessor 3 runs slightly harsher, which is what produces the real
-        // splits the reconciliation screen exists to resolve.
-        const bias = ai === 2 ? -0.12 : ai === 1 ? 0.05 : 0;
-        const target = Math.max(0, Math.min(1, spec.strength + bias + (random() - 0.5) * 0.3));
-        const met = Math.round(target * criterion.subCriteria.length);
-
-        const thresholds = {
-          oneStarAt: criterion.oneStarAt,
-          twoStarAt: criterion.twoStarAt,
-          threeStarAt: criterion.threeStarAt,
-        };
-        const stars =
-          met >= thresholds.threeStarAt ? 3 : met >= thresholds.twoStarAt ? 2 : met >= thresholds.oneStarAt ? 1 : 0;
-
-        await prisma.assessorScore.create({
+        await prisma.criterionAssignment.create({
           data: {
-            assessmentId: assessment.id,
+            poolId: pool.id,
+            criterionId: criterion.id,
             assessorId: assessor.id,
-            criterionId: criterion.id,
-            stars,
-            comment:
-              random() < 0.35
-                ? COMMENTS[Math.floor(random() * COMMENTS.length)]
-                : null,
-            evidence: {
-              create: criterion.subCriteria
-                .slice(0, met)
-                .map((sc) => ({ subCriterionId: sc.id })),
+            slot,
+            submittedAt: submitted ? new Date("2026-05-20") : null,
+          },
+        });
+
+        /* ------------------------------ Scores ---------------------------- */
+
+        for (const clubAssessment of scorable) {
+          // An unsubmitted line item in Pool B is only part-scored, which is the
+          // state an assessor returns to.
+          if (!submitted && random() > 0.4) continue;
+
+          const full = await prisma.clubAssessment.findUniqueOrThrow({
+            where: { id: clubAssessment.id },
+            select: { club: { select: { slug: true } } },
+          });
+          const strength = strengthBySlug.get(full.club.slug) ?? 0.5;
+
+          // Slot 2 runs slightly harsher than slot 1, which is what produces the
+          // genuine splits the reconciliation screen exists to resolve.
+          const bias = slot === 2 ? -0.12 : slot === 3 ? 0.03 : 0;
+          const target = Math.max(0, Math.min(1, strength + bias + (random() - 0.5) * 0.3));
+          const met = Math.round(target * criterion.subCriteria.length);
+
+          const stars =
+            met >= criterion.threeStarAt ? 3 : met >= criterion.twoStarAt ? 2 : met >= criterion.oneStarAt ? 1 : 0;
+
+          await prisma.assessorScore.create({
+            data: {
+              assessmentId: clubAssessment.id,
+              assessorId: assessor.id,
+              criterionId: criterion.id,
+              stars,
+              comment: random() < 0.35 ? COMMENTS[Math.floor(random() * COMMENTS.length)] : null,
+              evidence: {
+                create: criterion.subCriteria.slice(0, met).map((sc) => ({ subCriterionId: sc.id })),
+              },
             },
-          },
-        });
-      }
-    }
-
-    /* ---------------------------- Reconciliation -------------------------- */
-
-    if (published) {
-      for (const criterion of criteria) {
-        const scores = await prisma.assessorScore.findMany({
-          where: { assessmentId: assessment.id, criterionId: criterion.id },
-        });
-        if (!scores.length) continue;
-
-        const given = scores.map((s) => s.stars).sort((a, b) => a - b);
-        const stars = given[Math.floor(given.length / 2)];
-
-        await prisma.finalScore.create({
-          data: {
-            assessmentId: assessment.id,
-            criterionId: criterion.id,
-            stars,
-            rationale:
-              given[given.length - 1] - given[0] >= 2
-                ? "Assessors split. Resolved at the median after a joint review of the evidence."
-                : null,
-          },
-        });
+          });
+        }
       }
     }
   }
 
-  /* ------------------- Freeze the published assessments ------------------- */
+  /* ---------------------------- Reconciliation ---------------------------- */
 
-  // Done last and through the same code path the app uses, so the demo data
-  // can't drift from what a real lock would have produced.
+  const toReconcile = await prisma.clubAssessment.findMany({
+    where: { cycleId: cycle.id, status: "PUBLISHED" },
+    select: { id: true },
+  });
+
+  for (const assessment of toReconcile) {
+    for (const criterion of criteria) {
+      const scores = await prisma.assessorScore.findMany({
+        where: { assessmentId: assessment.id, criterionId: criterion.id },
+      });
+      if (!scores.length) continue;
+
+      const given = scores.map((s) => s.stars).sort((a, b) => a - b);
+      const stars = given[Math.floor(given.length / 2)];
+
+      await prisma.finalScore.create({
+        data: {
+          assessmentId: assessment.id,
+          criterionId: criterion.id,
+          stars,
+          rationale:
+            given[given.length - 1] - given[0] >= 2
+              ? "Assessors split. Resolved at the median after a joint review of the evidence."
+              : null,
+        },
+      });
+    }
+  }
+
+  // Freezing goes through the same code path a real lock uses, so the demo data
+  // can't drift from what the app would actually produce.
   const { freezeResult } = await import("../src/lib/cda/assessment.ts");
-  const toPublish = await prisma.clubAssessment.findMany({ where: { status: "PUBLISHED" } });
   const cdu = await prisma.user.findFirst({ where: { role: "ADMIN" } });
 
-  for (const assessment of toPublish) {
+  for (const assessment of toReconcile) {
     await freezeResult(assessment.id, cdu?.id ?? "");
     await prisma.clubAssessment.update({
       where: { id: assessment.id },
@@ -568,8 +616,10 @@ export async function seedDemo(prisma: PrismaClient) {
     });
   }
 
+  const assignmentCount = await prisma.criterionAssignment.count();
   console.log(
-    `[cda] demo: ${CLUBS.length} clubs, ${ASSESSORS.length} assessors, cycles ${priorCycle.year} and ${cycle.year}`,
+    `[cda] demo: ${CLUBS.length} clubs in ${POOLS.length} pools, ${ASSESSORS.length} assessors, ` +
+      `${assignmentCount} line-item allocations, cycles ${priorCycle.year} and ${cycle.year}`,
   );
   console.log("[cda] club sign-ins: " + CLUBS.map((c) => c.admin.email).join(", "));
   console.log("[cda] assessor sign-ins: " + ASSESSORS.map((a) => a.email).join(", "));

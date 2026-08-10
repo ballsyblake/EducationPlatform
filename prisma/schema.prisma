@@ -47,7 +47,7 @@ model User {
 
   // Club Development & Assessment
   clubMemberships        ClubMembership[]
-  assessorAssignments    AssessorAssignment[]  @relation("AssessorAssignments")
+  criterionAssignments   CriterionAssignment[] @relation("CriterionAssignments")
   assessorScores         AssessorScore[]       @relation("AssessorScores")
   resolvedScores         FinalScore[]          @relation("ScoreResolver")
   lockedAssessments      ClubAssessment[]      @relation("AssessmentLocker")
@@ -416,6 +416,7 @@ model Cycle {
   platinumMin Int @default(85)
 
   assessments ClubAssessment[]
+  pools       Pool[]
 }
 
 enum AssessmentStatus {
@@ -476,8 +477,12 @@ model ClubAssessment {
   /// CDU's summary paragraph on the published report.
   summary      String?
 
+  /// Which pool this club is assessed in. Nullable because a club can be added
+  /// to a cycle before the CDU has drawn the pools up.
+  poolId String?
+  pool   Pool?   @relation(fields: [poolId], references: [id], onDelete: SetNull)
+
   staff          StaffMember[]
-  assessors      AssessorAssignment[]
   scores         AssessorScore[]
   finalScores    FinalScore[]
   nonNegotiables NonNegotiableResult[]
@@ -486,23 +491,57 @@ model ClubAssessment {
   @@unique([clubId, cycleId])
   @@index([cycleId])
   @@index([status])
+  @@index([poolId])
 }
 
-/// Assigns an assessor to a club's assessment. FQ caps this at three; the cap
-/// is enforced in the action rather than the schema, because the limit is
-/// policy and the schema shouldn't have to migrate if it changes.
-model AssessorAssignment {
-  id           String         @id @default(cuid())
-  assessmentId String
-  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  assessorId   String
-  assessor     User           @relation("AssessorAssignments", fields: [assessorId], references: [id], onDelete: Cascade)
-  createdAt    DateTime       @default(now())
-  /// Set when the assessor declares their scoring complete.
-  submittedAt  DateTime?
+/// A group of clubs assessed together within a cycle.
+///
+/// A pool is the unit an assessor is given: they take one criterion across
+/// every club in one pool. Pools are per-cycle because clubs move between them
+/// year to year.
+model Pool {
+  id       String @id @default(cuid())
+  cycleId  String
+  cycle    Cycle  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  /// "A", "B", "C".
+  name     String
+  position Int    @default(0)
 
-  @@unique([assessmentId, assessorId])
+  assessments ClubAssessment[]
+  assignments CriterionAssignment[]
+
+  @@unique([cycleId, name])
+}
+
+/// Assigns an assessor one criterion across every club in one pool.
+///
+/// This is Football Queensland's "vertical" assessment, and it is the whole
+/// point: one person applies one criterion to twelve clubs in a sitting, which
+/// is what makes the standard consistent between them. Assigning an assessor a
+/// club and asking them to score forty different criteria produces the opposite
+/// — forty standards, each applied once.
+///
+/// `slot` is 1, 2 or 3. Slots 1 and 2 assess independently; slot 3 exists only
+/// to break a disagreement between them, so it is normally empty.
+model CriterionAssignment {
+  id          String    @id @default(cuid())
+  poolId      String
+  pool        Pool      @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  criterionId String
+  criterion   Criterion @relation(fields: [criterionId], references: [id], onDelete: Cascade)
+  assessorId  String
+  assessor    User      @relation("CriterionAssignments", fields: [assessorId], references: [id], onDelete: Cascade)
+  slot        Int       @default(1)
+  createdAt   DateTime  @default(now())
+  /// Set when the assessor declares this line item finished across the pool.
+  submittedAt DateTime?
+
+  /// One assessor per slot…
+  @@unique([poolId, criterionId, slot])
+  /// …and nobody assessing the same line item twice.
+  @@unique([poolId, criterionId, assessorId])
   @@index([assessorId])
+  @@index([criterionId])
 }
 
 /**
@@ -600,18 +639,30 @@ enum Domain {
   OUTCOMES
 }
 
-/// One scored criterion. Assessors don't award stars directly — they tick the
-/// sub-criteria they saw evidence for, and the count maps to 0-3 stars.
+enum AssessmentMode {
+  /// Scored from documents the club submits. Assessed off-site.
+  EVIDENCE
+  /// Scored from what an assessor sees at training or on match day.
+  OBSERVATION
+}
+
+/// One scored criterion — a "line item" in FQ's language. Assessors don't award
+/// a score directly: they tick the evidence points they saw, and the count maps
+/// to a band.
 model Criterion {
-  id          String  @id @default(cuid())
+  id          String         @id @default(cuid())
   domain      Domain
-  code        String  @unique
+  code        String         @unique
   title       String
   description String?
+  /// Evidence-based items and observation-based items run on separate
+  /// timetables and are assessed by different people, so the distinction has to
+  /// survive into the data rather than living in someone's spreadsheet.
+  mode        AssessmentMode @default(EVIDENCE)
   /// Relative weight within its domain.
-  weight      Int     @default(1)
-  position    Int     @default(0)
-  active      Boolean @default(true)
+  weight      Int            @default(1)
+  position    Int            @default(0)
+  active      Boolean        @default(true)
 
   /// Minimum sub-criteria met to earn 1 / 2 / 3 stars. Seeded from the number
   /// of sub-criteria, but explicit so the CDU can make one criterion harder
@@ -623,6 +674,7 @@ model Criterion {
   subCriteria SubCriterion[]
   scores      AssessorScore[]
   finalScores FinalScore[]
+  assignments CriterionAssignment[]
 
   @@index([domain])
 }

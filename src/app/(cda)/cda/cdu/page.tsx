@@ -55,7 +55,7 @@ export default async function CduHomePage() {
     where: { cycleId: cycle.id },
     include: {
       club: true,
-      assessors: { select: { assessorId: true, submittedAt: true } },
+      pool: { include: { assignments: { select: { criterionId: true, submittedAt: true } } } },
       _count: { select: { finalScores: true, staff: true } },
     },
     orderBy: { club: { name: "asc" } },
@@ -122,7 +122,7 @@ export default async function CduHomePage() {
                   <th className="px-4 py-2 text-xs font-semibold text-ink-500 uppercase">Club</th>
                   <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">Status</th>
                   <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">
-                    Assessors
+                    Pool
                   </th>
                   <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">
                     Reconciled
@@ -137,7 +137,15 @@ export default async function CduHomePage() {
               </thead>
               <tbody className="divide-y divide-ink-100">
                 {assessments.map((a) => {
-                  const submitted = a.assessors.filter((x) => x.submittedAt).length;
+                  // Progress is a property of the pool now: a club is assessed
+                  // when every line item covering its pool is in, which no single
+                  // assessor is ever in a position to report.
+                  const items = a.pool
+                    ? [...new Set(a.pool.assignments.map((x) => x.criterionId))]
+                    : [];
+                  const itemsIn = items.filter((cid) =>
+                    a.pool!.assignments.filter((x) => x.criterionId === cid).every((x) => x.submittedAt),
+                  ).length;
                   const v = verdicts.get(a.id) ?? { PASS: 0, FAIL: 0, PENDING: 0 };
                   const frozen = a.lockedAt !== null;
 
@@ -158,11 +166,13 @@ export default async function CduHomePage() {
                         <Badge tone={STATUS_TONE[a.status]}>{STATUS_LABEL[a.status]}</Badge>
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap text-ink-700">
-                        {a.assessors.length === 0 ? (
-                          <span className="text-maroon-700">None assigned</span>
+                        {!a.pool ? (
+                          <span className="text-maroon-700">No pool</span>
+                        ) : items.length === 0 ? (
+                          <span className="text-maroon-700">Nothing allocated</span>
                         ) : (
                           <span className="tabular-nums">
-                            {submitted}/{a.assessors.length} in
+                            {itemsIn}/{items.length} items in
                           </span>
                         )}
                       </td>
