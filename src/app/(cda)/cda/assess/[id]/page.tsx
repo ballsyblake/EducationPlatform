@@ -1,6 +1,11 @@
 import { Stars, StarScale } from "@/components/cda/stars";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
-import { assessorCanScore, requireAssessor, requireAssignment } from "@/lib/cda/access";
+import {
+  RELEASED_STATUSES,
+  assessorCanScore,
+  requireAssessor,
+  requireAssignment,
+} from "@/lib/cda/access";
 import { DOMAIN_LABELS } from "@/lib/cda/rubric";
 import { prisma } from "@/lib/db";
 import { ClubScoreCard, type ClubScoreData } from "./club-score-card";
@@ -42,7 +47,7 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
       assessment: {
         clubId: { in: assessments.map((a) => a.clubId) },
         cycleId: { not: pool.cycleId },
-        status: "PUBLISHED",
+        status: { in: [...RELEASED_STATUSES] },
       },
     },
     include: { assessment: { select: { clubId: true, cycle: { select: { year: true } } } } },

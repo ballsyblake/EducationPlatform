@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import QRCode from "qrcode";
 import { z } from "zod";
 import { createInviteLink, normalizeEmail } from "@/lib/auth";
-import { requireCdu } from "@/lib/cda/access";
+import { RELEASED_STATUSES, requireCdu } from "@/lib/cda/access";
 import { activeCycle, ensureAssessment, freezeResult, loadAssessment } from "@/lib/cda/assessment";
 import { MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
+import { STAGE_LABELS, reviewTimeline } from "@/lib/cda/review";
 import { THRESHOLD_LEVELS } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 
@@ -689,7 +690,7 @@ export async function unlockAssessment(
   const assessment = await prisma.clubAssessment.findUnique({ where: { id: assessmentId } });
   if (!assessment) return { status: "error", message: "That assessment no longer exists." };
 
-  if (assessment.status === "PUBLISHED") {
+  if (RELEASED_STATUSES.includes(assessment.status as never)) {
     return {
       status: "error",
       message: "This rating has been released to the club. Withdraw it before unlocking.",
@@ -751,6 +752,18 @@ export async function withdrawAssessment(
 ): Promise<CduFormState> {
   await requireCdu();
   const assessmentId = String(formData.get("assessmentId") ?? "");
+
+  // A live review is a process the club has already started and has a clock
+  // running on. Pulling the rating out from under it would leave a request with
+  // nothing to review and a club that has spent its one allowance on it.
+  const review = await prisma.reviewRequest.findUnique({ where: { assessmentId } });
+  if (review) {
+    return {
+      status: "error",
+      message:
+        "This club has an open review request. Answer or resolve the review before withdrawing the rating.",
+    };
+  }
 
   await prisma.clubAssessment.update({
     where: { id: assessmentId },
@@ -860,4 +873,270 @@ export async function createCycle(_prev: CduFormState, formData: FormData): Prom
 
   refresh();
   return { status: "ok", message: `${year} cycle created.` };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Review and appeal                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Records the Unit's answer on one line item the club put forward.
+ *
+ * Revising a score writes through to the reconciled `FinalScore` — a review
+ * that changed a number but left the rating showing the old one would be a
+ * review in name only. The frozen result is recomputed when the response is
+ * sent, not here, so the club sees one movement rather than a percentage that
+ * creeps while the Unit works through the list.
+ */
+export async function answerReviewItem(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  const cdu = await requireCdu();
+  const itemId = String(formData.get("itemId") ?? "");
+
+  const item = await prisma.reviewItem.findUnique({
+    where: { id: itemId },
+    include: { request: { include: { assessment: true } }, criterion: true },
+  });
+  if (!item) return { status: "error", message: "That review item no longer exists." };
+
+  if (item.request.respondedAt) {
+    return {
+      status: "error",
+      message: "This review has already been sent to the club. Reopen it to make changes.",
+    };
+  }
+
+  const response = String(formData.get("response") ?? "").trim();
+  if (!response) {
+    // FQ commits to "detailed feedback to the club regarding their request".
+    // A bare outcome with no reasoning is the thing clubs appeal.
+    return { status: "error", message: "Say what you found — the club sees this." };
+  }
+
+  const preserve = String(formData.get("outcome") ?? "") === "PRESERVED";
+
+  const current = await prisma.finalScore.findUnique({
+    where: {
+      assessmentId_criterionId: {
+        assessmentId: item.request.assessmentId,
+        criterionId: item.criterionId,
+      },
+    },
+  });
+
+  if (preserve) {
+    await prisma.reviewItem.update({
+      where: { id: itemId },
+      data: {
+        outcome: "PRESERVED",
+        response,
+        scoreBefore: current?.stars ?? null,
+        scoreAfter: current?.stars ?? null,
+      },
+    });
+    revalidatePath(`/cda/cdu/assessments/${item.request.assessmentId}`, "layout");
+    return { status: "ok", message: `${item.criterion.code} preserved.` };
+  }
+
+  const raw = String(formData.get("stars") ?? "");
+  const stars = Number.parseInt(raw, 10);
+  if (!Number.isInteger(stars) || stars < 0 || stars > item.criterion.maxScore) {
+    return {
+      status: "error",
+      message: `Choose a score from 0 to ${item.criterion.maxScore}.`,
+    };
+  }
+
+  await prisma.finalScore.upsert({
+    where: {
+      assessmentId_criterionId: {
+        assessmentId: item.request.assessmentId,
+        criterionId: item.criterionId,
+      },
+    },
+    update: {
+      stars,
+      resolvedById: cdu.id,
+      // The rationale carries the review's fingerprint, so anyone reading the
+      // reconciliation later sees why a score departs from what the assessors
+      // agreed rather than assuming the CDU simply overrode them.
+      rationale: `Revised on review: ${response}`,
+    },
+    create: {
+      assessmentId: item.request.assessmentId,
+      criterionId: item.criterionId,
+      stars,
+      resolvedById: cdu.id,
+      rationale: `Revised on review: ${response}`,
+    },
+  });
+
+  await prisma.reviewItem.update({
+    where: { id: itemId },
+    data: {
+      outcome: "REVISED",
+      response,
+      scoreBefore: current?.stars ?? null,
+      scoreAfter: stars,
+    },
+  });
+
+  revalidatePath(`/cda/cdu/assessments/${item.request.assessmentId}`, "layout");
+  return {
+    status: "ok",
+    message: `${item.criterion.code} revised to ${stars}.`,
+  };
+}
+
+/**
+ * Sends the Unit's response and recomputes the rating.
+ *
+ * The re-freeze is the whole point. A review that revised scores has changed
+ * the answer, and the frozen columns are what the club is shown, so they have
+ * to be rewritten — this is the one legitimate reason to move a number a club
+ * has already been given, and it is done in the open with the before figures
+ * preserved on the request.
+ */
+export async function sendReviewResponse(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  const cdu = await requireCdu();
+  const requestId = String(formData.get("requestId") ?? "");
+
+  const request = await prisma.reviewRequest.findUnique({
+    where: { id: requestId },
+    include: { items: true, assessment: true },
+  });
+  if (!request) return { status: "error", message: "That review no longer exists." };
+  if (request.respondedAt) {
+    return { status: "error", message: "This review has already been answered." };
+  }
+
+  const unanswered = request.items.filter((i) => i.outcome === "PENDING");
+  if (unanswered.length > 0) {
+    return {
+      status: "error",
+      message: `${unanswered.length} item${
+        unanswered.length === 1 ? " is" : "s are"
+      } still unanswered. Football Queensland answers on every item the club puts forward.`,
+    };
+  }
+
+  const response = String(formData.get("response") ?? "").trim() || null;
+
+  // Recompute from the revised scores. freezeResult reads the live reconciled
+  // scores, so this picks up every revision made above in one pass.
+  await freezeResult(request.assessmentId, cdu.id);
+
+  await prisma.reviewRequest.update({
+    where: { id: requestId },
+    data: {
+      status: "RESPONDED",
+      respondedAt: new Date(),
+      respondedById: cdu.id,
+      response,
+    },
+  });
+
+  // freezeResult sets LOCKED; the rating is already with the club, so put it
+  // back where it belongs — released, and now inside the appeal window.
+  await prisma.clubAssessment.update({
+    where: { id: request.assessmentId },
+    data: { status: "PUBLISHED" },
+  });
+
+  revalidatePath(`/cda/cdu/assessments/${request.assessmentId}`, "layout");
+  return { status: "ok", message: "Response sent. The club now has 3 working days to appeal." };
+}
+
+/** Records the CEO's ruling. Final — nothing follows it. */
+export async function decideAppeal(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  const cdu = await requireCdu();
+  const requestId = String(formData.get("requestId") ?? "");
+
+  const request = await prisma.reviewRequest.findUnique({ where: { id: requestId } });
+  if (!request) return { status: "error", message: "That review no longer exists." };
+  if (!request.appealedAt) return { status: "error", message: "There's no appeal to decide." };
+  if (request.appealDecidedAt) {
+    return { status: "error", message: "This appeal has already been decided." };
+  }
+
+  const decision = String(formData.get("decision") ?? "").trim();
+  if (!decision) {
+    return { status: "error", message: "Record the decision — the club sees this in full." };
+  }
+
+  await prisma.reviewRequest.update({
+    where: { id: requestId },
+    data: {
+      status: "APPEAL_DECIDED",
+      appealDecidedAt: new Date(),
+      appealDecidedById: cdu.id,
+      appealDecision: decision,
+    },
+  });
+
+  // The appeal decision exhausts the process, so the rating confirms here
+  // rather than waiting for a clock that has nothing left to run.
+  await prisma.clubAssessment.update({
+    where: { id: request.assessmentId },
+    data: { status: "CONFIRMED" },
+  });
+
+  revalidatePath(`/cda/cdu/assessments/${request.assessmentId}`, "layout");
+  return { status: "ok", message: "Appeal decided and the rating confirmed." };
+}
+
+/**
+ * Marks a rating Confirmed once its windows have run out.
+ *
+ * Football Queensland confirms by the clock, not by a decision — "if there is
+ * no review request, the club assessment score is set and final (Confirmed)
+ * after the review timeframe has lapsed". There is no scheduler here, so this
+ * is the manual equivalent: the button appears exactly when the timeline says
+ * the rating is already settled, and the guard below is what stops it being
+ * pressed a day early.
+ */
+export async function confirmRating(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  await requireCdu();
+  const assessmentId = String(formData.get("assessmentId") ?? "");
+
+  const assessment = await prisma.clubAssessment.findUnique({
+    where: { id: assessmentId },
+    include: { review: true },
+  });
+  if (!assessment) return { status: "error", message: "That assessment no longer exists." };
+
+  const timeline = reviewTimeline({
+    status: assessment.status,
+    publishedAt: assessment.publishedAt,
+    review: assessment.review,
+  });
+
+  if (!timeline.shouldConfirm) {
+    return {
+      status: "error",
+      message:
+        timeline.stage === "CONFIRMED"
+          ? "This rating is already confirmed."
+          : `Not yet — ${STAGE_LABELS[timeline.stage].toLowerCase()}. The club's window is still open.`,
+    };
+  }
+
+  await prisma.clubAssessment.update({
+    where: { id: assessmentId },
+    data: { status: "CONFIRMED" },
+  });
+
+  revalidatePath(`/cda/cdu/assessments/${assessmentId}`, "layout");
+  return { status: "ok", message: "Rating confirmed. The club may now display its shield." };
 }

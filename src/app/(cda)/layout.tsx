@@ -10,6 +10,10 @@ const CLUB_LINKS: NavLink[] = [
   { href: "/cda/club/non-negotiables", label: "Non-Negotiables" },
   { href: "/cda/club/participation", label: "Participation" },
   { href: "/cda/club/rating", label: "Our rating" },
+  // In the nav rather than only linked from the rating page: the window is 8
+  // days and a club that doesn't find this in time has lost the right, which
+  // is not a discoverability problem anyone should be asked to solve twice.
+  { href: "/cda/club/review", label: "Review" },
 ];
 
 const ASSESSOR_LINKS: NavLink[] = [{ href: "/cda/assess", label: "My line items" }];

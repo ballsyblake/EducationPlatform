@@ -51,6 +51,11 @@ export type AssessmentOverview = {
   areaNotes: Map<string, string>;
   agreements: CriterionAgreement[];
   rating: RatingResult;
+  /**
+   * The rating the current scores actually produce, ignoring anything frozen.
+   * Identical to `rating` before a lock, and different after one.
+   */
+  live: RatingResult;
   /** True when the stored, frozen result is what's being shown. */
   frozen: boolean;
   /** Everyone holding a line item on this club's pool, with their progress. */
@@ -286,6 +291,16 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     domains,
     agreements,
     rating,
+    /**
+     * The rating as the current scores actually produce it, ignoring anything
+     * frozen. Identical to `rating` before a lock and different after one.
+     *
+     * Exposed because freezing needs it. `rating` deliberately returns the
+     * stored figures once locked, so a second freeze — which is exactly what a
+     * review revision triggers — would otherwise write the old numbers straight
+     * back and silently discard the revision.
+     */
+    live,
     frozen,
     assessors,
     areas,
@@ -305,7 +320,11 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
  */
 export async function freezeResult(assessmentId: string, lockedById: string) {
   const overview = await loadAssessment(assessmentId);
-  const { rating, technical, domains } = overview;
+  // The *live* rating, never the frozen one. Locking an already-locked
+  // assessment is a real path — a review revision recomputes through here — and
+  // reading `rating` there would write the stored figures straight back and
+  // silently throw the revision away.
+  const { live: rating, technical, domains } = overview;
 
   return prisma.clubAssessment.update({
     where: { id: assessmentId },

@@ -5,12 +5,14 @@ import { Badge, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { requireCdu } from "@/lib/cda/access";
 import { loadAssessment } from "@/lib/cda/assessment";
 import { MAX_STAFF_POINTS, SHIELD_LABELS, STAFF_ROLE_SPECS } from "@/lib/cda/rubric";
+import { reviewTimeline } from "@/lib/cda/review";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
 import { AreaNotes, type AreaRow } from "./area-notes";
 import { AssessorPanel } from "./assessor-panel";
 import { LockPanel } from "./lock-panel";
+import { ReviewPanel, type ReviewPanelData } from "./review-panel";
 import { VerifyForm, type VerifyItem } from "./verify-form";
 
 export const metadata = { title: "Assessment" };
@@ -93,6 +95,44 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
       filename: e.filename,
     });
   }
+
+  // The review, if the club has asked for one. Loaded here rather than inside
+  // loadAssessment because it is the only screen that needs it and it would
+  // otherwise ride along on every assessor and club page too.
+  const reviewRow = await prisma.reviewRequest.findUnique({
+    where: { assessmentId: id },
+    include: { items: { include: { criterion: true } } },
+  });
+
+  const timeline = reviewTimeline({
+    status: assessment.status,
+    publishedAt: assessment.publishedAt,
+    review: reviewRow,
+  });
+
+  const reviewData: ReviewPanelData | null = reviewRow && {
+    requestId: reviewRow.id,
+    submittedAt: reviewRow.submittedAt,
+    respondedAt: reviewRow.respondedAt,
+    response: reviewRow.response ?? "",
+    appealedAt: reviewRow.appealedAt,
+    appeal: reviewRow.appeal,
+    appealDecidedAt: reviewRow.appealDecidedAt,
+    appealDecision: reviewRow.appealDecision,
+    items: reviewRow.items.map((i) => ({
+      id: i.id,
+      code: i.criterion.code,
+      title: i.criterion.title,
+      maxScore: i.criterion.maxScore,
+      currentScore:
+        assessment.finalScores.find((f) => f.criterionId === i.criterionId)?.stars ?? null,
+      clubComment: i.clubComment,
+      outcome: i.outcome,
+      scoreBefore: i.scoreBefore,
+      scoreAfter: i.scoreAfter,
+      response: i.response ?? "",
+    })),
+  };
 
   const majorSplits = agreements.filter((a) => a.level === "MAJOR").length;
   const pendingChecks = checks.filter((c) => c.verdict === "PENDING").length;
@@ -261,6 +301,17 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
             licenceCompliant={assessment.licenceCompliant}
             belowBronze={rating.provisionalShield === "NONE"}
           />
+
+          {assessment.publishedAt && (
+            <ReviewPanel
+              assessmentId={id}
+              review={reviewData}
+              stage={timeline.stage}
+              deadline={timeline.deadline}
+              overdue={timeline.overdue}
+              canConfirm={timeline.shouldConfirm}
+            />
+          )}
 
           <AssessorPanel
             assessmentId={id}

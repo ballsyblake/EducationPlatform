@@ -755,7 +755,7 @@ export async function seedDemo(prisma: PrismaClient) {
 
   const toReconcile = await prisma.clubAssessment.findMany({
     where: { cycleId: cycle.id, status: "PUBLISHED" },
-    select: { id: true },
+    select: { id: true, clubId: true },
   });
 
   for (const assessment of toReconcile) {
@@ -811,18 +811,33 @@ export async function seedDemo(prisma: PrismaClient) {
   const { freezeResult } = await import("../src/lib/cda/assessment.ts");
   const cdu = await prisma.user.findFirst({ where: { role: "ADMIN" } });
 
+  // Publication dates are relative to today, unlike everything else in this
+  // seed, and deliberately so: the review windows are 8 days and 3 working days
+  // wide, so a fixed date would put every demo club permanently past them and
+  // there would be no way to look at the screens that matter most.
+  const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
+
+  const clubSlugById = new Map(
+    (await prisma.club.findMany({ select: { id: true, slug: true } })).map((c) => [c.id, c.slug]),
+  );
+
   for (const assessment of toReconcile) {
     await freezeResult(assessment.id, cdu?.id ?? "");
+    const slug = clubSlugById.get(assessment.clubId) ?? "";
     await prisma.clubAssessment.update({
       where: { id: assessment.id },
       data: {
         status: "PUBLISHED",
-        publishedAt: new Date("2026-06-14"),
+        // The lapsed club is published far enough back that its 8-day window
+        // has genuinely closed, rather than being forced shut by a flag.
+        publishedAt: daysAgo(REVIEW_SCENARIO[slug] === "LAPSED" ? 30 : 2),
         summary:
-          "Rating confirmed following reconciliation. The Club Development Unit will meet with the club to work through the domain feedback before the next cycle opens.",
+          "Preliminary rating issued following reconciliation. The Club Development Unit will meet with the club to work through the domain feedback before the next cycle opens.",
       },
     });
   }
+
+  await seedReviews(prisma, daysAgo, cdu?.id ?? null);
 
   const assignmentCount = await prisma.criterionAssignment.count();
   console.log(
@@ -831,6 +846,97 @@ export async function seedDemo(prisma: PrismaClient) {
   );
   console.log("[cda] club sign-ins: " + CLUBS.map((c) => c.admin.email).join(", "));
   console.log("[cda] assessor sign-ins: " + ASSESSORS.map((a) => a.email).join(", "));
+}
+
+/**
+ * Which review scenario each demo club sits in, keyed by slug.
+ *
+ * Three of them, because the three screens they drive look nothing alike: a
+ * window still open with nothing requested, a request waiting on the Unit, and
+ * a window that lapsed into a confirmed rating.
+ */
+const REVIEW_SCENARIO: Record<string, "OPEN" | "REQUESTED" | "LAPSED"> = {
+  "brisbane-cityside": "REQUESTED",
+  "mount-isa-rovers": "OPEN",
+  "rockhampton-central": "LAPSED",
+};
+
+/** The club's case on each item. FQ admits one ground: evidence was missed. */
+const REVIEW_COMMENTS = [
+  "The updated version of this document was uploaded to the Club Hub on 3 March, in the Planning folder rather than the root. We believe the assessors saw the 2025 version.",
+  "Our individual development plans for the U14 and U16 squads are held in Squadi rather than as documents, and we don't think they were opened during the assessment.",
+  "Attendance and game-time records for the whole season are in the Club Hub as a spreadsheet. The report says none were provided.",
+];
+
+/**
+ * Seeds the review scenarios.
+ *
+ * The lapsed club is confirmed here rather than left for someone to press a
+ * button on, because a demo where the most common end state — nobody asked for
+ * a review and the rating settled — never appears is a demo that only shows the
+ * exception.
+ */
+async function seedReviews(
+  prisma: PrismaClient,
+  daysAgo: (n: number) => Date,
+  cduId: string | null,
+) {
+  const clubs = await prisma.club.findMany({ select: { id: true, slug: true } });
+
+  for (const club of clubs) {
+    const scenario = REVIEW_SCENARIO[club.slug];
+    if (!scenario) continue;
+
+    const assessment = await prisma.clubAssessment.findFirst({
+      where: { clubId: club.id, status: "PUBLISHED" },
+      include: { finalScores: { include: { criterion: true } } },
+    });
+    if (!assessment) continue;
+
+    if (scenario === "LAPSED") {
+      await prisma.clubAssessment.update({
+        where: { id: assessment.id },
+        data: { status: "CONFIRMED" },
+      });
+      continue;
+    }
+
+    if (scenario !== "REQUESTED") continue;
+
+    // The three weakest reviewable line items, which is what a club would
+    // actually put forward — one that scored full marks is not worth a slot.
+    const candidates = assessment.finalScores
+      .filter((f) => f.criterion.domain !== "TECHNICAL" && f.criterion.active)
+      .sort((a, b) => a.stars / a.criterion.maxScore - b.stars / b.criterion.maxScore)
+      .slice(0, 3);
+
+    const clubUser = await prisma.user.findFirst({
+      where: { role: "CLUB", clubMemberships: { some: { clubId: club.id } } },
+    });
+
+    await prisma.reviewRequest.create({
+      data: {
+        assessmentId: assessment.id,
+        submittedAt: daysAgo(1),
+        submittedById: clubUser?.id ?? null,
+        percentBefore: assessment.finalPercent,
+        shieldBefore: assessment.eligible ? assessment.finalShield : null,
+        items: {
+          create: candidates.map((c, i) => ({
+            criterionId: c.criterionId,
+            clubComment: REVIEW_COMMENTS[i % REVIEW_COMMENTS.length],
+          })),
+        },
+      },
+    });
+
+    await prisma.clubAssessment.update({
+      where: { id: assessment.id },
+      data: { status: "IN_REVIEW" },
+    });
+
+    void cduId;
+  }
 }
 
 /**

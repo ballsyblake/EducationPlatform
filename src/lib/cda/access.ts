@@ -160,7 +160,27 @@ export function clubCanEdit(status: string) {
   return status === "NOT_STARTED" || status === "IN_PROGRESS";
 }
 
-/** True once the club is allowed to see its own rating. */
+/**
+ * True once the club is allowed to see its own rating.
+ *
+ * Every status from release onwards, because FQ's process is built on the club
+ * *reading* the preliminary rating and challenging it. Seeing it and being
+ * allowed to publish it are different questions — `shieldPublishable` answers
+ * the second, and only a Confirmed rating passes that one.
+ */
 export function ratingVisibleToClub(status: string) {
-  return status === "PUBLISHED";
+  return (
+    status === "PUBLISHED" ||
+    status === "IN_REVIEW" ||
+    status === "UNDER_APPEAL" ||
+    status === "CONFIRMED"
+  );
 }
+
+/** Statuses in which a club has been given a result of any kind. */
+export const RELEASED_STATUSES = [
+  "PUBLISHED",
+  "IN_REVIEW",
+  "UNDER_APPEAL",
+  "CONFIRMED",
+] as const;

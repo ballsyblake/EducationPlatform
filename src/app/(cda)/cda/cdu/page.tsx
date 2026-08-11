@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ShieldBadge } from "@/components/cda/shield";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
-import { requireCdu } from "@/lib/cda/access";
+import { RELEASED_STATUSES, requireCdu } from "@/lib/cda/access";
 import { activeCycle } from "@/lib/cda/assessment";
 import { SHIELD_LABELS } from "@/lib/cda/rubric";
 import { pct } from "@/lib/cda/scoring";
@@ -18,7 +18,10 @@ const STATUS_TONE = {
   IN_ASSESSMENT: "warn",
   RECONCILING: "warn",
   LOCKED: "ok",
-  PUBLISHED: "good",
+  PUBLISHED: "info",
+  IN_REVIEW: "warn",
+  UNDER_APPEAL: "warn",
+  CONFIRMED: "good",
 } as const;
 
 const STATUS_LABEL = {
@@ -28,7 +31,10 @@ const STATUS_LABEL = {
   IN_ASSESSMENT: "Being assessed",
   RECONCILING: "Ready to reconcile",
   LOCKED: "Locked",
-  PUBLISHED: "Released",
+  PUBLISHED: "Preliminary",
+  IN_REVIEW: "Review requested",
+  UNDER_APPEAL: "Under appeal",
+  CONFIRMED: "Confirmed",
 } as const;
 
 export default async function CduHomePage() {
@@ -78,7 +84,7 @@ export default async function CduHomePage() {
     verdicts.set(row.assessmentId, entry);
   }
 
-  const published = assessments.filter((a) => a.status === "PUBLISHED");
+  const published = assessments.filter((a) => RELEASED_STATUSES.includes(a.status as never));
   const shieldCounts = published.reduce<Record<string, number>>((acc, a) => {
     const key = a.eligible ? (a.finalShield ?? "NONE") : "INELIGIBLE";
     acc[key] = (acc[key] ?? 0) + 1;

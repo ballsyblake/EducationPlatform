@@ -53,6 +53,9 @@ model User {
   lockedAssessments      ClubAssessment[]      @relation("AssessmentLocker")
   verifiedNonNegotiables NonNegotiableResult[] @relation("NonNegotiableVerifier")
   areaNotes              AreaNote[]            @relation("AreaNoteAuthor")
+  reviewsSubmitted       ReviewRequest[]       @relation("ReviewSubmitter")
+  reviewsAnswered        ReviewRequest[]       @relation("ReviewResponder")
+  appealsDecided         ReviewRequest[]       @relation("AppealDecider")
 
   @@index([role])
 }
@@ -444,8 +447,18 @@ enum AssessmentStatus {
   RECONCILING
   /// Scores locked. Result computed and frozen, not yet visible to the club.
   LOCKED
-  /// Released to the club.
+  /// The *preliminary* rating has been released to the club. FQ's word, and it
+  /// matters: a club may only publish its shield once the rating is Confirmed,
+  /// so this is a result they can read and challenge but not yet display.
   PUBLISHED
+  /// The club asked for specific line items to be re-examined, and the Unit
+  /// has 10 working days to respond.
+  IN_REVIEW
+  /// The club appealed the review outcome to the CEO, who has 8 working days.
+  UNDER_APPEAL
+  /// Final. Either the review window lapsed with no request, or the review and
+  /// any appeal are exhausted. This is the rating the club may publish.
+  CONFIRMED
 }
 
 /// Football Queensland awards three shields. Gold is the top — there is no
@@ -527,6 +540,7 @@ model ClubAssessment {
   nonNegotiables NonNegotiableResult[]
   metrics        ClubMetric[]
   areaNotes      AreaNote[]
+  review         ReviewRequest?
 
   @@unique([clubId, cycleId])
   @@index([cycleId])
@@ -755,6 +769,7 @@ model Criterion {
   scores      AssessorScore[]
   finalScores FinalScore[]
   assignments CriterionAssignment[]
+  reviewItems ReviewItem[]
 
   @@index([domain])
 }
@@ -948,4 +963,107 @@ model ClubMetric {
   note         String?
 
   @@unique([assessmentId, key])
+}
+
+/**
+ * ------------------------------ Review and appeal ---------------------------
+ */
+
+/// Where a club's challenge to its preliminary rating has got to.
+enum ReviewStatus {
+  /// Submitted by the club; the Unit has 10 working days.
+  SUBMITTED
+  /// The Unit has responded on every item. The club now has 3 working days to
+  /// appeal to the CEO, after which the rating confirms itself.
+  RESPONDED
+  /// Appealed to the CEO, who has 8 working days.
+  APPEALED
+  /// The CEO has ruled. FQ: "the above process exhausts all review
+  /// opportunities" — there is nowhere further to go from here.
+  APPEAL_DECIDED
+}
+
+/// One club's request to have specific line items re-examined.
+///
+/// One per assessment, enforced by the unique key. Football Queensland's process
+/// is a single round — request, response, optional appeal, done — and allowing a
+/// second request would quietly turn a bounded process into an open one.
+model ReviewRequest {
+  id           String         @id @default(cuid())
+  assessmentId String         @unique
+  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  status       ReviewStatus   @default(SUBMITTED)
+
+  submittedAt   DateTime @default(now())
+  submittedById String?
+  submittedBy   User?    @relation("ReviewSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
+
+  /// The Unit's covering feedback, alongside the per-item responses.
+  respondedAt   DateTime?
+  respondedById String?
+  respondedBy   User?     @relation("ReviewResponder", fields: [respondedById], references: [id], onDelete: SetNull)
+  response      String?
+
+  /// The club's grounds for taking it to the CEO.
+  appealedAt DateTime?
+  appeal     String?
+
+  /// The CEO's ruling. Free text because it is one person's decision letter,
+  /// not a structured outcome — the per-item revisions carry the numbers.
+  appealDecidedAt   DateTime?
+  appealDecidedById String?
+  appealDecidedBy   User?     @relation("AppealDecider", fields: [appealDecidedById], references: [id], onDelete: SetNull)
+  appealDecision    String?
+
+  /// The result as it stood when the club asked for the review, so the report
+  /// can show what the review actually moved. Recomputing it later would be
+  /// impossible once the revised scores are in.
+  percentBefore Float?
+  shieldBefore  Shield?
+
+  items ReviewItem[]
+
+  @@index([status])
+}
+
+/// What the Unit did with one line item it was asked to look at again.
+enum ReviewOutcome {
+  /// Not yet answered.
+  PENDING
+  /// Score changed.
+  REVISED
+  /// Score stands. FQ's own word — "revise or preserve the score".
+  PRESERVED
+}
+
+/// One line item a club has asked to have re-examined.
+///
+/// Football Queensland allows at most 4 Planning, 4 Delivery and 2 Outcomes
+/// items. Technical Qualifications is deliberately not reviewable here: it is
+/// computed from the staff register rather than scored by an assessor, so the
+/// remedy for a wrong Technical score is correcting the register, not appealing
+/// a judgement nobody made.
+model ReviewItem {
+  id          String        @id @default(cuid())
+  requestId   String
+  request     ReviewRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  criterionId String
+  criterion   Criterion     @relation(fields: [criterionId], references: [id], onDelete: Cascade)
+
+  /// The club's case. FQ only admits one ground — that relevant evidence was
+  /// missed due to an oversight — so this has to say which evidence and where
+  /// it was.
+  clubComment String
+
+  outcome     ReviewOutcome @default(PENDING)
+  /// The reconciled score before and after. Both stored: the club is entitled
+  /// to see the movement, and the before value is gone once the score is
+  /// rewritten.
+  scoreBefore Int?
+  scoreAfter  Int?
+  /// The Unit's "detailed feedback to the club regarding their request".
+  response    String?
+
+  @@unique([requestId, criterionId])
+  @@index([requestId])
 }

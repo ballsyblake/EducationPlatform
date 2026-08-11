@@ -2,9 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { clubCanEdit, currentClub, requireClubUser } from "@/lib/cda/access";
+import {
+  clubCanEdit,
+  currentClub,
+  ratingVisibleToClub,
+  requireClubUser,
+} from "@/lib/cda/access";
 import { activeCycle, ensureAssessment } from "@/lib/cda/assessment";
 import { METRIC_SPECS } from "@/lib/cda/rubric";
+import { checkQuota, reviewTimeline } from "@/lib/cda/review";
 import { prisma } from "@/lib/db";
 import { UploadError, storeUpload } from "@/lib/uploads";
 
@@ -312,4 +318,181 @@ export async function submitAssessment(
 
   refresh();
   return { status: "ok", message: "Submitted to Football Queensland." };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Review and appeal                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Resolves the club's assessment for the review flow.
+ *
+ * Deliberately separate from `openAssessment`: that one refuses anything past
+ * submission, which is every assessment a review could possibly apply to. The
+ * two gates are opposites and merging them would mean weakening the one that
+ * protects the submission.
+ */
+async function releasedAssessment() {
+  const user = await requireClubUser();
+  const club = await currentClub(user.id);
+  if (!club) throw new Error("Your account isn't linked to a club yet.");
+
+  const cycle = await activeCycle();
+  if (!cycle) throw new Error("No assessment cycle is open.");
+
+  const assessment = await prisma.clubAssessment.findUnique({
+    where: { clubId_cycleId: { clubId: club.id, cycleId: cycle.id } },
+    include: { review: true },
+  });
+  if (!assessment || !ratingVisibleToClub(assessment.status)) {
+    throw new Error("Your rating hasn't been released yet.");
+  }
+
+  return { user, club, assessment };
+}
+
+/**
+ * Submits the club's review request.
+ *
+ * Every constraint FQ publishes is enforced here rather than only in the form:
+ * the window, the per-domain quotas, the overall cap, the single-round rule and
+ * the requirement that each item carries the club's case. A form that hides the
+ * "Submit" button is a courtesy; this is the rule.
+ */
+export async function submitReviewRequest(
+  _prev: ClubFormState,
+  formData: FormData,
+): Promise<ClubFormState> {
+  const { user, assessment } = await releasedAssessment();
+
+  if (assessment.review) {
+    return {
+      status: "error",
+      message: "You've already submitted a review request for this cycle, and only one is allowed.",
+    };
+  }
+
+  const timeline = reviewTimeline({
+    status: assessment.status,
+    publishedAt: assessment.publishedAt,
+    review: null,
+  });
+  if (!timeline.canRequestReview) {
+    return {
+      status: "error",
+      message:
+        "The review window for this rating has closed. Contact the Club Development Unit if you believe that's wrong.",
+    };
+  }
+
+  // Comments arrive as comment:<criterionId>, so a criterion with no comment is
+  // simply not selected — there is no way to put an item forward without saying
+  // why, which is the only ground FQ admits.
+  const selections: { criterionId: string; comment: string }[] = [];
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("comment:")) continue;
+    const comment = String(value).trim();
+    if (comment) selections.push({ criterionId: key.slice("comment:".length), comment });
+  }
+
+  if (selections.length === 0) {
+    return {
+      status: "error",
+      message:
+        "Choose at least one line item and say what evidence you believe was missed. A review can only be requested on that ground.",
+    };
+  }
+
+  // Read the domains from the database rather than trusting the form: the quota
+  // is the whole substance of the rule, and a hand-built POST would otherwise
+  // set its own.
+  const criteria = await prisma.criterion.findMany({
+    where: { id: { in: selections.map((s) => s.criterionId) }, active: true },
+    select: { id: true, domain: true },
+  });
+  if (criteria.length !== selections.length) {
+    return { status: "error", message: "One of those line items no longer exists." };
+  }
+
+  const quota = checkQuota(criteria.map((c) => c.domain));
+  if (!quota.ok) return { status: "error", message: quota.message };
+
+  await prisma.reviewRequest.create({
+    data: {
+      assessmentId: assessment.id,
+      submittedById: user.id,
+      // Frozen now, because the whole point of the report afterwards is to show
+      // what the review moved, and the current figures stop being "before" the
+      // moment the Unit revises anything.
+      percentBefore: assessment.finalPercent,
+      shieldBefore: assessment.eligible ? assessment.finalShield : null,
+      items: {
+        create: selections.map((s) => ({
+          criterionId: s.criterionId,
+          clubComment: s.comment,
+        })),
+      },
+    },
+  });
+
+  await prisma.clubAssessment.update({
+    where: { id: assessment.id },
+    data: { status: "IN_REVIEW" },
+  });
+
+  revalidatePath("/cda/club", "layout");
+  return {
+    status: "ok",
+    message: `Review request submitted for ${selections.length} line item${
+      selections.length === 1 ? "" : "s"
+    }.`,
+  };
+}
+
+/** Takes the review outcome to the CEO. */
+export async function submitAppeal(
+  _prev: ClubFormState,
+  formData: FormData,
+): Promise<ClubFormState> {
+  const { assessment } = await releasedAssessment();
+
+  if (!assessment.review) {
+    return { status: "error", message: "There's no review to appeal." };
+  }
+
+  const timeline = reviewTimeline({
+    status: assessment.status,
+    publishedAt: assessment.publishedAt,
+    review: assessment.review,
+  });
+  if (!timeline.canAppeal) {
+    return {
+      status: "error",
+      message:
+        assessment.review.appealedAt !== null
+          ? "You've already appealed, and the process allows one appeal."
+          : "The appeal window has closed.",
+    };
+  }
+
+  const appeal = String(formData.get("appeal") ?? "").trim();
+  if (appeal.length < 20) {
+    return {
+      status: "error",
+      message: "Set out the grounds for your appeal — the CEO decides on what you write here.",
+    };
+  }
+
+  await prisma.reviewRequest.update({
+    where: { id: assessment.review.id },
+    data: { status: "APPEALED", appealedAt: new Date(), appeal },
+  });
+
+  await prisma.clubAssessment.update({
+    where: { id: assessment.id },
+    data: { status: "UNDER_APPEAL" },
+  });
+
+  revalidatePath("/cda/club", "layout");
+  return { status: "ok", message: "Your appeal has been sent to the CEO of Football Queensland." };
 }

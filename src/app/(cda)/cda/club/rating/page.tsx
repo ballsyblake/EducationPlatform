@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { AreaBreakdown } from "@/components/cda/areas";
 import { ShieldBadge } from "@/components/cda/shield";
 import { Badge, EmptyState, PageHeader, ProgressBar } from "@/components/ui";
-import { ratingVisibleToClub } from "@/lib/cda/access";
+import { RELEASED_STATUSES, ratingVisibleToClub } from "@/lib/cda/access";
 import { DOMAIN_BLURBS, DOMAIN_LABELS, SHIELD_LABELS } from "@/lib/cda/rubric";
+import { STAGE_LABELS, ratingSettled, reviewTimeline } from "@/lib/cda/review";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/format";
@@ -57,7 +59,11 @@ export default async function ClubRatingPage() {
   const shield = assessment.eligible ? (assessment.finalShield ?? "NONE") : null;
 
   const previous = await prisma.clubAssessment.findFirst({
-    where: { clubId: club.id, status: "PUBLISHED", cycleId: { not: assessment.cycleId } },
+    where: {
+      clubId: club.id,
+      status: { in: [...RELEASED_STATUSES] },
+      cycleId: { not: assessment.cycleId },
+    },
     include: { cycle: true },
     orderBy: { cycle: { year: "desc" } },
   });
@@ -71,13 +77,77 @@ export default async function ClubRatingPage() {
   // 63%; this says match day was the problem and training wasn't.
   const overview = await loadAssessment(assessment.id);
 
+  const review = await prisma.reviewRequest.findUnique({
+    where: { assessmentId: assessment.id },
+    select: {
+      status: true,
+      submittedAt: true,
+      respondedAt: true,
+      appealedAt: true,
+      appealDecidedAt: true,
+    },
+  });
+  const timeline = reviewTimeline({
+    status: assessment.status,
+    publishedAt: assessment.publishedAt,
+    review,
+  });
+  // From the timeline, not the status column: a window that has lapsed has
+  // confirmed the rating under FQ's rules, whether or not the Unit has been
+  // back to record it.
+  const confirmed = ratingSettled(timeline);
+
   return (
     <>
       <PageHeader
         title="Our rating"
-        subtitle={`Released ${formatDate(assessment.publishedAt)}`}
+        subtitle={
+          confirmed
+            ? `Confirmed — released ${formatDate(assessment.publishedAt)}`
+            : `Preliminary — released ${formatDate(assessment.publishedAt)}`
+        }
         breadcrumb={{ href: "/cda/club", label: "Club overview" }}
       />
+
+      {/* A preliminary rating is not the club's to publish, and the window to
+          challenge it is 8 days. Both facts belong at the top of the report
+          rather than in a page a club has to think to visit. */}
+      {!confirmed && (
+        <div className="mb-6 rounded-lg border border-maroon-300 bg-maroon-50 px-4 py-3">
+          <p className="font-semibold text-maroon-800">This is your preliminary rating</p>
+          <p className="mt-1 text-sm text-maroon-800">
+            {timeline.canRequestReview ? (
+              <>
+                If you believe evidence for a line item was missed, you can ask for it to be
+                reviewed until {formatDate(timeline.deadline!)}
+                {timeline.daysLeft !== null && timeline.daysLeft >= 0 && (
+                  <>
+                    {" "}
+                    — {timeline.daysLeft === 0
+                      ? "today is the last day"
+                      : `${timeline.daysLeft} day${timeline.daysLeft === 1 ? "" : "s"} left`}
+                  </>
+                )}
+                . Your rating confirms itself once the window closes.
+              </>
+            ) : (
+              <>{STAGE_LABELS[timeline.stage]}. Your rating is not yet confirmed.</>
+            )}
+          </p>
+          <Link href="/cda/club/review" className="btn-primary btn-sm mt-3">
+            {timeline.canRequestReview ? "Request a review" : "See your review"}
+          </Link>
+        </div>
+      )}
+
+      {confirmed && (
+        <div className="mb-6 rounded-lg bg-status-green-bg px-4 py-3">
+          <p className="text-sm text-status-green-fg">
+            <span className="font-semibold">Confirmed.</span> This is the rating your club may
+            communicate by displaying its Club Shield.
+          </p>
+        </div>
+      )}
 
       <div className="mb-6 card card-pad">
         <div className="flex flex-wrap items-center justify-between gap-4">
