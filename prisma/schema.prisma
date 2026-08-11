@@ -52,6 +52,7 @@ model User {
   resolvedScores         FinalScore[]          @relation("ScoreResolver")
   lockedAssessments      ClubAssessment[]      @relation("AssessmentLocker")
   verifiedNonNegotiables NonNegotiableResult[] @relation("NonNegotiableVerifier")
+  areaNotes              AreaNote[]            @relation("AreaNoteAuthor")
 
   @@index([role])
 }
@@ -501,6 +502,7 @@ model ClubAssessment {
   finalScores    FinalScore[]
   nonNegotiables NonNegotiableResult[]
   metrics        ClubMetric[]
+  areaNotes      AreaNote[]
 
   @@unique([clubId, cycleId])
   @@index([cycleId])
@@ -856,6 +858,30 @@ model NonNegotiableResult {
 /**
  * --------------------------------- Outcomes data --------------------------
  */
+
+/// The Club Assessment Unit's paragraph of feedback on one macro-area.
+///
+/// FQ's report carries one of these per area — "Talent Identification: the club
+/// has provided clear documents… there is no overview of the LTAD model" — and
+/// it is the part clubs actually act on. A domain-level summary cannot say that,
+/// because the useful sentence is always about a particular area.
+model AreaNote {
+  id           String         @id @default(cuid())
+  assessmentId String
+  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  domain       Domain
+  /// Matches Criterion.area. Text rather than a foreign key because an area is a
+  /// grouping in the catalogue, not a row, and the note should survive the last
+  /// criterion in its area being retired.
+  area         String
+  comment      String
+  updatedAt    DateTime       @updatedAt
+  authorId     String?
+  author       User?          @relation("AreaNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@unique([assessmentId, domain, area])
+  @@index([assessmentId])
+}
 
 /// A participation figure the club reports, alongside last year's for
 /// comparison. These don't score by themselves — they're the evidence an

@@ -16,6 +16,7 @@ export type ResolveRowData = {
   title: string;
   weight: number;
   maxScore: number;
+  area: string | null;
   level: AgreementLevel;
   spread: number;
   suggested: number | null;

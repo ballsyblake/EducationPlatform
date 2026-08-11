@@ -14,8 +14,10 @@ import {
   assessAgreement,
   checkEligibility,
   computeRating,
+  scoreAreas,
   scoreStarDomain,
   scoreTechnicalDomain,
+  type AreaResult,
   type AssessorStar,
   type CriterionAgreement,
   type CriterionOutcome,
@@ -42,6 +44,10 @@ export type AssessmentOverview = {
   assessment: Awaited<ReturnType<typeof loadAssessmentRow>>;
   technical: TechnicalResult;
   domains: Record<Domain, DomainResult | null>;
+  /** Each domain broken into FQ's macro-areas, in catalogue order. */
+  areas: AreaResult[];
+  /** The CDU's paragraph per area, keyed "DOMAIN|Area". */
+  areaNotes: Map<string, string>;
   agreements: CriterionAgreement[];
   rating: RatingResult;
   /** True when the stored, frozen result is what's being shown. */
@@ -66,8 +72,14 @@ function loadAssessmentRow(id: string) {
       finalScores: true,
       nonNegotiables: { include: { nonNegotiable: true } },
       metrics: true,
+      areaNotes: true,
     },
   });
+}
+
+/** Stable key for an area note. Area names contain spaces; the domain doesn't. */
+export function areaKey(domain: Domain, area: string | null) {
+  return `${domain}|${area ?? ""}`;
 }
 
 export async function loadAssessment(id: string): Promise<AssessmentOverview> {
@@ -184,6 +196,11 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     stars: a.final ?? a.suggested,
   }));
 
+  const areas = scoreAreas(outcomes);
+  const areaNotes = new Map(
+    assessment.areaNotes.map((n) => [areaKey(n.domain, n.area), n.comment]),
+  );
+
   const domains: Record<Domain, DomainResult | null> = {
     TECHNICAL: null,
     PLANNING: scoreStarDomain("PLANNING", outcomes),
@@ -242,6 +259,8 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     rating,
     frozen,
     assessors,
+    areas,
+    areaNotes,
     criteria,
     unresolved: agreements.filter((a) => a.final === null),
     unassigned: agreements.filter((a) => a.entries.length === 0),

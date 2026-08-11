@@ -508,6 +508,59 @@ export async function acceptAgreed(
   };
 }
 
+/**
+ * Records the CDU's paragraph of feedback on one macro-area.
+ *
+ * This is the part of the report a club actually acts on — "the framework
+ * exists but is not applied below U14" says something a percentage cannot — so
+ * it is written per area rather than once for the whole domain.
+ */
+export async function saveAreaNote(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  const cdu = await requireCdu();
+
+  const assessmentId = String(formData.get("assessmentId") ?? "");
+  const domain = String(formData.get("domain") ?? "");
+  const area = String(formData.get("area") ?? "");
+  const comment = String(formData.get("comment") ?? "").trim();
+
+  if (!["PLANNING", "DELIVERY", "OUTCOMES"].includes(domain)) {
+    return { status: "error", message: "Unknown domain." };
+  }
+
+  const assessment = await prisma.clubAssessment.findUnique({
+    where: { id: assessmentId },
+    select: { publishedAt: true },
+  });
+  if (!assessment) return { status: "error", message: "That assessment no longer exists." };
+  if (assessment.publishedAt) {
+    return {
+      status: "error",
+      message: "This rating has been released. Withdraw it before editing the feedback.",
+    };
+  }
+
+  if (!comment) {
+    // Clearing is deleting: an empty paragraph on a report is worse than none.
+    await prisma.areaNote.deleteMany({
+      where: { assessmentId, domain: domain as never, area },
+    });
+  } else {
+    await prisma.areaNote.upsert({
+      where: {
+        assessmentId_domain_area: { assessmentId, domain: domain as never, area },
+      },
+      update: { comment, authorId: cdu.id },
+      create: { assessmentId, domain: domain as never, area, comment, authorId: cdu.id },
+    });
+  }
+
+  revalidatePath(`/cda/cdu/assessments/${assessmentId}`, "layout");
+  return { status: "ok", message: `${area} feedback saved.` };
+}
+
 /* -------------------------------------------------------------------------- */
 /* Lock, publish, reopen                                                      */
 /* -------------------------------------------------------------------------- */

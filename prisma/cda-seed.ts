@@ -422,6 +422,7 @@ export async function seedDemo(prisma: PrismaClient) {
   const random = makeRandom(20260807);
 
   console.log("[cda] clearing demo data…");
+  await prisma.areaNote.deleteMany();
   await prisma.scoreEvidence.deleteMany();
   await prisma.assessorScore.deleteMany();
   await prisma.finalScore.deleteMany();
@@ -691,6 +692,30 @@ export async function seedDemo(prisma: PrismaClient) {
     }
   }
 
+  // Area feedback on the published clubs, so the club-facing report shows the
+  // part FQ's own report is actually built around.
+  for (const assessment of toReconcile) {
+    const areas = await prisma.criterion.findMany({
+      where: { active: true, area: { not: null } },
+      distinct: ["area"],
+      select: { domain: true, area: true },
+      orderBy: { position: "asc" },
+    });
+
+    for (const [i, a] of areas.entries()) {
+      if (!a.area) continue;
+      await prisma.areaNote.create({
+        data: {
+          assessmentId: assessment.id,
+          domain: a.domain,
+          area: a.area,
+          comment: AREA_FEEDBACK[i % AREA_FEEDBACK.length],
+          authorId: (await prisma.user.findFirst({ where: { role: "ADMIN" } }))?.id ?? null,
+        },
+      });
+    }
+  }
+
   // Freezing goes through the same code path a real lock uses, so the demo data
   // can't drift from what the app would actually produce.
   const { freezeResult } = await import("../src/lib/cda/assessment.ts");
@@ -717,6 +742,28 @@ export async function seedDemo(prisma: PrismaClient) {
   console.log("[cda] club sign-ins: " + CLUBS.map((c) => c.admin.email).join(", "));
   console.log("[cda] assessor sign-ins: " + ASSESSORS.map((a) => a.email).join(", "));
 }
+
+/**
+ * Paragraphs for the macro-area feedback, written in the register FQ's own
+ * report uses: what was provided, what it showed, and the specific next step.
+ */
+const AREA_FEEDBACK = [
+  "Well-articulated documentation across this area. To improve further, develop the age-specific framework and provide more detail on the how of coaching at training and on match day.",
+  "The documents are detailed and there is a clear connection between the long-term athlete development model and the playing style. There is scope to add more detail on implementation for different ages and stages.",
+  "Clear documents provided, with technical detail linked to the team model. There is no overview of the development model or the feedback process; making the document unique to the club would strengthen it.",
+  "The club has articulated how it intends to support players and promote wellbeing, with regular checkpoints through the year. Focus next on mid- and long-term goal setting and on player workload tracking.",
+  "Thorough planning, clearly linked to the club's methodology. Explaining the logic behind the scheduling of education events would help, and the event register is a valuable addition that was needed.",
+  "An area where the club differentiates itself. The use of video to support individual players is excellent and should continue. Internal measurement of workload and wellbeing is a genuine strength.",
+  "Observed sessions were in line with the club's vision and philosophy. The learning environment was positive, though some inconsistency was evident across programs and phases.",
+  "Interaction between coaches and players is positive and players are engaged. The area to focus on is bringing individual development plans to life on match day through a clear game-day process.",
+  "Strong in this area, with education provided to players throughout the season. Continue to build the review cycle so self-evaluation feeds the coach-led reviews rather than sitting alongside them.",
+  "Great improvement, with a clear mentoring program in place for all academy coaches. This is a highlight of the season and worth sharing as best practice.",
+  "The club has the potential to develop players over the long term and has contributed to talented player programs and state teams in recent years. Keep tracking movements every year.",
+  "Retention is above the benchmark, which is positive. Natural movement between clubs is part of the landscape, but clear strategies to mitigate it would differentiate the club further.",
+  "Survey results improved on the previous cycle. Closing the loop with members on what changed as a result would raise the score further.",
+  "Delivered as part of the shared best practice program. Continue to involve more than one member of staff so the knowledge is not held by one person.",
+  "The club has historically supported the growth of the women's game. Investment in female coaches is the area to prioritise against the gender parity objective.",
+];
 
 /** Why the ineligible club failed each check it failed. */
 const FAILURE_NOTES: Record<string, string> = {

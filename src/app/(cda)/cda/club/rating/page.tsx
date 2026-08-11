@@ -1,3 +1,4 @@
+import { AreaBreakdown } from "@/components/cda/areas";
 import { ShieldBadge } from "@/components/cda/shield";
 import { Badge, EmptyState, PageHeader, ProgressBar } from "@/components/ui";
 import { ratingVisibleToClub } from "@/lib/cda/access";
@@ -5,6 +6,7 @@ import { DOMAIN_BLURBS, DOMAIN_LABELS, SHIELD_LABELS } from "@/lib/cda/rubric";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/format";
+import { loadAssessment } from "@/lib/cda/assessment";
 import { clubContext } from "../club-context";
 import type { Domain } from "@prisma-client";
 
@@ -61,6 +63,11 @@ export default async function ClubRatingPage() {
   });
 
   const failed = assessment.nonNegotiables.filter((n) => n.verdict === "FAIL");
+
+  // The macro-area grades and the Unit's paragraph on each — the part of the
+  // report a club can actually act on. A domain percentage says Delivery was
+  // 63%; this says match day was the problem and training wasn't.
+  const overview = await loadAssessment(assessment.id);
 
   return (
     <>
@@ -121,9 +128,14 @@ export default async function ClubRatingPage() {
         )}
       </div>
 
+      <div className="mb-6">
+        <h2 className="section-title mb-3">Detailed feedback by area</h2>
+        <AreaBreakdown areas={overview.areas} notes={overview.areaNotes} />
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <section>
-          <h2 className="section-title mb-3">How you scored by area</h2>
+          <h2 className="section-title mb-3">How you scored by domain</h2>
           <div className="card divide-y divide-ink-200">
             {DOMAIN_ORDER.map((domain) => (
               <div key={domain} className="px-5 py-4">

@@ -8,6 +8,7 @@ import { MAX_STAFF_POINTS, STAFF_ROLE_SPECS } from "@/lib/cda/rubric";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
+import { AreaNotes, type AreaRow } from "./area-notes";
 import { AssessorPanel } from "./assessor-panel";
 import { LockPanel } from "./lock-panel";
 import { VerifyForm, type VerifyItem } from "./verify-form";
@@ -20,6 +21,17 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
 
   const overview = await loadAssessment(id);
   const { assessment, technical, rating, agreements, frozen } = overview;
+
+  const areaRows: AreaRow[] = overview.areas.map((a) => ({
+    domain: a.domain,
+    area: a.area,
+    earned: a.earned,
+    available: a.available,
+    percent: a.percent,
+    total: a.total,
+    scored: a.scored,
+    note: overview.areaNotes.get(`${a.domain}|${a.area ?? ""}`) ?? "",
+  }));
 
   const [pools, poolDetail] = await Promise.all([
     prisma.pool.findMany({
@@ -132,6 +144,20 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
         <div className="min-w-0 space-y-6">
           <DomainBreakdown rating={rating} provisional={!frozen} />
+
+          <section>
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="section-title">By macro-area</h2>
+              <p className="text-xs text-ink-500">
+                The structure the club&apos;s report is built around.
+              </p>
+            </div>
+            <AreaNotes
+              assessmentId={id}
+              areas={areaRows}
+              editable={assessment.publishedAt === null}
+            />
+          </section>
 
           <section>
             <h2 className="section-title mb-3">Technical Qualifications breakdown</h2>

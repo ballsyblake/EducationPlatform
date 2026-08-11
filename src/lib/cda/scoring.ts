@@ -229,6 +229,73 @@ export function scoreStarDomain(domain: Domain, outcomes: CriterionOutcome[]): D
 }
 
 /* -------------------------------------------------------------------------- */
+/* Macro-areas                                                                */
+/* -------------------------------------------------------------------------- */
+
+export type AreaResult = {
+  domain: Domain;
+  /** null collects anything the catalogue hasn't placed in an area. */
+  area: string | null;
+  earned: number;
+  available: number;
+  percent: number;
+  scored: number;
+  total: number;
+  outcomes: CriterionOutcome[];
+};
+
+/**
+ * Subtotals each domain by macro-area.
+ *
+ * Football Queensland's report is organised around these rather than around the
+ * domain as a whole: a club is told it scored 67% on Program Management &
+ * Monitoring and 48% on Training Program Observations, with a paragraph on
+ * each. One Delivery percentage averages those into a number that describes
+ * neither and gives the club nothing to act on.
+ *
+ * Areas come out in catalogue order rather than alphabetically, so a report
+ * reads in the sequence the rubric was written in.
+ */
+export function scoreAreas(outcomes: CriterionOutcome[]): AreaResult[] {
+  const groups: AreaResult[] = [];
+
+  for (const o of outcomes) {
+    // Matched on the pair rather than a composite key: area names contain
+    // spaces and ampersands, and every separator that survives those is one
+    // more thing to get wrong.
+    let group = groups.find(
+      (g) => g.domain === o.criterion.domain && g.area === (o.criterion.area ?? null),
+    );
+
+    if (!group) {
+      group = {
+        domain: o.criterion.domain,
+        area: o.criterion.area ?? null,
+        earned: 0,
+        available: 0,
+        percent: 0,
+        scored: 0,
+        total: 0,
+        outcomes: [],
+      };
+      groups.push(group);
+    }
+
+    group.outcomes.push(o);
+    group.total += 1;
+    group.available += o.criterion.weight * o.criterion.maxScore;
+    group.earned += (o.stars ?? 0) * o.criterion.weight;
+    if (o.stars !== null) group.scored += 1;
+  }
+
+  for (const g of groups) {
+    g.percent = g.available === 0 ? 0 : (g.earned / g.available) * 100;
+  }
+
+  return groups;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Non-Negotiables                                                            */
 /* -------------------------------------------------------------------------- */
 

@@ -47,6 +47,7 @@ export default async function ReconcilePage({
       title: a.criterion.title,
       weight: a.criterion.weight,
       maxScore: a.criterion.maxScore,
+      area: a.criterion.area,
       level: a.level,
       spread: a.spread,
       suggested: a.suggested,
@@ -162,8 +163,17 @@ export default async function ReconcilePage({
             />
           ) : (
             <div className="card divide-y divide-ink-200">
-              {visible.map((row) => (
-                <ResolveRow key={row.criterionId} assessmentId={id} row={row} locked={locked} />
+              {visible.map((row, i) => (
+                <div key={row.criterionId}>
+                  {/* An area heading whenever the group changes, so a split is
+                      read next to the other items it is being weighed against. */}
+                  {row.area !== visible[i - 1]?.area && (
+                    <p className="bg-ink-50 px-4 py-1.5 text-xs font-semibold text-ink-600">
+                      {row.area ?? "Ungrouped"}
+                    </p>
+                  )}
+                  <ResolveRow assessmentId={id} row={row} locked={locked} />
+                </div>
               ))}
             </div>
           )}
