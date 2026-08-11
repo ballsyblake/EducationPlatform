@@ -300,15 +300,30 @@ export function scoreAreas(outcomes: CriterionOutcome[]): AreaResult[] {
 /* -------------------------------------------------------------------------- */
 
 /** Weakest to strongest, so a cap can be compared against a provisional shield. */
-export const SHIELD_ORDER: Shield[] = ["NONE", "BRONZE", "SILVER", "GOLD", "PLATINUM"];
+export const SHIELD_ORDER: Shield[] = [
+  "NONE",
+  "DEVELOPMENT_COMMITTED",
+  "BRONZE",
+  "SILVER",
+  "GOLD",
+];
 
 const SHIELD_RANK: Record<Shield, number> = {
   NONE: 0,
-  BRONZE: 1,
-  SILVER: 2,
-  GOLD: 3,
-  PLATINUM: 4,
+  DEVELOPMENT_COMMITTED: 1,
+  BRONZE: 2,
+  SILVER: 3,
+  GOLD: 4,
 };
+
+/**
+ * The three levels a threshold Non-Negotiable can be recorded against.
+ *
+ * Development Committed is excluded on purpose: FQ sets its threshold standards
+ * per shield, and a badge is not a shield. A club below Bronze has no threshold
+ * bar to meet.
+ */
+export const THRESHOLD_LEVELS: Shield[] = ["NONE", "BRONZE", "SILVER", "GOLD"];
 
 /** The weaker of two shields. */
 export function minShield(a: Shield, b: Shield): Shield {
@@ -406,7 +421,6 @@ export type ShieldThresholds = {
   bronzeMin: number;
   silverMin: number;
   goldMin: number;
-  platinumMin: number;
 };
 
 /** Points earned and available for one domain. */
@@ -435,10 +449,23 @@ export type RatingResult = {
    * say so rather than quietly showing a smaller shield.
    */
   cappedDown: boolean;
+  /**
+   * True when the award is the Development Committed badge rather than a
+   * shield. Worth distinguishing because the two are used differently: a shield
+   * is a mark of standard the club publishes, and the badge is an
+   * acknowledgement that they are in the program and compliant.
+   */
+  developmentBadge: boolean;
 };
 
+/**
+ * The shield a percentage earns on its own.
+ *
+ * Below Bronze this returns NONE rather than the Development Committed badge:
+ * the badge also depends on licence compliance, which is not a scoring
+ * question, so it is applied in `computeRating` where that answer is available.
+ */
 export function shieldFor(percent: number, t: ShieldThresholds): Shield {
-  if (percent >= t.platinumMin) return "PLATINUM";
   if (percent >= t.goldMin) return "GOLD";
   if (percent >= t.silverMin) return "SILVER";
   if (percent >= t.bronzeMin) return "BRONZE";
@@ -467,6 +494,13 @@ export function computeRating(
   points: Record<Domain, DomainPoints>,
   cycle: ShieldThresholds,
   nonNegotiables: NonNegotiableState[],
+  /**
+   * Whether the club is licence compliant in non-technical areas — the one
+   * condition on the Development Committed badge. Null or false means no badge:
+   * FQ publishes it, and a recognition nobody has confirmed shouldn't be handed
+   * out because the field was left blank.
+   */
+  licenceCompliant: boolean | null = null,
 ): RatingResult {
   const earned = DOMAINS.reduce((sum, d) => sum + points[d].earned, 0);
   const available = DOMAINS.reduce((sum, d) => sum + points[d].available, 0);
@@ -487,10 +521,20 @@ export function computeRating(
   const eligibility = checkEligibility(nonNegotiables);
   const provisionalShield = shieldFor(percent, cycle);
 
-  const awarded =
+  const capped =
     eligibility.cap === null
       ? provisionalShield
       : minShield(provisionalShield, eligibility.cap);
+
+  // The badge is keyed off the score, not off the capped result. FQ's condition
+  // is "clubs scoring less than 40%", and a club that scored a shield but met no
+  // threshold standard is not a development-committed club — it is a club whose
+  // structure met no standard, which is a different finding and reads as NONE.
+  //
+  // Applied after the cap so the cap can't take it away: there is no threshold
+  // bar below Bronze for it to fall short of.
+  const badge = provisionalShield === "NONE" && licenceCompliant === true;
+  const awarded: Shield = badge ? "DEVELOPMENT_COMMITTED" : capped;
 
   return {
     domains,
@@ -503,7 +547,10 @@ export function computeRating(
     eligibility,
     provisionalShield,
     shield: eligibility.eligible ? awarded : null,
-    cappedDown: eligibility.eligible && awarded !== provisionalShield,
+    // Measured against the capped result, not the awarded one, so the badge —
+    // which raises the award rather than lowering it — never reads as a cap.
+    cappedDown: eligibility.eligible && capped !== provisionalShield,
+    developmentBadge: eligibility.eligible === true && badge,
   };
 }
 

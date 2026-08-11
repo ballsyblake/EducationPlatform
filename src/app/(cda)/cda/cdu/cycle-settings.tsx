@@ -15,7 +15,6 @@ export type CycleSettingsData = {
   bronzeMin: number;
   silverMin: number;
   goldMin: number;
-  platinumMin: number;
 };
 
 const STATUSES = [
@@ -34,7 +33,6 @@ export function CycleSettings({ cycle }: { cycle: CycleSettingsData }) {
     bronzeMin: String(cycle.bronzeMin),
     silverMin: String(cycle.silverMin),
     goldMin: String(cycle.goldMin),
-    platinumMin: String(cycle.platinumMin),
   });
   const [status, setStatus] = useState(cycle.status);
 
@@ -42,7 +40,6 @@ export function CycleSettings({ cycle }: { cycle: CycleSettingsData }) {
     { key: "bronzeMin", label: "Bronze" },
     { key: "silverMin", label: "Silver" },
     { key: "goldMin", label: "Gold" },
-    { key: "platinumMin", label: "Platinum" },
   ] as const;
 
   return (
@@ -101,7 +98,7 @@ export function CycleSettings({ cycle }: { cycle: CycleSettingsData }) {
 
       <fieldset>
         <legend className="label">Shield thresholds</legend>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {thresholdFields.map((f) => (
             <label key={f.key} className="text-xs text-ink-600">
               {f.label}
@@ -117,6 +114,10 @@ export function CycleSettings({ cycle }: { cycle: CycleSettingsData }) {
             </label>
           ))}
         </div>
+        <p className="hint mt-1">
+          Three shields, Gold at the top. A club scoring below Bronze receives the FQ Development
+          Committed badge instead, provided you have recorded it as licence compliant.
+        </p>
       </fieldset>
 
       {state.status === "error" && <FormError message={state.message} />}

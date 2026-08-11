@@ -72,9 +72,11 @@ export default async function RubricPage() {
             Every line item is worth its score times its weighting, and the rating is those points
             summed across all four domains. Technical Qualifications contributes{" "}
             {cycle.technicalMaxPoints} points; the other three take theirs from the line items
-            below. A shield needs Bronze {cycle.bronzeMin}%, Silver {cycle.silverMin}%, Gold{" "}
-            {cycle.goldMin}%, Platinum {cycle.platinumMin}% — and all nine Non-Negotiables met,
-            whatever the score.
+            below. A shield needs Bronze {cycle.bronzeMin}%, Silver {cycle.silverMin}% or Gold{" "}
+            {cycle.goldMin}%. Below {cycle.bronzeMin}% a licence-compliant club receives the FQ
+            Development Committed badge instead. Every shield also depends on the gate
+            Non-Negotiables being met, whatever the score, and on the shield-based ones, which cap
+            the level rather than blocking it.
           </p>
         </div>
       )}

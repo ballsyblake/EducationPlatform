@@ -82,7 +82,13 @@ export default async function ClubRatingPage() {
       <div className="mb-6 card card-pad">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="section-title">Shield awarded</p>
+            {/* Development Committed is a badge, not a shield — labelling it
+                "Shield awarded" would tell the club it holds something FQ
+                hasn't issued, and the shield is the only thing a club is
+                permitted to publish. */}
+            <p className="section-title">
+              {overview.rating.developmentBadge ? "Awarded" : "Shield awarded"}
+            </p>
             <div className="mt-2 flex items-center gap-3">
               <ShieldBadge shield={shield} size="lg" />
               <span className="text-3xl font-bold tabular-nums text-ink-900">
@@ -120,6 +126,21 @@ export default async function ClubRatingPage() {
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {/* Below the Bronze bar, but licence compliant — FQ's own consolation,
+            and worth stating as the positive thing it is rather than leaving a
+            club to read a shield-shaped hole. */}
+        {overview.rating.developmentBadge && (
+          <div className="mt-4 rounded-lg bg-maroon-50 px-4 py-3">
+            <p className="font-semibold text-maroon-800">FQ Development Committed</p>
+            <p className="mt-1 text-sm text-maroon-800">
+              Your club scored below the {SHIELD_LABELS.BRONZE} threshold this cycle, so no shield
+              is awarded. Football Queensland recognises clubs that are licence compliant with the
+              Development Committed badge, and your club has it. The area feedback below is where
+              to start for next cycle.
+            </p>
           </div>
         )}
 
@@ -205,7 +226,13 @@ export default async function ClubRatingPage() {
                   {threshold && n.verdict === "PASS" ? (
                     // A level, not a tick: "met" says nothing when the bar
                     // differs by shield, and the level is the actionable part.
-                    <ShieldBadge shield={n.shieldMet ?? "NONE"} size="sm" />
+                    // At NONE there is no level to show, and the shield chip
+                    // would read as "the standard met was: no shield".
+                    n.shieldMet && n.shieldMet !== "NONE" ? (
+                      <ShieldBadge shield={n.shieldMet} size="sm" />
+                    ) : (
+                      <Badge tone="muted">No standard met</Badge>
+                    )
                   ) : (
                     <Badge
                       tone={n.verdict === "PASS" ? "good" : n.verdict === "FAIL" ? "bad" : "muted"}

@@ -236,6 +236,7 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     },
     assessment.cycle,
     nonNegotiables,
+    assessment.licenceCompliant,
   );
 
   // Once locked, the stored numbers are the answer. Recomputing would let a
@@ -267,7 +268,14 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
       percent: assessment.finalPercent!,
       shield: assessment.eligible ? awarded : null,
       provisionalShield: provisional,
-      cappedDown: assessment.eligible === true && awarded !== provisional,
+      // The badge raises the award above what the score alone earned, so it is
+      // never a cap — checking for it here keeps a badged club from being told
+      // its shield was held down.
+      cappedDown:
+        assessment.eligible === true &&
+        awarded !== "DEVELOPMENT_COMMITTED" &&
+        awarded !== provisional,
+      developmentBadge: assessment.eligible === true && awarded === "DEVELOPMENT_COMMITTED",
       eligibility: checkEligibility(nonNegotiables),
     };
   }

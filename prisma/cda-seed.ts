@@ -281,6 +281,18 @@ const CLUBS = [
     strength: 0.4,
     admin: { email: "admin@rockycentral.example.com", name: "Bec Alderton" },
   },
+  // Scores below the Bronze bar but is licence compliant, so its award is the
+  // Development Committed badge. Worth a club of its own: it is a different
+  // outcome from Rockhampton's, which fails a gate check and gets nothing, and
+  // the two look identical on a dashboard unless both are in the data.
+  {
+    name: "Mount Isa Rovers FC",
+    slug: "mount-isa-rovers",
+    zone: "North West Queensland",
+    tier: "Community",
+    strength: 0.3,
+    admin: { email: "admin@misarovers.example.com", name: "Toby Nguyen-Hale" },
+  },
 ];
 
 /**
@@ -441,6 +453,7 @@ const POOLS = [
       "sunshine-coast-wanderers",
       "redlands-united",
       "rockhampton-central",
+      "mount-isa-rovers",
     ],
   },
   {
@@ -463,6 +476,7 @@ const CLUB_TIER: Record<string, string> = {
   "rockhampton-central": "T2",
   "toowoomba-ranges": "T1",
   "cairns-tropics": "T2",
+  "mount-isa-rovers": "T2",
 };
 
 /** Where each club's own record sits, independent of its pool's progress. */
@@ -475,6 +489,8 @@ const CLUB_STATE: Record<string, string> = {
   // Still entering its own data, so nobody can score it yet — which is exactly
   // the case the "clubs not yet submitted" count on the scoring screen exists for.
   "cairns-tropics": "IN_PROGRESS",
+  // Below the Bronze bar but licence compliant, so the award is the badge.
+  "mount-isa-rovers": "PUBLISHED",
 };
 
 export async function seedDemo(prisma: PrismaClient) {
@@ -572,6 +588,11 @@ export async function seedDemo(prisma: PrismaClient) {
           tierId: tierIds.get(CLUB_TIER[slug] ?? "T1") ?? null,
           status: published ? "PUBLISHED" : (state as never),
           clubSubmittedAt: state === "IN_PROGRESS" ? null : new Date("2026-04-18"),
+          // Recorded once a club has actually submitted, since that is when the
+          // Unit would have looked. Rockhampton is the club that isn't
+          // compliant, which is why its low score earns no badge either.
+          licenceCompliant:
+            state === "IN_PROGRESS" ? null : slug !== "rockhampton-central",
         },
       });
 

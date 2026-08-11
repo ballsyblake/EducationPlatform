@@ -258,6 +258,8 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
             unresolved={overview.unresolved.length}
             pendingChecks={pendingChecks}
             summary={assessment.summary ?? ""}
+            licenceCompliant={assessment.licenceCompliant}
+            belowBronze={rating.provisionalShield === "NONE"}
           />
 
           <AssessorPanel

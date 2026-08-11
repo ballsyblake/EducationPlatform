@@ -419,11 +419,13 @@ model Cycle {
   /// CASE 2 team profile.
   technicalMaxPoints Int @default(330)
 
-  /// Minimum weighted-total percentage for each shield.
-  bronzeMin   Int @default(40)
-  silverMin   Int @default(55)
-  goldMin     Int @default(70)
-  platinumMin Int @default(85)
+  /// Minimum weighted-total percentage for each shield. Football Queensland's
+  /// own figures: Gold at 75%, Silver at 55%, Bronze at 40%. Per-cycle because
+  /// FQ restates them each year, and a published year has to keep the bar it
+  /// was actually judged against.
+  bronzeMin Int @default(40)
+  silverMin Int @default(55)
+  goldMin   Int @default(75)
 
   assessments ClubAssessment[]
   pools       Pool[]
@@ -446,13 +448,25 @@ enum AssessmentStatus {
   PUBLISHED
 }
 
+/// Football Queensland awards three shields. Gold is the top — there is no
+/// Platinum, and inventing one would have the portal promising clubs a level
+/// FQ does not issue a shield for.
+///
+/// Declared weakest to strongest: the threshold Non-Negotiables cap a club at
+/// the level it met, and that comparison reads this order.
 enum Shield {
-  /// Scored, but below the Bronze threshold.
+  /// Below the Bronze threshold, and not eligible for the Development
+  /// Committed badge either.
   NONE
+  /// Not a shield. FQ's own words: "All clubs scoring less than 40% of the
+  /// overall points will receive an FQ Development Committed badge for their FQ
+  /// Academy assessment if they are licence compliant (in non-technical
+  /// areas)." It sits in this enum because it is what the club is awarded at
+  /// that band, and it has to compare below Bronze.
+  DEVELOPMENT_COMMITTED
   BRONZE
   SILVER
   GOLD
-  PLATINUM
 }
 
 /// One club's assessment for one cycle. The hub of the whole model.
@@ -484,6 +498,16 @@ model ClubAssessment {
   finalShield  Shield?
   /// False when a Non-Negotiable failed — no shield, whatever the score.
   eligible     Boolean?
+
+  /// Whether the club is licence compliant in non-technical areas.
+  ///
+  /// The one condition FQ attaches to the Development Committed badge, and it
+  /// is information the Unit holds rather than anything this assessment
+  /// measures — compliance sits under the Advanced Participation Licence, not
+  /// under the rating. Null means nobody has said, and that is treated as "no
+  /// badge": a recognition FQ publishes should not be handed out by default.
+  /// Only consulted below the Bronze threshold.
+  licenceCompliant Boolean?
   /// CDU's summary paragraph on the published report.
   summary      String?
 

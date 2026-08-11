@@ -57,9 +57,13 @@ export function Declaration({ item, editable }: { item: DeclarationData; editabl
               <Badge tone="muted">Awaiting FQ verification</Badge>
             )}
             {declared === "" && <Badge tone="warn">Not answered</Badge>}
-            {threshold && item.verdict === "PASS" && (
-              <ShieldBadge shield={item.shieldMet ?? "NONE"} size="sm" />
-            )}
+            {threshold &&
+              item.verdict === "PASS" &&
+              (item.shieldMet && item.shieldMet !== "NONE" ? (
+                <ShieldBadge shield={item.shieldMet} size="sm" />
+              ) : (
+                <Badge tone="muted">No standard met</Badge>
+              ))}
           </div>
           <h3 className="mt-1 font-semibold text-ink-900">{item.title}</h3>
           <p className="mt-1 text-sm text-ink-600">{item.description}</p>

@@ -7,7 +7,7 @@ import { createInviteLink, normalizeEmail } from "@/lib/auth";
 import { requireCdu } from "@/lib/cda/access";
 import { activeCycle, ensureAssessment, freezeResult, loadAssessment } from "@/lib/cda/assessment";
 import { MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
-import { SHIELD_ORDER } from "@/lib/cda/scoring";
+import { THRESHOLD_LEVELS } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 
 export type CduFormState = {
@@ -406,8 +406,11 @@ export async function verifyNonNegotiable(
 
   const threshold = result.nonNegotiable.kind === "SHIELD_THRESHOLD";
 
+  // THRESHOLD_LEVELS rather than every shield: FQ sets its threshold standards
+  // per shield, and Development Committed is a badge, not a shield — there is
+  // no bar below Bronze to fall short of.
   const levelRaw = String(formData.get("shieldMet") ?? "");
-  const shieldMet = SHIELD_ORDER.find((s) => s === levelRaw) ?? null;
+  const shieldMet = THRESHOLD_LEVELS.find((s) => s === levelRaw) ?? null;
 
   if (threshold && verdict === "PASS" && shieldMet === null) {
     // Passing a threshold check without saying which bar was met would leave
@@ -612,10 +615,68 @@ export async function lockAssessment(
     };
   }
 
+  // Below the Bronze bar the Development Committed badge is the award, and it
+  // turns on licence compliance. Freezing with that unanswered would record
+  // "no badge" as a decision when it is really an omission — and the club would
+  // be told so in writing.
+  if (overview.rating.provisionalShield === "NONE" && overview.assessment.licenceCompliant === null) {
+    return {
+      status: "error",
+      message:
+        "This club scored below the Bronze bar, so record whether it is licence compliant in non-technical areas before locking — that decides the Development Committed badge.",
+    };
+  }
+
   await freezeResult(assessmentId, cdu.id);
 
   revalidatePath(`/cda/cdu/assessments/${assessmentId}`, "layout");
   return { status: "ok", message: "Scores locked and the result frozen." };
+}
+
+/**
+ * Records whether the club is licence compliant in non-technical areas.
+ *
+ * The one condition Football Queensland attaches to the Development Committed
+ * badge, and it isn't measured by this assessment — compliance sits under the
+ * Advanced Participation Licence. So it is recorded rather than derived, and
+ * left null until someone actually knows: a club that scores under 40% and has
+ * never been looked at gets nothing, not a badge by default.
+ */
+export async function setLicenceCompliance(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  await requireCdu();
+  const assessmentId = String(formData.get("assessmentId") ?? "");
+
+  const assessment = await prisma.clubAssessment.findUnique({ where: { id: assessmentId } });
+  if (!assessment) return { status: "error", message: "That assessment no longer exists." };
+
+  if (assessment.lockedAt) {
+    return {
+      status: "error",
+      message: "This assessment is locked. Unlock it before changing licence compliance.",
+    };
+  }
+
+  const raw = String(formData.get("licenceCompliant") ?? "");
+  const licenceCompliant = raw === "yes" ? true : raw === "no" ? false : null;
+
+  await prisma.clubAssessment.update({
+    where: { id: assessmentId },
+    data: { licenceCompliant },
+  });
+
+  revalidatePath(`/cda/cdu/assessments/${assessmentId}`, "layout");
+  return {
+    status: "ok",
+    message:
+      licenceCompliant === null
+        ? "Licence compliance cleared."
+        : licenceCompliant
+          ? "Recorded as licence compliant."
+          : "Recorded as not licence compliant.",
+  };
 }
 
 export async function unlockAssessment(
@@ -732,7 +793,6 @@ const cycleSchema = z.object({
   bronzeMin: z.coerce.number().int().min(0).max(100),
   silverMin: z.coerce.number().int().min(0).max(100),
   goldMin: z.coerce.number().int().min(0).max(100),
-  platinumMin: z.coerce.number().int().min(0).max(100),
 });
 
 export async function updateCycle(_prev: CduFormState, formData: FormData): Promise<CduFormState> {
@@ -749,10 +809,10 @@ export async function updateCycle(_prev: CduFormState, formData: FormData): Prom
 
   const d = parsed.data;
 
-  if (!(d.bronzeMin < d.silverMin && d.silverMin < d.goldMin && d.goldMin < d.platinumMin)) {
+  if (!(d.bronzeMin < d.silverMin && d.silverMin < d.goldMin)) {
     return {
       status: "error",
-      message: "Shield thresholds must increase: Bronze < Silver < Gold < Platinum.",
+      message: "Shield thresholds must increase: Bronze < Silver < Gold.",
     };
   }
 

@@ -5,13 +5,11 @@ import { ShieldBadge } from "@/components/cda/shield";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, FormError } from "@/components/ui";
 import { SHIELD_LABELS } from "@/lib/cda/rubric";
+import { THRESHOLD_LEVELS } from "@/lib/cda/scoring";
 import { verifyNonNegotiable, type CduFormState } from "../../actions";
 import type { Shield } from "@prisma-client";
 
 const initialState: CduFormState = { status: "idle" };
-
-/** Weakest first, so the row reads as a rising bar. */
-const LEVELS: Shield[] = ["NONE", "BRONZE", "SILVER", "GOLD"];
 
 export type VerifyItem = {
   id: string;
@@ -104,12 +102,16 @@ export function VerifyForm({ item, locked }: { item: VerifyItem; locked: boolean
           >
             {item.verdict === "PENDING" ? "Not verified" : item.verdict}
           </Badge>
-          {threshold && item.verdict === "PASS" && (
-            <div className="mt-1.5 flex items-center justify-end gap-1.5">
-              <ShieldBadge shield={item.shieldMet ?? "NONE"} size="sm" />
-              <span className="text-xs text-ink-500">standard met</span>
-            </div>
-          )}
+          {threshold &&
+            item.verdict === "PASS" &&
+            (item.shieldMet && item.shieldMet !== "NONE" ? (
+              <div className="mt-1.5 flex items-center justify-end gap-1.5">
+                <ShieldBadge shield={item.shieldMet} size="sm" />
+                <span className="text-xs text-ink-500">standard met</span>
+              </div>
+            ) : (
+              <p className="mt-1.5 text-xs text-ink-500">No standard met</p>
+            ))}
         </div>
       </div>
 
@@ -159,7 +161,7 @@ export function VerifyForm({ item, locked }: { item: VerifyItem; locked: boolean
                 </span>
               </legend>
               <div className="flex flex-wrap gap-2">
-                {LEVELS.map((s) => (
+                {THRESHOLD_LEVELS.map((s) => (
                   <button
                     key={s}
                     type="button"

@@ -207,6 +207,7 @@ export default async function CduHomePage() {
                             <ShieldBadge
                               shield={a.eligible ? (a.finalShield ?? "NONE") : null}
                               size="sm"
+                              short
                             />
                           </div>
                         ) : (
@@ -226,11 +227,15 @@ export default async function CduHomePage() {
 
           {published.length > 0 && (
             <div className="card card-pad">
-              <h2 className="mb-3 font-semibold text-ink-900">Shields awarded</h2>
+              {/* Not "Shields awarded" any more: the Development Committed row
+                  is a badge, and the last row isn't an award at all. */}
+              <h2 className="mb-3 font-semibold text-ink-900">Results released</h2>
               <ul className="space-y-2 text-sm">
-                {(["PLATINUM", "GOLD", "SILVER", "BRONZE", "NONE"] as Shield[]).map((s) => (
+                {(
+                  ["GOLD", "SILVER", "BRONZE", "DEVELOPMENT_COMMITTED", "NONE"] as Shield[]
+                ).map((s) => (
                   <li key={s} className="flex items-center justify-between gap-2">
-                    <ShieldBadge shield={s} size="sm" />
+                    <ShieldBadge shield={s} size="sm" short />
                     <span className="tabular-nums text-ink-700">{shieldCounts[s] ?? 0}</span>
                   </li>
                 ))}
@@ -240,9 +245,9 @@ export default async function CduHomePage() {
                 </li>
               </ul>
               <p className="mt-3 text-xs text-ink-500">
-                {SHIELD_LABELS.PLATINUM} needs {cycle.platinumMin}%, {SHIELD_LABELS.GOLD}{" "}
-                {cycle.goldMin}%, {SHIELD_LABELS.SILVER} {cycle.silverMin}%,{" "}
-                {SHIELD_LABELS.BRONZE} {cycle.bronzeMin}%.
+                {SHIELD_LABELS.GOLD} needs {cycle.goldMin}%, {SHIELD_LABELS.SILVER}{" "}
+                {cycle.silverMin}%, {SHIELD_LABELS.BRONZE} {cycle.bronzeMin}%. Below that a
+                licence-compliant club receives the Development Committed badge.
               </p>
             </div>
           )}

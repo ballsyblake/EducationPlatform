@@ -310,10 +310,16 @@ export function starLabel(stars: number) {
 
 export const SHIELD_LABELS: Record<Shield, string> = {
   NONE: "No shield",
+  DEVELOPMENT_COMMITTED: "FQ Development Committed",
   BRONZE: "Bronze",
   SILVER: "Silver",
   GOLD: "Gold",
-  PLATINUM: "Platinum",
+};
+
+/** For tables and chips, where the full badge name doesn't fit. */
+export const SHIELD_SHORT_LABELS: Record<Shield, string> = {
+  ...SHIELD_LABELS,
+  DEVELOPMENT_COMMITTED: "Development Committed",
 };
 
 /**
@@ -324,13 +330,17 @@ export const SHIELD_LABELS: Record<Shield, string> = {
  * to the shield chip itself, which is the one place the guidelines' own
  * competition-palette precedent applies: a sub-brand keeps its own identifying
  * colour inside the FQ system.
+ *
+ * Development Committed is the exception, and deliberately so: it is not a
+ * metal because it is not a shield. It takes FQ maroon, which reads as
+ * belonging to the program rather than as a fourth, lesser medal.
  */
 export const SHIELD_COLOURS: Record<Shield, { bg: string; fg: string; ring: string }> = {
   NONE: { bg: "#f2f2f2", fg: "#545454", ring: "#d4d4d4" },
+  DEVELOPMENT_COMMITTED: { bg: "#f7ecf0", fg: "#6b1230", ring: "#b8879a" },
   BRONZE: { bg: "#f6e8dc", fg: "#7a4a21", ring: "#c88b4e" },
   SILVER: { bg: "#eef1f4", fg: "#4a5560", ring: "#a8b4bf" },
   GOLD: { bg: "#fdf3d6", fg: "#7a5c00", ring: "#d4a72c" },
-  PLATINUM: { bg: "#eaf1f2", fg: "#2f4f55", ring: "#7fa5ad" },
 };
 
 /* -------------------------------------------------------------------------- */
