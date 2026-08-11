@@ -10,7 +10,7 @@
  *   seedDemo()     — clubs, assessors and part-finished assessments. Destructive
  *                    to CDA data, for a fresh instance only.
  */
-import type { PrismaClient } from "../generated/prisma/client.ts";
+import type { PrismaClient, Shield } from "../generated/prisma/client.ts";
 import { defaultThresholds, starsFromEvidence } from "../src/lib/cda/rubric.ts";
 import { CRITERIA, NON_NEGOTIABLES, QUALIFICATIONS } from "./cda-catalog.ts";
 
@@ -42,10 +42,34 @@ export async function seedCatalog(prisma: PrismaClient) {
   for (const [i, nn] of NON_NEGOTIABLES.entries()) {
     await prisma.nonNegotiable.upsert({
       where: { code: nn.code },
-      update: { position: i },
+      // Wording is the CDU's to change once live, but `kind` is structural: it
+      // decides whether a miss blocks the shield or caps it. A release that
+      // moves a check from gate to threshold has to reach a running instance,
+      // the same way a changed weight does.
+      update: {
+        position: i,
+        active: true,
+        kind: nn.kind ?? "GATE",
+        format: nn.format ?? null,
+        shieldGuidance: nn.shieldGuidance ?? null,
+      },
       create: { ...nn, position: i },
     });
   }
+
+  // Checks this release no longer ships are retired, not deleted — their
+  // results are part of a club's history. Retired checks are filtered out of
+  // scoring, so a withdrawn check stops mattering without anything having to
+  // be verified against it.
+  const retiredChecks = await prisma.nonNegotiable.updateMany({
+    where: { active: true, code: { notIn: NON_NEGOTIABLES.map((n) => n.code) } },
+    data: { active: false },
+  });
+  if (retiredChecks.count > 0) {
+    console.log(`[cda] retired ${retiredChecks.count} Non-Negotiables no longer in the catalogue`);
+  }
+
+  await backfillNonNegotiables(prisma);
 
   // Tiers first: criteria attach to them, and a Tier 2 club is assessed on a
   // subset of the same coded items rather than a different catalogue.
@@ -143,7 +167,7 @@ export async function seedCatalog(prisma: PrismaClient) {
 
   const counts = {
     qualifications: await prisma.qualification.count(),
-    nonNegotiables: await prisma.nonNegotiable.count(),
+    nonNegotiables: await prisma.nonNegotiable.count({ where: { active: true } }),
     criteria: await prisma.criterion.count(),
     subCriteria: await prisma.subCriterion.count(),
   };
@@ -151,6 +175,41 @@ export async function seedCatalog(prisma: PrismaClient) {
     `[cda] catalogue: ${counts.criteria} criteria (${counts.subCriteria} evidence points), ` +
       `${counts.nonNegotiables} Non-Negotiables, ${counts.qualifications} qualifications`,
   );
+}
+
+/**
+ * Gives every assessment still in progress a result row for each active check.
+ *
+ * Result rows are created when an assessment is opened, which is fine until a
+ * release adds a check — every assessment opened before it would then be scored
+ * against eight checks while new ones face nine, and nobody would see the
+ * missing one to answer it. Locked assessments are left alone: their result is
+ * already frozen and already communicated, and retrospectively adding an
+ * unanswerable check to it would strip a club of a shield it has been given.
+ */
+async function backfillNonNegotiables(prisma: PrismaClient) {
+  const active = await prisma.nonNegotiable.findMany({
+    where: { active: true },
+    select: { id: true },
+  });
+  const open = await prisma.clubAssessment.findMany({
+    where: { lockedAt: null },
+    select: { id: true, nonNegotiables: { select: { nonNegotiableId: true } } },
+  });
+
+  const missing = open.flatMap((a) => {
+    const have = new Set(a.nonNegotiables.map((r) => r.nonNegotiableId));
+    return active
+      .filter((n) => !have.has(n.id))
+      .map((n) => ({ assessmentId: a.id, nonNegotiableId: n.id }));
+  });
+
+  if (missing.length > 0) {
+    await prisma.nonNegotiableResult.createMany({ data: missing });
+    console.log(
+      `[cda] added ${missing.length} Non-Negotiable checks to assessments still in progress`,
+    );
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -553,8 +612,14 @@ export async function seedDemo(prisma: PrismaClient) {
       }
 
       for (const [i, nn] of nonNegotiables.entries()) {
-        const fails = ineligible && (nn.code === "NN-2" || nn.code === "NN-3");
+        const threshold = nn.kind === "SHIELD_THRESHOLD";
+        // Only gate checks are ever failed outright here. A threshold check
+        // isn't failed, it is met at some level — which is the whole point of
+        // the distinction, and a demo that failed one would show the wrong
+        // mechanism on the screen the CDU learns it from.
+        const fails = ineligible && !threshold && (nn.code === "NN3" || nn.code === "NN6");
         const answered = state !== "IN_PROGRESS" || i < 4;
+        const verified = published || state === "RECONCILING";
 
         await prisma.nonNegotiableResult.create({
           data: {
@@ -562,9 +627,13 @@ export async function seedDemo(prisma: PrismaClient) {
             nonNegotiableId: nn.id,
             clubDeclared: answered ? !fails : null,
             clubNote: answered && !fails ? "Evidence held on file and available on request." : null,
-            verdict: published ? (fails ? "FAIL" : "PASS") : state === "RECONCILING" ? "PASS" : "PENDING",
+            verdict: verified ? (fails ? "FAIL" : "PASS") : "PENDING",
+            // Structure and staffing track the club's overall standing, so the
+            // weaker clubs meet a lower bar than they score against — which is
+            // how the cap becomes visible on a club that scored above it.
+            shieldMet: threshold && verified ? thresholdLevel(spec.strength) : null,
             adminNote: fails ? FAILURE_NOTES[nn.code] : null,
-            verifiedAt: published || state === "RECONCILING" ? new Date("2026-06-02") : null,
+            verifiedAt: verified ? new Date("2026-06-02") : null,
           },
         });
       }
@@ -767,11 +836,23 @@ const AREA_FEEDBACK = [
 
 /** Why the ineligible club failed each check it failed. */
 const FAILURE_NOTES: Record<string, string> = {
-  "NN-2":
-    "Blue Card register incomplete at the time of review; three coaching staff without a current card recorded.",
-  "NN-3":
-    "No female coach holds a technical role at the club. The club has committed to appointing a Female Program Lead before the next cycle.",
+  NN3: "Eleven of the club's coaches are not registered in Squadi, including both MiniRoos age groups.",
+  NN6: "Blue Card register incomplete at the time of review; three coaching staff without a current card recorded.",
 };
+
+/**
+ * The shield level a club's structure and staffing actually support.
+ *
+ * Deliberately not the same as the club's score. A club can document its
+ * philosophy beautifully and still not employ the staff a Gold shield requires,
+ * and separating the two is the point of the threshold checks.
+ */
+function thresholdLevel(strength: number): Shield {
+  if (strength >= 0.85) return "GOLD";
+  if (strength >= 0.6) return "SILVER";
+  if (strength >= 0.35) return "BRONZE";
+  return "NONE";
+}
 
 const COMMENTS = [
   "Documented and endorsed, but the review cycle has slipped past 12 months.",

@@ -62,7 +62,9 @@ export default async function ClubRatingPage() {
     orderBy: { cycle: { year: "desc" } },
   });
 
-  const failed = assessment.nonNegotiables.filter((n) => n.verdict === "FAIL");
+  const failed = assessment.nonNegotiables.filter(
+    (n) => n.verdict === "FAIL" && n.nonNegotiable.kind !== "SHIELD_THRESHOLD",
+  );
 
   // The macro-area grades and the Unit's paragraph on each — the part of the
   // report a club can actually act on. A domain percentage says Delivery was
@@ -105,7 +107,8 @@ export default async function ClubRatingPage() {
             <p className="mt-1 text-sm text-maroon-800">
               Your club scored {pct(assessment.finalPercent ?? 0)}, but{" "}
               {failed.length === 1 ? "one Non-Negotiable was" : `${failed.length} Non-Negotiables were`}{" "}
-              not met. All nine must be met before any shield can be awarded, regardless of score.
+              not met. While any one of them is outstanding, no shield can be confirmed, whatever
+              the score.
             </p>
             <ul className="mt-2 space-y-1">
               {failed.map((f) => (
@@ -114,6 +117,36 @@ export default async function ClubRatingPage() {
                     {f.nonNegotiable.code} — {f.nonNegotiable.title}
                   </span>
                   {f.adminNote && <span className="block text-maroon-700">{f.adminNote}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* The club scored higher than its structure and staffing support. Told
+            plainly, with the standard named, because the alternative is a club
+            that reads a Silver shield next to a Gold percentage and concludes
+            the scoring is broken. */}
+        {overview.rating.cappedDown && (
+          <div className="mt-4 rounded-lg bg-ink-50 px-4 py-3">
+            <p className="font-semibold text-ink-900">
+              Your score reached {SHIELD_LABELS[overview.rating.provisionalShield]}
+            </p>
+            <p className="mt-1 text-sm text-ink-700">
+              The shield awarded is held at {SHIELD_LABELS[shield ?? "NONE"]} because of the
+              shield-based standards below. These are separate from your score: they set the club
+              structure, coaching and training standards required at each level, and Football
+              Queensland is introducing them over four years.
+            </p>
+            <ul className="mt-2 space-y-1">
+              {overview.rating.eligibility.cappedBy.map((c) => (
+                <li key={c.code} className="text-sm text-ink-700">
+                  <span className="font-medium">
+                    {c.code} — {c.title}
+                  </span>
+                  <span className="block text-ink-600">
+                    Standard met: {SHIELD_LABELS[c.shieldMet ?? "NONE"]}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -157,21 +190,32 @@ export default async function ClubRatingPage() {
         <section>
           <h2 className="section-title mb-3">Non-Negotiables</h2>
           <div className="card divide-y divide-ink-200">
-            {assessment.nonNegotiables.map((n) => (
-              <div key={n.id} className="flex items-start justify-between gap-3 px-5 py-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-ink-900">
-                    {n.nonNegotiable.code} — {n.nonNegotiable.title}
-                  </p>
-                  {n.verdict === "FAIL" && n.adminNote && (
-                    <p className="mt-0.5 text-xs text-maroon-700">{n.adminNote}</p>
+            {assessment.nonNegotiables.map((n) => {
+              const threshold = n.nonNegotiable.kind === "SHIELD_THRESHOLD";
+              return (
+                <div key={n.id} className="flex items-start justify-between gap-3 px-5 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink-900">
+                      {n.nonNegotiable.code} — {n.nonNegotiable.title}
+                    </p>
+                    {n.verdict === "FAIL" && n.adminNote && (
+                      <p className="mt-0.5 text-xs text-maroon-700">{n.adminNote}</p>
+                    )}
+                  </div>
+                  {threshold && n.verdict === "PASS" ? (
+                    // A level, not a tick: "met" says nothing when the bar
+                    // differs by shield, and the level is the actionable part.
+                    <ShieldBadge shield={n.shieldMet ?? "NONE"} size="sm" />
+                  ) : (
+                    <Badge
+                      tone={n.verdict === "PASS" ? "good" : n.verdict === "FAIL" ? "bad" : "muted"}
+                    >
+                      {n.verdict === "PASS" ? "Met" : n.verdict === "FAIL" ? "Not met" : "Pending"}
+                    </Badge>
                   )}
                 </div>
-                <Badge tone={n.verdict === "PASS" ? "good" : n.verdict === "FAIL" ? "bad" : "muted"}>
-                  {n.verdict === "PASS" ? "Met" : n.verdict === "FAIL" ? "Not met" : "Pending"}
-                </Badge>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <p className="mt-3 text-xs text-ink-500">

@@ -293,13 +293,28 @@ export default async function RubricPage() {
         <div className="card divide-y divide-ink-200">
           {nonNegotiables.map((n) => (
             <div key={n.id} className="px-5 py-3">
-              <p className="text-sm font-medium text-ink-900">
-                {n.code} — {n.title}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium text-ink-900">
+                  {n.code} — {n.title}
+                </p>
+                <Badge tone={n.kind === "SHIELD_THRESHOLD" ? "info" : "muted"}>
+                  {n.kind === "SHIELD_THRESHOLD" ? "Caps the shield" : "Blocks the shield"}
+                </Badge>
+              </div>
               <p className="mt-0.5 text-sm text-ink-600">{n.description}</p>
               {n.evidenceHint && (
                 <p className="mt-1 text-xs text-ink-500">
                   <span className="font-medium">Evidence:</span> {n.evidenceHint}
+                </p>
+              )}
+              {n.format && (
+                <p className="mt-1 text-xs text-ink-500">
+                  <span className="font-medium">Format:</span> {n.format}
+                </p>
+              )}
+              {n.shieldGuidance && (
+                <p className="mt-1 text-xs text-ink-500">
+                  <span className="font-medium">Standard:</span> {n.shieldGuidance}
                 </p>
               )}
             </div>

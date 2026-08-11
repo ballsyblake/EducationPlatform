@@ -198,9 +198,10 @@ export default async function ClubOverviewPage() {
               giving, and the outcomes your programs produce.
             </p>
             <p className="mt-2 text-sm text-ink-600">
-              Before any shield can be awarded, all {checklist.nonNegotiables.total} Non-Negotiables
-              must be met. These are pass or fail — falling short of one means no shield for the
-              cycle, whatever the rest of the assessment says.
+              Alongside that sit {checklist.nonNegotiables.total} Non-Negotiables. Most are pass or
+              fail — falling short of one means no shield for the cycle, whatever the rest of the
+              assessment says. The shield-based ones instead set a standard for each level, and cap
+              the shield you can be awarded rather than ruling you out.
             </p>
           </div>
         </aside>

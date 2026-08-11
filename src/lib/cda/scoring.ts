@@ -299,34 +299,102 @@ export function scoreAreas(outcomes: CriterionOutcome[]): AreaResult[] {
 /* Non-Negotiables                                                            */
 /* -------------------------------------------------------------------------- */
 
+/** Weakest to strongest, so a cap can be compared against a provisional shield. */
+export const SHIELD_ORDER: Shield[] = ["NONE", "BRONZE", "SILVER", "GOLD", "PLATINUM"];
+
+const SHIELD_RANK: Record<Shield, number> = {
+  NONE: 0,
+  BRONZE: 1,
+  SILVER: 2,
+  GOLD: 3,
+  PLATINUM: 4,
+};
+
+/** The weaker of two shields. */
+export function minShield(a: Shield, b: Shield): Shield {
+  return SHIELD_RANK[a] <= SHIELD_RANK[b] ? a : b;
+}
+
 export type NonNegotiableState = {
   code: string;
   title: string;
   verdict: "PENDING" | "PASS" | "FAIL";
+  /**
+   * GATE checks are pass or fail; SHIELD_THRESHOLD checks set a different bar
+   * per shield. Defaults to GATE when absent so a caller that hasn't been
+   * updated still gets the stricter of the two behaviours.
+   */
+  kind?: "GATE" | "SHIELD_THRESHOLD";
+  /** SHIELD_THRESHOLD only: the highest shield whose bar this club met. */
+  shieldMet?: Shield | null;
 };
 
 export type EligibilityResult = {
-  /** True only when every Non-Negotiable has been verified as a pass. */
+  /** True only when every gate check has been verified as a pass. */
   eligible: boolean;
   passed: number;
   failed: NonNegotiableState[];
   pending: NonNegotiableState[];
   total: number;
+  /**
+   * The strongest shield the threshold checks allow, or null when none of them
+   * constrains the result. A club can be eligible and still capped.
+   */
+  cap: Shield | null;
+  /** The threshold checks that set that cap — the ones to name in the report. */
+  cappedBy: NonNegotiableState[];
 };
 
+/**
+ * Applies Football Queensland's two Non-Negotiable mechanisms.
+ *
+ * Six of the nine are gates: the documents are there or they aren't, and while
+ * one is missing "no assessment score can be elevated to 'Confirmed' status" —
+ * no shield at all, whatever the club scored.
+ *
+ * The other three are thresholds, and treating them as gates would be wrong in
+ * a way that punishes exactly the clubs the scheme is meant to bring along. FQ
+ * sets a different staffing and structure bar for each shield and phases them
+ * in over four years, explicitly exempting Silver and Bronze clubs from the
+ * Gold coaching requirement. So a club that meets the Silver bar but not the
+ * Gold one is not ineligible — it is a Silver club, and the cap says so.
+ */
 export function checkEligibility(items: NonNegotiableState[]): EligibilityResult {
-  const failed = items.filter((i) => i.verdict === "FAIL");
+  const gates = items.filter((i) => i.kind !== "SHIELD_THRESHOLD");
+  const thresholds = items.filter((i) => i.kind === "SHIELD_THRESHOLD");
+
+  const failed = gates.filter((i) => i.verdict === "FAIL");
+  // Pending counts against eligibility as much as a failure does, for threshold
+  // checks as much as for gates. A shield awarded on unverified checks is
+  // exactly the outcome the gate exists to prevent, so "not yet checked" can
+  // never resolve in the club's favour.
   const pending = items.filter((i) => i.verdict === "PENDING");
 
+  let cap: Shield | null = null;
+  for (const t of thresholds) {
+    // A threshold check the CDU marked as failed met nobody's bar. One left
+    // without a level recorded is treated the same way; it is already holding
+    // up eligibility as a pending item, and guessing upward here would let a
+    // half-finished verification award a shield.
+    const met: Shield = t.verdict === "FAIL" ? "NONE" : (t.shieldMet ?? "NONE");
+    cap = cap === null ? met : minShield(cap, met);
+  }
+
+  const cappedBy =
+    cap === null
+      ? []
+      : thresholds.filter(
+          (t) => (t.verdict === "FAIL" ? "NONE" : (t.shieldMet ?? "NONE")) === cap,
+        );
+
   return {
-    // Pending counts against eligibility as much as a failure does. A shield
-    // awarded on unverified checks is exactly the outcome the gate exists to
-    // prevent, so "not yet checked" can never resolve in the club's favour.
     eligible: items.length > 0 && failed.length === 0 && pending.length === 0,
     passed: items.filter((i) => i.verdict === "PASS").length,
     failed,
     pending,
     total: items.length,
+    cap,
+    cappedBy,
   };
 }
 
@@ -356,10 +424,17 @@ export type RatingResult = {
   available: number;
   percent: number;
   eligibility: EligibilityResult;
-  /** The shield the score earns, before the Non-Negotiable gate. */
+  /** The shield the score earns, before the Non-Negotiables are applied. */
   provisionalShield: Shield;
-  /** What the club is actually awarded — null when a Non-Negotiable blocks it. */
+  /** What the club is actually awarded — null when a gate check blocks it. */
   shield: Shield | null;
+  /**
+   * True when the club scored a higher shield than the threshold checks allow.
+   * The score isn't wrong and the club isn't ineligible; they are held at the
+   * level their structure and staffing actually support, and the report has to
+   * say so rather than quietly showing a smaller shield.
+   */
+  cappedDown: boolean;
 };
 
 export function shieldFor(percent: number, t: ShieldThresholds): Shield {
@@ -412,6 +487,11 @@ export function computeRating(
   const eligibility = checkEligibility(nonNegotiables);
   const provisionalShield = shieldFor(percent, cycle);
 
+  const awarded =
+    eligibility.cap === null
+      ? provisionalShield
+      : minShield(provisionalShield, eligibility.cap);
+
   return {
     domains,
     points,
@@ -422,7 +502,8 @@ export function computeRating(
     percent,
     eligibility,
     provisionalShield,
-    shield: eligibility.eligible ? provisionalShield : null,
+    shield: eligibility.eligible ? awarded : null,
+    cappedDown: eligibility.eligible && awarded !== provisionalShield,
   };
 }
 

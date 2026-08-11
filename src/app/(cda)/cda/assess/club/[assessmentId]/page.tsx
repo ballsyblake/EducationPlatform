@@ -37,7 +37,7 @@ export default async function ClubDataPage({
     }),
     prisma.clubMetric.findMany({ where: { assessmentId: id } }),
     prisma.nonNegotiableResult.findMany({
-      where: { assessmentId: id },
+      where: { assessmentId: id, nonNegotiable: { active: true } },
       include: { nonNegotiable: true, evidence: true },
       orderBy: { nonNegotiable: { position: "asc" } },
     }),

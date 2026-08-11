@@ -7,6 +7,7 @@ import { createInviteLink, normalizeEmail } from "@/lib/auth";
 import { requireCdu } from "@/lib/cda/access";
 import { activeCycle, ensureAssessment, freezeResult, loadAssessment } from "@/lib/cda/assessment";
 import { MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
+import { SHIELD_ORDER } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 
 export type CduFormState = {
@@ -403,11 +404,29 @@ export async function verifyNonNegotiable(
     return { status: "error", message: "A failed check needs a note explaining why." };
   }
 
+  const threshold = result.nonNegotiable.kind === "SHIELD_THRESHOLD";
+
+  const levelRaw = String(formData.get("shieldMet") ?? "");
+  const shieldMet = SHIELD_ORDER.find((s) => s === levelRaw) ?? null;
+
+  if (threshold && verdict === "PASS" && shieldMet === null) {
+    // Passing a threshold check without saying which bar was met would leave
+    // the cap open, and an open cap silently awards whatever the score earned —
+    // the one outcome these checks exist to prevent.
+    return {
+      status: "error",
+      message: "Say which shield's standard the club met before recording this one as passed.",
+    };
+  }
+
   await prisma.nonNegotiableResult.update({
     where: { id: resultId },
     data: {
       verdict,
       adminNote,
+      // A gate check has no level, and a level left behind on a check that has
+      // been reset to unverified would go on capping the shield invisibly.
+      shieldMet: threshold && verdict === "PASS" ? shieldMet : null,
       verifiedById: verdict === "PENDING" ? null : cdu.id,
       verifiedAt: verdict === "PENDING" ? null : new Date(),
     },

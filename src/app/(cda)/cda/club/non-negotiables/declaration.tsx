@@ -1,9 +1,11 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { ShieldBadge } from "@/components/cda/shield";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, FormError, FormSuccess } from "@/components/ui";
 import { declareNonNegotiable, type ClubFormState } from "../actions";
+import type { Shield } from "@prisma-client";
 
 const initialState: ClubFormState = { status: "idle" };
 
@@ -13,6 +15,11 @@ export type DeclarationData = {
   title: string;
   description: string;
   evidenceHint: string | null;
+  /** Threshold checks set the club's ceiling; gate checks decide eligibility. */
+  kind: "GATE" | "SHIELD_THRESHOLD";
+  format: string | null;
+  shieldGuidance: string | null;
+  shieldMet: Shield | null;
   declared: boolean | null;
   note: string;
   verdict: "PENDING" | "PASS" | "FAIL";
@@ -29,24 +36,46 @@ export function Declaration({ item, editable }: { item: DeclarationData; editabl
   );
   const [note, setNote] = useState(item.note);
 
+  const threshold = item.kind === "SHIELD_THRESHOLD";
+
   return (
     <div className="card card-pad">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="section-title">{item.code}</span>
-            {item.verdict === "PASS" && <Badge tone="good">Verified — pass</Badge>}
-            {item.verdict === "FAIL" && <Badge tone="bad">Verified — fail</Badge>}
+            {item.verdict === "PASS" &&
+              (threshold ? (
+                <Badge tone="good">Standard met</Badge>
+              ) : (
+                <Badge tone="good">Verified — pass</Badge>
+              ))}
+            {item.verdict === "FAIL" && (
+              <Badge tone="bad">{threshold ? "No standard met" : "Verified — fail"}</Badge>
+            )}
             {item.verdict === "PENDING" && declared !== "" && (
               <Badge tone="muted">Awaiting FQ verification</Badge>
             )}
             {declared === "" && <Badge tone="warn">Not answered</Badge>}
+            {threshold && item.verdict === "PASS" && (
+              <ShieldBadge shield={item.shieldMet ?? "NONE"} size="sm" />
+            )}
           </div>
           <h3 className="mt-1 font-semibold text-ink-900">{item.title}</h3>
           <p className="mt-1 text-sm text-ink-600">{item.description}</p>
           {item.evidenceHint && (
             <p className="mt-2 text-xs text-ink-500">
               <span className="font-medium">Evidence:</span> {item.evidenceHint}
+            </p>
+          )}
+          {item.format && (
+            <p className="mt-1 text-xs text-ink-500">
+              <span className="font-medium">How to submit:</span> {item.format}
+            </p>
+          )}
+          {item.shieldGuidance && (
+            <p className="mt-1 text-xs text-ink-500">
+              <span className="font-medium">Standard:</span> {item.shieldGuidance}
             </p>
           )}
         </div>
@@ -83,7 +112,11 @@ export function Declaration({ item, editable }: { item: DeclarationData; editabl
           <input type="hidden" name="resultId" value={item.id} />
 
           <fieldset>
-            <legend className="label">Does your club meet this?</legend>
+            <legend className="label">
+              {threshold
+                ? "Have you submitted everything this asks for?"
+                : "Does your club meet this?"}
+            </legend>
             <div className="flex gap-4">
               {[
                 { value: "yes", label: "Yes" },

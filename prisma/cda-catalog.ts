@@ -55,79 +55,113 @@ export type SeedNonNegotiable = {
   title: string;
   description: string;
   evidenceHint: string;
+  /**
+   * GATE checks are pass or fail: miss one and no shield can be confirmed at
+   * all. SHIELD_THRESHOLD checks set a different bar for each shield level, so
+   * failing to meet the Gold bar doesn't make a club ineligible — it caps them
+   * at the level they did meet.
+   */
+  kind?: "GATE" | "SHIELD_THRESHOLD";
+  /** How FQ expects it to arrive. */
+  format?: string;
+  /** Where the per-shield detail lives, for the threshold checks. */
+  shieldGuidance?: string;
 };
 
 /**
- * The nine mandatory eligibility checks.
+ * Football Queensland's nine mandatory checks, worded as they appear in the
+ * 2026 Tier 1 assessment.
  *
- * Failing any one of these means no shield at all, whatever the domain scores
- * say — so each is written to be answerable yes or no from a document, not to
- * be a matter of judgement. Anything that needs an assessor's opinion belongs
- * in a criterion instead.
+ * Six are gates: the documents are there or they aren't, and until they are the
+ * score cannot be elevated to Confirmed. The last three are shield-based
+ * thresholds whose bar rises with the shield being sought — FQ is explicit that
+ * "Silver and Bronze clubs are exempt from appointing secondary coaches unless
+ * they wish to meet gold rating standards for the following season", which is a
+ * cap on the shield rather than a bar on eligibility. They are being phased in
+ * over four years.
  */
 export const NON_NEGOTIABLES: SeedNonNegotiable[] = [
   {
-    code: "NN-1",
-    title: "Qualified Technical Director",
+    code: "NN1",
+    title: "Fee Transparency",
     description:
-      "The club has appointed a Technical Director holding at least an AFC/FA B Licence, with a written role description and a reporting line to the committee.",
-    evidenceHint: "Signed role description, and the TD's current licence certificate.",
+      "The club provides a breakdown of fees using the FQ template, so fees are comparable across all clubs, together with a statement that all academy development fees exclusively support the club's academy program.",
+    evidenceHint: "Completed FQ fee template and the fee-use statement.",
+    format: "Electronic submission",
   },
   {
-    code: "NN-2",
-    title: "Blue Card compliance",
+    code: "NN2",
+    title: "Scholarship positions",
     description:
-      "Every person in a coaching, technical or officiating role holds a current Working with Children Check (Blue Card), and the club maintains a register of expiry dates.",
-    evidenceHint: "Blue Card register showing card numbers and expiry dates for all staff.",
+      "The club provides the list of players who have received a full or partial scholarship at the club for the current season, in line with the licence agreement.",
+    evidenceHint: "Scholarship list for the current season (if applicable).",
+    format: "Electronic submission",
   },
   {
-    code: "NN-3",
-    title: "Female coaching presence",
+    code: "NN3",
+    title: "Coaches' registration",
     description:
-      "At least one female coach holds a technical role in the club, and is included in the club's coach development program on the same terms as everyone else.",
-    evidenceHint: "Staff register entry, plus the coach development plan naming her.",
+      "The club provides a list of all coaches' details and team allocation. All club coaches in all programs are registered in Squadi, the official system for the season. Coaches' registration is free of charge.",
+    evidenceHint: "Squadi registration for every coach, with team allocation.",
+    format: "Electronic submission on Squadi",
   },
   {
-    code: "NN-4",
-    title: "Minimum coaching ratios",
+    code: "NN4",
+    title: "Fielding teams and squad numbers",
     description:
-      "Every team in the youth pathway has a designated accredited coach, and no coach is responsible for more than two teams.",
-    evidenceHint: "Team-by-team coach allocation for the current season.",
+      "The club provides a full list of players by the deadline set by FQ before the season, updates FQ's Competition and Technical department on any changes, and fields all teams according to the licence agreement.",
+    evidenceHint: "Full squad list by the FQ deadline, kept updated through the season.",
+    format: "Electronic submission",
   },
   {
-    code: "NN-5",
-    title: "All players registered",
+    code: "NN5",
+    title: "Technical Director Qualification",
     description:
-      "Every participant is registered in PlayFootball before their first match, including trialists and guest players.",
-    evidenceHint: "PlayFootball registration export reconciled against team sheets.",
+      "The club's Technical Director holds, or is working towards, an AFC/Football Australia 'A' Diploma or Licence, or an overseas equivalent, and currently resides in Queensland so as to attend training, games and meetings.",
+    evidenceHint: "Current licence certificate, or written evidence of enrolment.",
+    format: "Electronic submission",
   },
   {
-    code: "NN-6",
-    title: "Governance and AGM",
+    code: "NN6",
+    title: "Technical Staff Qualifications & Safeguarding (Blue cards)",
     description:
-      "The club has a current constitution, a functioning management committee, and has held an Annual General Meeting within the last 12 months.",
-    evidenceHint: "Constitution, committee list, and the minutes of the most recent AGM.",
+      "The club provides a list with full names, FA numbers, current coaching qualification, blue card numbers and expiry dates for all coaches, support staff and administrators working within the academy program.",
+    evidenceHint: "Staff register with FA numbers, qualifications, and blue card numbers and expiry.",
+    format: "Electronic submission",
   },
   {
-    code: "NN-7",
-    title: "Member protection and child safe policy",
+    code: "NN7",
+    title: "Shield Based Threshold — Club Structure Standards",
     description:
-      "A Member Protection Policy and Child Safe Policy are adopted, published to members, and a Member Protection Information Officer is nominated and contactable.",
-    evidenceHint: "Both policies as published, and the MPIO's name and contact details.",
+      "The club submits its organisational structure, position descriptions, and staff roster and contact information for teams. The structure standards are set for each shield level and are being introduced gradually over a four-year period.",
+    evidenceHint: "Organisational structure, position descriptions, and staff roster.",
+    kind: "SHIELD_THRESHOLD",
+    format: "Electronic submission & CDA check",
+    shieldGuidance:
+      "Per-shield standards are set out on pages 8 and 9 of the Club Development Information Pack.",
   },
   {
-    code: "NN-8",
-    title: "Insurance and facility compliance",
+    code: "NN8",
+    title: "Shield Based Threshold — Coaching Standards",
     description:
-      "Current public liability insurance is held, and the club's home facility meets Football Queensland's minimum standards for the competitions it enters.",
-    evidenceHint: "Certificate of currency, and the most recent facility inspection record.",
+      "The club meets the minimum coaching qualification and staffing standards for its shield level. Qualification standards come from the club's Technical Staff Qualifications and need no separate submission; staffing standards are captured by submitting the names and roster of secondary coaches at the start of the season, and compliance is recorded during training delivery observations.",
+    evidenceHint: "Names and roster of secondary coaches, plus the staff qualification register.",
+    kind: "SHIELD_THRESHOLD",
+    format: "Electronic submission & CDA check",
+    shieldGuidance:
+      "Per-shield standards are set out on pages 8 and 9 of the Club Development Information Pack. Silver and Bronze clubs are exempt from appointing secondary coaches unless they are working towards Gold for the following season.",
   },
   {
-    code: "NN-9",
-    title: "Financial standing with Football Queensland",
+    code: "NN9",
+    title: "Shield Based Threshold — Training Program Standards",
     description:
-      "The club has no outstanding affiliation fees, competition levies or fines owing to Football Queensland.",
-    evidenceHint: "Confirmed against the FQ finance ledger by the Club Development Unit.",
+      "The club provides players with a minimum of three training sessions per week, appropriate field space, and individualised development sessions. The club submits its full training schedule with field allocation; gold-rated clubs also submit the Individual Development Coach's training schedule and the number of players per age group rostered for specialist sessions. Compliance is evaluated primarily during training delivery observations.",
+    evidenceHint:
+      "Full training schedule with field allocation, and — for Gold — the individual development schedule and rostered player numbers.",
+    kind: "SHIELD_THRESHOLD",
+    format: "Electronic submission & CDA check",
+    shieldGuidance:
+      "Per-shield standards are set out on pages 8 and 9 of the Club Development Information Pack.",
   },
 ];
 

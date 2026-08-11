@@ -25,7 +25,11 @@ export async function clubContext() {
     where: { clubId_cycleId: { clubId: club.id, cycleId: cycle.id } },
     include: {
       staff: { include: { qualification: true, certificates: true }, orderBy: { name: "asc" } },
+      // Retired checks are dropped: a club shouldn't be asked to declare
+      // against something FQ has withdrawn, and counting one would leave the
+      // checklist permanently short of complete.
       nonNegotiables: {
+        where: { nonNegotiable: { active: true } },
         include: { nonNegotiable: true, evidence: true },
         orderBy: { nonNegotiable: { position: "asc" } },
       },

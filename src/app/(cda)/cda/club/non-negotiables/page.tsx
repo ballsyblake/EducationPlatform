@@ -17,6 +17,12 @@ export default async function NonNegotiablesPage() {
     title: r.nonNegotiable.title,
     description: r.nonNegotiable.description,
     evidenceHint: r.nonNegotiable.evidenceHint,
+    kind: r.nonNegotiable.kind,
+    format: r.nonNegotiable.format,
+    shieldGuidance: r.nonNegotiable.shieldGuidance,
+    // Only once verified. Before that the field is empty anyway, but showing a
+    // level the CDU is still working on would read as a decision.
+    shieldMet: r.verdict === "PASS" ? r.shieldMet : null,
     declared: r.clubDeclared,
     note: r.clubNote ?? "",
     verdict: r.verdict,
@@ -29,13 +35,15 @@ export default async function NonNegotiablesPage() {
   }));
 
   const answered = items.filter((i) => i.declared !== null).length;
-  const failed = items.filter((i) => i.verdict === "FAIL").length;
+  const gates = items.filter((i) => i.kind !== "SHIELD_THRESHOLD");
+  const thresholds = items.filter((i) => i.kind === "SHIELD_THRESHOLD");
+  const failed = gates.filter((i) => i.verdict === "FAIL").length;
 
   return (
     <>
       <PageHeader
         title="Non-Negotiables"
-        subtitle="All nine must be met before any shield can be awarded."
+        subtitle={`${gates.length} must be met before any shield can be awarded; ${thresholds.length} set the level you can reach.`}
         breadcrumb={{ href: "/cda/club", label: "Club overview" }}
       />
 
@@ -58,11 +66,17 @@ export default async function NonNegotiablesPage() {
         />
       </div>
 
-      <div className="mb-6 card card-pad">
-        <p className="text-sm text-ink-700">
-          These nine checks decide whether your club is eligible for a rating at all. Answer each
-          one honestly — Football Queensland verifies every answer, and a declaration that
-          doesn&apos;t hold up costs more than a &quot;not yet&quot; would have.
+      <div className="mb-6 card card-pad space-y-2 text-sm text-ink-700">
+        <p>
+          Answer each one honestly — Football Queensland verifies every answer, and a declaration
+          that doesn&apos;t hold up costs more than a &quot;not yet&quot; would have.
+        </p>
+        <p>
+          The first {gates.length} decide whether your club is eligible for a rating at all: while
+          any one of them is missing or incomplete, no shield can be confirmed whatever your club
+          scores. The last {thresholds.length} work differently — they set a different standard for
+          each shield level, and they cap the shield you can be awarded rather than making you
+          ineligible. Football Queensland is phasing those standards in over four years.
         </p>
       </div>
 

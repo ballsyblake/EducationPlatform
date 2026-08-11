@@ -17,6 +17,7 @@ import {
   scoreAreas,
   scoreStarDomain,
   scoreTechnicalDomain,
+  shieldFor,
   type AreaResult,
   type AssessorStar,
   type CriterionAgreement,
@@ -70,7 +71,15 @@ function loadAssessmentRow(id: string) {
       staff: { include: { qualification: true }, orderBy: { name: "asc" } },
       scores: { include: { assessor: true } },
       finalScores: true,
-      nonNegotiables: { include: { nonNegotiable: true } },
+      // Retired checks drop out. Their result rows are left in place as a
+      // record of what was asked at the time, but a check FQ has withdrawn must
+      // not go on holding a shield back — and a retired check sitting at PENDING
+      // forever would do exactly that.
+      nonNegotiables: {
+        where: { nonNegotiable: { active: true } },
+        include: { nonNegotiable: true },
+        orderBy: { nonNegotiable: { position: "asc" } },
+      },
       metrics: true,
       areaNotes: true,
     },
@@ -214,6 +223,8 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     code: r.nonNegotiable.code,
     title: r.nonNegotiable.title,
     verdict: r.verdict,
+    kind: r.nonNegotiable.kind,
+    shieldMet: r.shieldMet,
   }));
 
   const live = computeRating(
@@ -232,24 +243,34 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
   // already been given in writing.
   const frozen = assessment.lockedAt !== null && assessment.finalPercent !== null;
 
-  const rating: RatingResult = frozen
-    ? {
-        ...live,
-        // The frozen percentages are what the club was told. The points columns
-        // stay live: they describe the current catalogue, and are only ever
-        // shown as supporting detail beside the frozen figures.
-        domains: {
-          TECHNICAL: assessment.technicalPct ?? 0,
-          PLANNING: assessment.planningPct ?? 0,
-          DELIVERY: assessment.deliveryPct ?? 0,
-          OUTCOMES: assessment.outcomesPct ?? 0,
-        },
-        percent: assessment.finalPercent!,
-        shield: assessment.eligible ? ((assessment.finalShield ?? "NONE") as Shield) : null,
-        provisionalShield: (assessment.finalShield ?? "NONE") as Shield,
-        eligibility: checkEligibility(nonNegotiables),
-      }
-    : live;
+  const rating: RatingResult = frozen ? freeze() : live;
+
+  function freeze(): RatingResult {
+    const awarded = (assessment.finalShield ?? "NONE") as Shield;
+    // The shield the frozen percentage earns on its own. Reconstructed rather
+    // than stored: the thresholds belong to this assessment's own cycle, so
+    // this is the same arithmetic that ran at lock, and it is what lets the
+    // report still explain a cap months after publication.
+    const provisional = shieldFor(assessment.finalPercent!, assessment.cycle);
+
+    return {
+      ...live,
+      // The frozen percentages are what the club was told. The points columns
+      // stay live: they describe the current catalogue, and are only ever
+      // shown as supporting detail beside the frozen figures.
+      domains: {
+        TECHNICAL: assessment.technicalPct ?? 0,
+        PLANNING: assessment.planningPct ?? 0,
+        DELIVERY: assessment.deliveryPct ?? 0,
+        OUTCOMES: assessment.outcomesPct ?? 0,
+      },
+      percent: assessment.finalPercent!,
+      shield: assessment.eligible ? awarded : null,
+      provisionalShield: provisional,
+      cappedDown: assessment.eligible === true && awarded !== provisional,
+      eligibility: checkEligibility(nonNegotiables),
+    };
+  }
 
   return {
     assessment,
@@ -289,7 +310,11 @@ export async function freezeResult(assessmentId: string, lockedById: string) {
       deliveryPct: domains.DELIVERY!.percent,
       outcomesPct: domains.OUTCOMES!.percent,
       finalPercent: rating.percent,
-      finalShield: rating.provisionalShield,
+      // The shield the club is actually awarded, after any threshold cap. When
+      // a gate check makes them ineligible there is no award to store, so the
+      // shield the score alone earned goes in instead — `eligible` is what
+      // decides whether anything is shown, and the CDU still wants the figure.
+      finalShield: rating.shield ?? rating.provisionalShield,
       eligible: rating.eligibility.eligible,
     },
   });

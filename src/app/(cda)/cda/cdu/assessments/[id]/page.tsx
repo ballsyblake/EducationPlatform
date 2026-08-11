@@ -4,7 +4,7 @@ import { DomainBreakdown } from "@/components/cda/summary";
 import { Badge, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { requireCdu } from "@/lib/cda/access";
 import { loadAssessment } from "@/lib/cda/assessment";
-import { MAX_STAFF_POINTS, STAFF_ROLE_SPECS } from "@/lib/cda/rubric";
+import { MAX_STAFF_POINTS, SHIELD_LABELS, STAFF_ROLE_SPECS } from "@/lib/cda/rubric";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
@@ -72,6 +72,10 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
     title: n.nonNegotiable.title,
     description: n.nonNegotiable.description,
     evidenceHint: n.nonNegotiable.evidenceHint,
+    kind: n.nonNegotiable.kind,
+    format: n.nonNegotiable.format,
+    shieldGuidance: n.nonNegotiable.shieldGuidance,
+    shieldMet: n.shieldMet,
     clubDeclared: n.clubDeclared,
     clubNote: n.clubNote,
     verdict: n.verdict,
@@ -123,9 +127,15 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
           label="Shield"
           value={<ShieldBadge shield={rating.shield} />}
           hint={
-            rating.eligibility.eligible
-              ? undefined
-              : `${rating.eligibility.failed.length} failed, ${rating.eligibility.pending.length} pending`
+            !rating.eligibility.eligible
+              ? `${rating.eligibility.failed.length} failed, ${rating.eligibility.pending.length} pending`
+              : rating.cappedDown
+                ? // The score alone would have earned more. Saying so here stops
+                  // the CDU chasing a scoring error that isn't there.
+                  `Scored ${SHIELD_LABELS[rating.provisionalShield]}, capped by ${rating.eligibility.cappedBy
+                    .map((c) => c.code)
+                    .join(", ")}`
+                : undefined
           }
         />
         <StatTile

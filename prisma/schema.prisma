@@ -808,15 +808,37 @@ model FinalScore {
  */
 
 /// One of the nine mandatory eligibility checks.
+/// How a Non-Negotiable bears on the result. FQ's nine are not one uniform
+/// pass/fail: six are documents that are either there or not, and three set a
+/// bar that rises with the shield being sought.
+enum NonNegotiableKind {
+  /// Pass or fail. Miss one and no shield can be confirmed at all, whatever the
+  /// club scored — "no assessment score can be elevated to 'Confirmed' status
+  /// while non-negotiable documents are missing or incomplete".
+  GATE
+  /// A different bar for each shield level. Failing the Gold bar does not make
+  /// a club ineligible; it caps them at the level they did meet. FQ phases
+  /// these in over four years, so a Bronze club is not failed for lacking the
+  /// staffing a Gold club needs.
+  SHIELD_THRESHOLD
+}
+
 model NonNegotiable {
-  id           String  @id @default(cuid())
-  code         String  @unique
+  id           String            @id @default(cuid())
+  code         String            @unique
   title        String
   description  String
   /// What the club has to produce to satisfy it.
   evidenceHint String?
-  position     Int     @default(0)
-  active       Boolean @default(true)
+  kind         NonNegotiableKind @default(GATE)
+  /// How FQ collects it, e.g. "Electronic submission & CDA check".
+  format       String?
+  /// For SHIELD_THRESHOLD checks: what each shield level requires, in prose.
+  /// Free text because FQ restates these each year in the Info Pack and the
+  /// wording is doing the work, not a machine-readable rule.
+  shieldGuidance String?
+  position     Int               @default(0)
+  active       Boolean           @default(true)
 
   results NonNegotiableResult[]
 }
@@ -843,6 +865,10 @@ model NonNegotiableResult {
   clubDeclared    Boolean?
   clubNote        String?
   verdict         NonNegotiableVerdict @default(PENDING)
+  /// For SHIELD_THRESHOLD checks: the highest shield whose bar this club met.
+  /// Null on a GATE check, and null on a threshold check the CDU hasn't looked
+  /// at yet. NONE means "looked at, met nobody's bar".
+  shieldMet       Shield?
   adminNote       String?
   verifiedById    String?
   verifiedBy      User?                @relation("NonNegotiableVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
