@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ShieldBadge } from "@/components/cda/shield";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
+import { RELEASED_STATUSES, ratingVisibleToClub } from "@/lib/cda/access";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/format";
 import { clubContext } from "./club-context";
@@ -34,8 +35,23 @@ const STATUS_COPY: Record<string, { label: string; blurb: string }> = {
     blurb: "Your result is finalised and will be released shortly.",
   },
   PUBLISHED: {
-    label: "Released",
-    blurb: "Your rating for this cycle is available.",
+    label: "Preliminary",
+    blurb:
+      "Your preliminary rating is available. If you believe evidence was missed on a line item, you can ask for it to be reviewed — the window is open for a limited time, and the rating confirms itself once it closes.",
+  },
+  IN_REVIEW: {
+    label: "Under review",
+    blurb:
+      "Your review request is with the Club Assessment Unit. They'll come back to you on every item you put forward.",
+  },
+  UNDER_APPEAL: {
+    label: "Under appeal",
+    blurb: "Your appeal is with the CEO of Football Queensland.",
+  },
+  CONFIRMED: {
+    label: "Confirmed",
+    blurb:
+      "Your rating is confirmed. This is the result you may communicate by displaying your Club Shield.",
   },
 };
 
@@ -65,7 +81,14 @@ export default async function ClubOverviewPage() {
   // The previous cycle's result, so a club sees where they're coming from
   // rather than a rating with no context.
   const previous = await prisma.clubAssessment.findFirst({
-    where: { clubId: club.id, status: "PUBLISHED", cycleId: { not: cycle.id } },
+    // Any released status, not just PUBLISHED: a prior cycle sitting at
+    // CONFIRMED is the most settled history there is, and filtering it out
+    // would show a club "no published history" the year after they were rated.
+    where: {
+      clubId: club.id,
+      status: { in: [...RELEASED_STATUSES] },
+      cycleId: { not: cycle.id },
+    },
     include: { cycle: true },
     orderBy: { cycle: { year: "desc" } },
   });
@@ -82,6 +105,15 @@ export default async function ClubOverviewPage() {
             : "")
         : "Nobody entered yet",
       warn: checklist.staff.missingBlueCards > 0,
+    },
+    {
+      href: "/cda/club/structure",
+      title: "Club structure",
+      done: checklist.structure.done,
+      detail: checklist.structure.filled
+        ? `${checklist.structure.filled} functions recorded`
+        : "Nothing recorded yet",
+      warn: false,
     },
     {
       href: "/cda/club/non-negotiables",
@@ -110,7 +142,9 @@ export default async function ClubOverviewPage() {
             {[club.zone, club.tier].filter(Boolean).join(" · ")} — {cycle.name}
           </>
         }
-        action={<Badge tone={assessment.status === "PUBLISHED" ? "good" : "info"}>{status.label}</Badge>}
+        action={
+          <Badge tone={assessment.status === "CONFIRMED" ? "good" : "info"}>{status.label}</Badge>
+        }
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
@@ -141,7 +175,7 @@ export default async function ClubOverviewPage() {
             Submitted {formatDate(assessment.clubSubmittedAt)}
           </p>
         )}
-        {assessment.status === "PUBLISHED" && (
+        {ratingVisibleToClub(assessment.status) && (
           <Link href="/cda/club/rating" className="btn-primary btn-sm mt-3">
             View our rating
           </Link>
@@ -186,7 +220,7 @@ export default async function ClubOverviewPage() {
         <aside className="space-y-4">
           <SubmitPanel
             canSubmit={checklist.editable}
-            ready={checklist.nonNegotiables.done && checklist.staff.done}
+            ready={checklist.nonNegotiables.done && checklist.staff.done && checklist.structure.done}
             outstanding={checklist.nonNegotiables.total - checklist.nonNegotiables.declared}
           />
 
@@ -198,9 +232,10 @@ export default async function ClubOverviewPage() {
               giving, and the outcomes your programs produce.
             </p>
             <p className="mt-2 text-sm text-ink-600">
-              Before any shield can be awarded, all {checklist.nonNegotiables.total} Non-Negotiables
-              must be met. These are pass or fail — falling short of one means no shield for the
-              cycle, whatever the rest of the assessment says.
+              Alongside that sit {checklist.nonNegotiables.total} Non-Negotiables. Most are pass or
+              fail — falling short of one means no shield for the cycle, whatever the rest of the
+              assessment says. The shield-based ones instead set a standard for each level, and cap
+              the shield you can be awarded rather than ruling you out.
             </p>
           </div>
         </aside>

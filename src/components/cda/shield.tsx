@@ -1,4 +1,4 @@
-import { SHIELD_COLOURS, SHIELD_LABELS } from "@/lib/cda/rubric";
+import { SHIELD_COLOURS, SHIELD_LABELS, SHIELD_SHORT_LABELS } from "@/lib/cda/rubric";
 import type { Shield } from "@prisma-client";
 
 /**
@@ -14,9 +14,12 @@ import type { Shield } from "@prisma-client";
 export function ShieldBadge({
   shield,
   size = "md",
+  short = false,
 }: {
   shield: Shield | null;
   size?: "sm" | "md" | "lg";
+  /** Use the abbreviated label, for table cells and other tight spots. */
+  short?: boolean;
 }) {
   if (shield === null) {
     return (
@@ -43,9 +46,25 @@ export function ShieldBadge({
         boxShadow: `inset 0 0 0 1px ${colours.ring}`,
       }}
     >
-      <ShieldGlyph className={size === "lg" ? "h-4 w-4" : "h-3 w-3"} />
-      {SHIELD_LABELS[shield]}
+      {/* Development Committed is a badge, not a shield, and drawing it as one
+          would tell a club it holds something FQ hasn't issued. It gets a ring
+          instead — present in the system, but not a mark of standard. */}
+      {shield === "DEVELOPMENT_COMMITTED" ? (
+        <BadgeGlyph className={size === "lg" ? "h-4 w-4" : "h-3 w-3"} />
+      ) : (
+        <ShieldGlyph className={size === "lg" ? "h-4 w-4" : "h-3 w-3"} />
+      )}
+      {short ? SHIELD_SHORT_LABELS[shield] : SHIELD_LABELS[shield]}
     </span>
+  );
+}
+
+/** A ring. Deliberately not a shield outline — see the call site. */
+function BadgeGlyph({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" className={className} aria-hidden="true">
+      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2.5" />
+    </svg>
   );
 }
 

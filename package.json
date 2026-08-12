@@ -18,7 +18,8 @@
     "cda:catalog": "tsx scripts/seed-cda.ts",
     "cda:seed": "tsx scripts/seed-cda.ts --demo",
     "db:reset": "prisma migrate reset --force && npm run db:seed && npm run cda:seed",
-    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts"
+    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
+    "cda:reset": "tsx scripts/reset-cda.ts"
   },
   "repository": {
     "type": "git",

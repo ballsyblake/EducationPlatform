@@ -130,9 +130,28 @@ npm run cda:seed     # catalogue + six demo clubs at every stage of the flow
 | `a.baptiste@fq.example.com`      | Assessor — five clubs, one part-scored            |
 | `n.calloway@fq.example.com`      | Assessor — two clubs                              |
 
-`npm run cda:catalog` seeds only the criteria, Non-Negotiables and
-qualification ladder. It is additive and never overwrites wording the CDU has
-since edited, so it is safe to run on every deploy.
+`npm run cda:catalog` seeds only the rubric — criteria, Non-Negotiables,
+qualification ladder, structure roles and the per-shield structure standards. It
+is additive and never overwrites wording the CDU has since edited, so it is safe
+to run on every deploy, and it is the only thing a deployed instance runs at
+boot. **Demo clubs never reach production**: they need `cda:seed` explicitly.
+
+### Starting clean
+
+```bash
+npm run cda:reset          # shows what would be deleted, does nothing
+npm run cda:reset -- --yes # actually clears it
+```
+
+Clears every club, assessment, score, review, structure entry and portal
+account, then reloads the rubric. Admin accounts, the rubric itself and Coach
+Education are left alone — admins are how anyone gets back in, and the two
+products share a deployment but nothing else.
+
+Pass `--keep-cycles` to empty the clubs out of a season without deleting the
+season. After a reset, sign in as an admin, open a cycle at `/cda/cdu`, add your
+clubs and create an administrator account for each; the sign-in link is shown
+once, on screen, for you to hand over.
 
 ---
 

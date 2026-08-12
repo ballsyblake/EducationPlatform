@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { ShieldBadge } from "@/components/cda/shield";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
-import { requireCdu } from "@/lib/cda/access";
+import { RELEASED_STATUSES, requireCdu } from "@/lib/cda/access";
 import { activeCycle } from "@/lib/cda/assessment";
 import { SHIELD_LABELS } from "@/lib/cda/rubric";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import { CycleSettings } from "./cycle-settings";
+import { NewCycle } from "./new-cycle";
 import type { Shield } from "@prisma-client";
 
 export const metadata = { title: "Cycle" };
@@ -18,7 +19,10 @@ const STATUS_TONE = {
   IN_ASSESSMENT: "warn",
   RECONCILING: "warn",
   LOCKED: "ok",
-  PUBLISHED: "good",
+  PUBLISHED: "info",
+  IN_REVIEW: "warn",
+  UNDER_APPEAL: "warn",
+  CONFIRMED: "good",
 } as const;
 
 const STATUS_LABEL = {
@@ -28,7 +32,10 @@ const STATUS_LABEL = {
   IN_ASSESSMENT: "Being assessed",
   RECONCILING: "Ready to reconcile",
   LOCKED: "Locked",
-  PUBLISHED: "Released",
+  PUBLISHED: "Preliminary",
+  IN_REVIEW: "Review requested",
+  UNDER_APPEAL: "Under appeal",
+  CONFIRMED: "Confirmed",
 } as const;
 
 export default async function CduHomePage() {
@@ -38,11 +45,23 @@ export default async function CduHomePage() {
   if (!cycle) {
     return (
       <>
-        <PageHeader title="Club Development Unit" />
-        <EmptyState
-          title="No assessment cycle yet"
-          description="Create a cycle to start assessing clubs."
+        <PageHeader
+          title="Club Development Unit"
+          subtitle="Nothing has been set up yet."
         />
+        <div className="mb-6 card card-pad max-w-2xl text-sm text-ink-700">
+          <p>
+            The rating rubric is already loaded — Football Queensland&apos;s line items,
+            Non-Negotiables, qualifications and structure standards all ship with the portal and
+            are visible under <strong>Rubric</strong>. What&apos;s missing is a season to assess.
+          </p>
+          <p className="mt-2 text-ink-500">
+            Open a cycle below, add your clubs under <strong>Clubs</strong>, create an
+            administrator account for each under <strong>Assessors</strong>, then move the cycle to
+            Club entry when you want clubs to start submitting.
+          </p>
+        </div>
+        <NewCycle suggestedYear={new Date().getFullYear()} />
       </>
     );
   }
@@ -55,7 +74,7 @@ export default async function CduHomePage() {
     where: { cycleId: cycle.id },
     include: {
       club: true,
-      assessors: { select: { assessorId: true, submittedAt: true } },
+      pool: { include: { assignments: { select: { criterionId: true, submittedAt: true } } } },
       _count: { select: { finalScores: true, staff: true } },
     },
     orderBy: { club: { name: "asc" } },
@@ -78,7 +97,7 @@ export default async function CduHomePage() {
     verdicts.set(row.assessmentId, entry);
   }
 
-  const published = assessments.filter((a) => a.status === "PUBLISHED");
+  const published = assessments.filter((a) => RELEASED_STATUSES.includes(a.status as never));
   const shieldCounts = published.reduce<Record<string, number>>((acc, a) => {
     const key = a.eligible ? (a.finalShield ?? "NONE") : "INELIGIBLE";
     acc[key] = (acc[key] ?? 0) + 1;
@@ -122,7 +141,7 @@ export default async function CduHomePage() {
                   <th className="px-4 py-2 text-xs font-semibold text-ink-500 uppercase">Club</th>
                   <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">Status</th>
                   <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">
-                    Assessors
+                    Pool
                   </th>
                   <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">
                     Reconciled
@@ -137,7 +156,15 @@ export default async function CduHomePage() {
               </thead>
               <tbody className="divide-y divide-ink-100">
                 {assessments.map((a) => {
-                  const submitted = a.assessors.filter((x) => x.submittedAt).length;
+                  // Progress is a property of the pool now: a club is assessed
+                  // when every line item covering its pool is in, which no single
+                  // assessor is ever in a position to report.
+                  const items = a.pool
+                    ? [...new Set(a.pool.assignments.map((x) => x.criterionId))]
+                    : [];
+                  const itemsIn = items.filter((cid) =>
+                    a.pool!.assignments.filter((x) => x.criterionId === cid).every((x) => x.submittedAt),
+                  ).length;
                   const v = verdicts.get(a.id) ?? { PASS: 0, FAIL: 0, PENDING: 0 };
                   const frozen = a.lockedAt !== null;
 
@@ -158,11 +185,13 @@ export default async function CduHomePage() {
                         <Badge tone={STATUS_TONE[a.status]}>{STATUS_LABEL[a.status]}</Badge>
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap text-ink-700">
-                        {a.assessors.length === 0 ? (
-                          <span className="text-maroon-700">None assigned</span>
+                        {!a.pool ? (
+                          <span className="text-maroon-700">No pool</span>
+                        ) : items.length === 0 ? (
+                          <span className="text-maroon-700">Nothing allocated</span>
                         ) : (
                           <span className="tabular-nums">
-                            {submitted}/{a.assessors.length} in
+                            {itemsIn}/{items.length} items in
                           </span>
                         )}
                       </td>
@@ -197,6 +226,7 @@ export default async function CduHomePage() {
                             <ShieldBadge
                               shield={a.eligible ? (a.finalShield ?? "NONE") : null}
                               size="sm"
+                              short
                             />
                           </div>
                         ) : (
@@ -216,11 +246,15 @@ export default async function CduHomePage() {
 
           {published.length > 0 && (
             <div className="card card-pad">
-              <h2 className="mb-3 font-semibold text-ink-900">Shields awarded</h2>
+              {/* Not "Shields awarded" any more: the Development Committed row
+                  is a badge, and the last row isn't an award at all. */}
+              <h2 className="mb-3 font-semibold text-ink-900">Results released</h2>
               <ul className="space-y-2 text-sm">
-                {(["PLATINUM", "GOLD", "SILVER", "BRONZE", "NONE"] as Shield[]).map((s) => (
+                {(
+                  ["GOLD", "SILVER", "BRONZE", "DEVELOPMENT_COMMITTED", "NONE"] as Shield[]
+                ).map((s) => (
                   <li key={s} className="flex items-center justify-between gap-2">
-                    <ShieldBadge shield={s} size="sm" />
+                    <ShieldBadge shield={s} size="sm" short />
                     <span className="tabular-nums text-ink-700">{shieldCounts[s] ?? 0}</span>
                   </li>
                 ))}
@@ -230,9 +264,9 @@ export default async function CduHomePage() {
                 </li>
               </ul>
               <p className="mt-3 text-xs text-ink-500">
-                {SHIELD_LABELS.PLATINUM} needs {cycle.platinumMin}%, {SHIELD_LABELS.GOLD}{" "}
-                {cycle.goldMin}%, {SHIELD_LABELS.SILVER} {cycle.silverMin}%,{" "}
-                {SHIELD_LABELS.BRONZE} {cycle.bronzeMin}%.
+                {SHIELD_LABELS.GOLD} needs {cycle.goldMin}%, {SHIELD_LABELS.SILVER}{" "}
+                {cycle.silverMin}%, {SHIELD_LABELS.BRONZE} {cycle.bronzeMin}%. Below that a
+                licence-compliant club receives the Development Committed badge.
               </p>
             </div>
           )}

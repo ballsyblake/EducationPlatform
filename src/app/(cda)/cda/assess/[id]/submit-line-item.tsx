@@ -3,32 +3,32 @@
 import { useActionState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { FormError, FormSuccess } from "@/components/ui";
-import { submitScoring, type AssessFormState } from "../actions";
+import { submitAssignment, type AssessFormState } from "../actions";
 
 const initialState: AssessFormState = { status: "idle" };
 
-export function SubmitScoring({
-  assessmentId,
+export function SubmitLineItem({
+  assignmentId,
+  code,
   scored,
   total,
   submittedAt,
-  editable,
 }: {
-  assessmentId: string;
+  assignmentId: string;
+  code: string;
   scored: number;
   total: number;
   submittedAt: Date | null;
-  editable: boolean;
 }) {
-  const [state, formAction] = useActionState(submitScoring, initialState);
+  const [state, formAction] = useActionState(submitAssignment, initialState);
 
   if (submittedAt) {
     return (
       <div className="card card-pad">
         <h2 className="mb-1 font-semibold text-ink-900">Submitted</h2>
         <p className="text-sm text-ink-600">
-          Your scoring is with the Club Development Unit. If something needs changing, ask them to
-          reopen it.
+          {code} is with the Club Assessment Unit for every club in this pool. Ask them to reopen it
+          if something needs changing.
         </p>
       </div>
     );
@@ -38,22 +38,22 @@ export function SubmitScoring({
 
   return (
     <div className="card card-pad">
-      <h2 className="mb-1 font-semibold text-ink-900">Submit your scoring</h2>
+      <h2 className="mb-1 font-semibold text-ink-900">Submit {code}</h2>
       <p className="mb-3 text-sm text-ink-600">
         {remaining > 0
-          ? `${remaining} criteri${remaining === 1 ? "on" : "a"} still to score.`
-          : "Every criterion is scored. Submitting sends your assessment to the Club Development Unit."}
+          ? `${remaining} club${remaining === 1 ? "" : "s"} still to score.`
+          : "Every club in the pool is scored. Submitting sends this line item to the Club Assessment Unit."}
       </p>
 
       <form action={formAction}>
-        <input type="hidden" name="assessmentId" value={assessmentId} />
+        <input type="hidden" name="assignmentId" value={assignmentId} />
         <SubmitButton
           className="btn-primary w-full"
           pendingLabel="Submitting…"
-          disabled={!editable || remaining > 0}
-          confirm="Submit your scoring? You won't be able to change it afterwards."
+          disabled={remaining > 0}
+          confirm={`Submit ${code} for all ${total} clubs? You won't be able to change it afterwards.`}
         >
-          Submit scoring
+          Submit line item
         </SubmitButton>
       </form>
 

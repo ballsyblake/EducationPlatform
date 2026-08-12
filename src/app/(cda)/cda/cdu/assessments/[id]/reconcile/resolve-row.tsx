@@ -4,7 +4,7 @@ import { useActionState, useState } from "react";
 import { Stars } from "@/components/cda/stars";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, FormError } from "@/components/ui";
-import { MAX_STARS, starLabel } from "@/lib/cda/rubric";
+import { starLabel } from "@/lib/cda/rubric";
 import { AGREEMENT_LABELS, type AgreementLevel } from "@/lib/cda/scoring";
 import { resolveCriterion, type CduFormState } from "../../../actions";
 
@@ -15,6 +15,8 @@ export type ResolveRowData = {
   code: string;
   title: string;
   weight: number;
+  maxScore: number;
+  area: string | null;
   level: AgreementLevel;
   spread: number;
   suggested: number | null;
@@ -67,7 +69,7 @@ export function ResolveRow({
             {row.entries.map((e) => (
               <span key={e.assessorId} className="flex items-center gap-1.5 text-xs">
                 <span className="text-ink-500">{e.assessorName}</span>
-                <Stars value={e.stars} size="sm" />
+                <Stars value={e.stars} max={row.maxScore} size="sm" />
               </span>
             ))}
           </div>
@@ -105,7 +107,7 @@ export function ResolveRow({
           <input type="hidden" name="stars" value={stars ?? ""} />
 
           <div className="flex gap-1" role="radiogroup" aria-label={`Final rating for ${row.code}`}>
-            {Array.from({ length: MAX_STARS + 1 }, (_, n) => (
+            {Array.from({ length: row.maxScore + 1 }, (_, n) => (
               <button
                 key={n}
                 type="button"

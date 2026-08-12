@@ -47,11 +47,15 @@ model User {
 
   // Club Development & Assessment
   clubMemberships        ClubMembership[]
-  assessorAssignments    AssessorAssignment[]  @relation("AssessorAssignments")
+  criterionAssignments   CriterionAssignment[] @relation("CriterionAssignments")
   assessorScores         AssessorScore[]       @relation("AssessorScores")
   resolvedScores         FinalScore[]          @relation("ScoreResolver")
   lockedAssessments      ClubAssessment[]      @relation("AssessmentLocker")
   verifiedNonNegotiables NonNegotiableResult[] @relation("NonNegotiableVerifier")
+  areaNotes              AreaNote[]            @relation("AreaNoteAuthor")
+  reviewsSubmitted       ReviewRequest[]       @relation("ReviewSubmitter")
+  reviewsAnswered        ReviewRequest[]       @relation("ReviewResponder")
+  appealsDecided         ReviewRequest[]       @relation("AppealDecider")
 
   @@index([role])
 }
@@ -402,20 +406,34 @@ model Cycle {
   closesAt  DateTime?
   createdAt DateTime    @default(now())
 
-  /// Domain weights, as whole percentages. Normalised at scoring time, so they
-  /// need not total exactly 100 — but they should.
-  technicalWeight Int @default(30)
-  planningWeight  Int @default(20)
-  deliveryWeight  Int @default(30)
-  outcomesWeight  Int @default(20)
+  /// Points available for Technical Qualifications.
+  ///
+  /// The other three domains get their maximum from their own line items — sum
+  /// of maxScore x weighting — so their share of the rating emerges from the
+  /// catalogue rather than being set. Technical has no line items, so its
+  /// maximum is stated here, which is also how FQ does it: their Technical
+  /// maximum comes from a table of team profiles, not from the criteria.
+  ///
+  /// Changing this moves Technical's share of the total, and therefore
+  /// everything else's. It is per-cycle so that a published year keeps the
+  /// balance it was actually judged under. A tier may override it.
+  ///
+  /// 330 is Football Queensland's own figure for a Tier 1 club on their 2026
+  /// CASE 2 team profile.
+  technicalMaxPoints Int @default(330)
 
-  /// Minimum weighted-total percentage for each shield.
-  bronzeMin   Int @default(40)
-  silverMin   Int @default(55)
-  goldMin     Int @default(70)
-  platinumMin Int @default(85)
+  /// Minimum weighted-total percentage for each shield. Football Queensland's
+  /// own figures: Gold at 75%, Silver at 55%, Bronze at 40%. Per-cycle because
+  /// FQ restates them each year, and a published year has to keep the bar it
+  /// was actually judged against.
+  bronzeMin Int @default(40)
+  silverMin Int @default(55)
+  goldMin   Int @default(75)
 
   assessments ClubAssessment[]
+  pools       Pool[]
+
+  structureStandards StructureStandard[]
 }
 
 enum AssessmentStatus {
@@ -431,17 +449,39 @@ enum AssessmentStatus {
   RECONCILING
   /// Scores locked. Result computed and frozen, not yet visible to the club.
   LOCKED
-  /// Released to the club.
+  /// The *preliminary* rating has been released to the club. FQ's word, and it
+  /// matters: a club may only publish its shield once the rating is Confirmed,
+  /// so this is a result they can read and challenge but not yet display.
   PUBLISHED
+  /// The club asked for specific line items to be re-examined, and the Unit
+  /// has 10 working days to respond.
+  IN_REVIEW
+  /// The club appealed the review outcome to the CEO, who has 8 working days.
+  UNDER_APPEAL
+  /// Final. Either the review window lapsed with no request, or the review and
+  /// any appeal are exhausted. This is the rating the club may publish.
+  CONFIRMED
 }
 
+/// Football Queensland awards three shields. Gold is the top — there is no
+/// Platinum, and inventing one would have the portal promising clubs a level
+/// FQ does not issue a shield for.
+///
+/// Declared weakest to strongest: the threshold Non-Negotiables cap a club at
+/// the level it met, and that comparison reads this order.
 enum Shield {
-  /// Scored, but below the Bronze threshold.
+  /// Below the Bronze threshold, and not eligible for the Development
+  /// Committed badge either.
   NONE
+  /// Not a shield. FQ's own words: "All clubs scoring less than 40% of the
+  /// overall points will receive an FQ Development Committed badge for their FQ
+  /// Academy assessment if they are licence compliant (in non-technical
+  /// areas)." It sits in this enum because it is what the club is awarded at
+  /// that band, and it has to compare below Bronze.
+  DEVELOPMENT_COMMITTED
   BRONZE
   SILVER
   GOLD
-  PLATINUM
 }
 
 /// One club's assessment for one cycle. The hub of the whole model.
@@ -473,36 +513,114 @@ model ClubAssessment {
   finalShield  Shield?
   /// False when a Non-Negotiable failed — no shield, whatever the score.
   eligible     Boolean?
+
+  /// Whether the club is licence compliant in non-technical areas.
+  ///
+  /// The one condition FQ attaches to the Development Committed badge, and it
+  /// is information the Unit holds rather than anything this assessment
+  /// measures — compliance sits under the Advanced Participation Licence, not
+  /// under the rating. Null means nobody has said, and that is treated as "no
+  /// badge": a recognition FQ publishes should not be handed out by default.
+  /// Only consulted below the Bronze threshold.
+  licenceCompliant Boolean?
   /// CDU's summary paragraph on the published report.
   summary      String?
 
+  /// Which pool this club is assessed in. Nullable because a club can be added
+  /// to a cycle before the CDU has drawn the pools up.
+  poolId String?
+  pool   Pool?   @relation(fields: [poolId], references: [id], onDelete: SetNull)
+
+  /// Which set of line items this club is assessed on. Null falls back to the
+  /// first tier, so a club added before tiers are set up is still assessable.
+  tierId String?
+  tier   Tier?   @relation(fields: [tierId], references: [id], onDelete: SetNull)
+
   staff          StaffMember[]
-  assessors      AssessorAssignment[]
   scores         AssessorScore[]
   finalScores    FinalScore[]
   nonNegotiables NonNegotiableResult[]
   metrics        ClubMetric[]
+  areaNotes      AreaNote[]
+  review         ReviewRequest?
+  structure      StructureEntry[]
 
   @@unique([clubId, cycleId])
   @@index([cycleId])
   @@index([status])
+  @@index([poolId])
+  @@index([tierId])
 }
 
-/// Assigns an assessor to a club's assessment. FQ caps this at three; the cap
-/// is enforced in the action rather than the schema, because the limit is
-/// policy and the schema shouldn't have to migrate if it changes.
-model AssessorAssignment {
-  id           String         @id @default(cuid())
-  assessmentId String
-  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  assessorId   String
-  assessor     User           @relation("AssessorAssignments", fields: [assessorId], references: [id], onDelete: Cascade)
-  createdAt    DateTime       @default(now())
-  /// Set when the assessor declares their scoring complete.
-  submittedAt  DateTime?
+/// An assessment tier. Tier 2 clubs are assessed on a subset of the same line
+/// items Tier 1 clubs are — same codes, same wording, fewer of them — so a
+/// club's maximum points depend on its tier, and the tier has to be part of the
+/// data rather than a label on the club.
+model Tier {
+  id       String @id @default(cuid())
+  code     String @unique
+  name     String
+  position Int    @default(0)
 
-  @@unique([assessmentId, assessorId])
+  /// Points available for Technical Qualifications at this tier, overriding the
+  /// cycle's figure. A Tier 2 club fields fewer teams and is assessed on fewer
+  /// line items, so holding Technical at the Tier 1 maximum would make it 44% of
+  /// their rating instead of a quarter. FQ derives the real figure from a table
+  /// of team profiles; this is the same idea, per tier.
+  technicalMaxPoints Int?
+
+  criteria    Criterion[]
+  assessments ClubAssessment[]
+}
+
+/// A group of clubs assessed together within a cycle.
+///
+/// A pool is the unit an assessor is given: they take one criterion across
+/// every club in one pool. Pools are per-cycle because clubs move between them
+/// year to year.
+model Pool {
+  id       String @id @default(cuid())
+  cycleId  String
+  cycle    Cycle  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  /// "A", "B", "C".
+  name     String
+  position Int    @default(0)
+
+  assessments ClubAssessment[]
+  assignments CriterionAssignment[]
+
+  @@unique([cycleId, name])
+}
+
+/// Assigns an assessor one criterion across every club in one pool.
+///
+/// This is Football Queensland's "vertical" assessment, and it is the whole
+/// point: one person applies one criterion to twelve clubs in a sitting, which
+/// is what makes the standard consistent between them. Assigning an assessor a
+/// club and asking them to score forty different criteria produces the opposite
+/// — forty standards, each applied once.
+///
+/// `slot` is 1, 2 or 3. Slots 1 and 2 assess independently; slot 3 exists only
+/// to break a disagreement between them, so it is normally empty.
+model CriterionAssignment {
+  id          String    @id @default(cuid())
+  poolId      String
+  pool        Pool      @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  criterionId String
+  criterion   Criterion @relation(fields: [criterionId], references: [id], onDelete: Cascade)
+  assessorId  String
+  assessor    User      @relation("CriterionAssignments", fields: [assessorId], references: [id], onDelete: Cascade)
+  slot        Int       @default(1)
+  createdAt   DateTime  @default(now())
+  /// Set when the assessor declares this line item finished across the pool.
+  submittedAt DateTime?
+
+  /// One assessor per slot…
+  @@unique([poolId, criterionId, slot])
+  /// …and nobody assessing the same line item twice.
+  @@unique([poolId, criterionId, assessorId])
   @@index([assessorId])
+  @@index([criterionId])
 }
 
 /**
@@ -600,29 +718,61 @@ enum Domain {
   OUTCOMES
 }
 
-/// One scored criterion. Assessors don't award stars directly — they tick the
-/// sub-criteria they saw evidence for, and the count maps to 0-3 stars.
-model Criterion {
-  id          String  @id @default(cuid())
-  domain      Domain
-  code        String  @unique
-  title       String
-  description String?
-  /// Relative weight within its domain.
-  weight      Int     @default(1)
-  position    Int     @default(0)
-  active      Boolean @default(true)
+enum AssessmentMode {
+  /// Scored from documents the club submits. Assessed off-site.
+  EVIDENCE
+  /// Scored from what an assessor sees at training or on match day.
+  OBSERVATION
+}
 
-  /// Minimum sub-criteria met to earn 1 / 2 / 3 stars. Seeded from the number
-  /// of sub-criteria, but explicit so the CDU can make one criterion harder
-  /// than another without a code change.
-  oneStarAt   Int @default(1)
-  twoStarAt   Int @default(2)
-  threeStarAt Int @default(3)
+/// One scored criterion — a "line item" in FQ's language. Assessors don't award
+/// a score directly: they tick the evidence points they saw, and the count maps
+/// to a band.
+model Criterion {
+  id                  String         @id @default(cuid())
+  domain              Domain
+  code                String         @unique
+  title               String
+  description         String?
+  /// Evidence-based items and observation-based items run on separate
+  /// timetables and are assessed by different people, so the distinction has to
+  /// survive into the data rather than living in someone's spreadsheet.
+  mode                AssessmentMode @default(EVIDENCE)
+  /// The macro-area this item is grouped under within its domain. FQ's report
+  /// is structured around these: each carries its own subtotal, its own grade
+  /// and its own paragraph of feedback.
+  area                String?
+  /// Which tiers are assessed on this item.
+  tiers               Tier[]
+  /// True while the evidence points are this project's wording rather than
+  /// Football Queensland's. Surfaced in the app so nobody mistakes a placeholder
+  /// for the real rubric.
+  evidenceProvisional Boolean        @default(false)
+  /// Points multiplier. On Football Queensland's scale this is 4, 6, 8 or 10 —
+  /// a line item is worth `maxScore * weight` points towards its domain.
+  weight              Int            @default(6)
+  position            Int            @default(0)
+  active              Boolean        @default(true)
+
+  /// The top of this item's scale. Usually 3; a few go to 4, which is why it
+  /// can't be a constant — FQ's D8 awards 4 for 9-10 evidence points met and
+  /// carries the heaviest weighting in Delivery, so capping it at 3 would
+  /// quietly remove the highest-value mark in the domain.
+  maxScore Int @default(3)
+
+  /// Minimum evidence points met to earn each band. Seeded from the number of
+  /// sub-criteria but explicit, so the CDU can make one item harder than
+  /// another without a code change. fourStarAt is null unless maxScore is 4.
+  oneStarAt   Int  @default(1)
+  twoStarAt   Int  @default(2)
+  threeStarAt Int  @default(3)
+  fourStarAt  Int?
 
   subCriteria SubCriterion[]
   scores      AssessorScore[]
   finalScores FinalScore[]
+  assignments CriterionAssignment[]
+  reviewItems ReviewItem[]
 
   @@index([domain])
 }
@@ -700,15 +850,37 @@ model FinalScore {
  */
 
 /// One of the nine mandatory eligibility checks.
+/// How a Non-Negotiable bears on the result. FQ's nine are not one uniform
+/// pass/fail: six are documents that are either there or not, and three set a
+/// bar that rises with the shield being sought.
+enum NonNegotiableKind {
+  /// Pass or fail. Miss one and no shield can be confirmed at all, whatever the
+  /// club scored — "no assessment score can be elevated to 'Confirmed' status
+  /// while non-negotiable documents are missing or incomplete".
+  GATE
+  /// A different bar for each shield level. Failing the Gold bar does not make
+  /// a club ineligible; it caps them at the level they did meet. FQ phases
+  /// these in over four years, so a Bronze club is not failed for lacking the
+  /// staffing a Gold club needs.
+  SHIELD_THRESHOLD
+}
+
 model NonNegotiable {
-  id           String  @id @default(cuid())
-  code         String  @unique
+  id           String            @id @default(cuid())
+  code         String            @unique
   title        String
   description  String
   /// What the club has to produce to satisfy it.
   evidenceHint String?
-  position     Int     @default(0)
-  active       Boolean @default(true)
+  kind         NonNegotiableKind @default(GATE)
+  /// How FQ collects it, e.g. "Electronic submission & CDA check".
+  format       String?
+  /// For SHIELD_THRESHOLD checks: what each shield level requires, in prose.
+  /// Free text because FQ restates these each year in the Info Pack and the
+  /// wording is doing the work, not a machine-readable rule.
+  shieldGuidance String?
+  position     Int               @default(0)
+  active       Boolean           @default(true)
 
   results NonNegotiableResult[]
 }
@@ -735,6 +907,20 @@ model NonNegotiableResult {
   clubDeclared    Boolean?
   clubNote        String?
   verdict         NonNegotiableVerdict @default(PENDING)
+  /// For SHIELD_THRESHOLD checks: the highest shield whose bar this club met.
+  /// Null on a GATE check, and null on a threshold check the CDU hasn't looked
+  /// at yet. NONE means "looked at, met nobody's bar". This is the effective
+  /// level — the one that caps the shield.
+  shieldMet       Shield?
+  /// What the recorded structure actually computes to, for the checks that can
+  /// be computed. Stored alongside rather than instead of `shieldMet` so a
+  /// departure is visible as a departure: FQ's own workbook records a level
+  /// more generous than its rules on sixteen of thirty-three clubs, and the
+  /// portal should make that a decision somebody signed rather than a number
+  /// nobody re-derived.
+  shieldMetDerived Shield?
+  /// Required whenever `shieldMet` departs from `shieldMetDerived`.
+  overrideReason   String?
   adminNote       String?
   verifiedById    String?
   verifiedBy      User?                @relation("NonNegotiableVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
@@ -751,6 +937,30 @@ model NonNegotiableResult {
  * --------------------------------- Outcomes data --------------------------
  */
 
+/// The Club Assessment Unit's paragraph of feedback on one macro-area.
+///
+/// FQ's report carries one of these per area — "Talent Identification: the club
+/// has provided clear documents… there is no overview of the LTAD model" — and
+/// it is the part clubs actually act on. A domain-level summary cannot say that,
+/// because the useful sentence is always about a particular area.
+model AreaNote {
+  id           String         @id @default(cuid())
+  assessmentId String
+  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  domain       Domain
+  /// Matches Criterion.area. Text rather than a foreign key because an area is a
+  /// grouping in the catalogue, not a row, and the note should survive the last
+  /// criterion in its area being retired.
+  area         String
+  comment      String
+  updatedAt    DateTime       @updatedAt
+  authorId     String?
+  author       User?          @relation("AreaNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@unique([assessmentId, domain, area])
+  @@index([assessmentId])
+}
+
 /// A participation figure the club reports, alongside last year's for
 /// comparison. These don't score by themselves — they're the evidence an
 /// assessor reads when scoring the Outcomes criteria, which is why they carry
@@ -766,4 +976,224 @@ model ClubMetric {
   note         String?
 
   @@unique([assessmentId, key])
+}
+
+/**
+ * ------------------------------ Review and appeal ---------------------------
+ */
+
+/// Where a club's challenge to its preliminary rating has got to.
+enum ReviewStatus {
+  /// Submitted by the club; the Unit has 10 working days.
+  SUBMITTED
+  /// The Unit has responded on every item. The club now has 3 working days to
+  /// appeal to the CEO, after which the rating confirms itself.
+  RESPONDED
+  /// Appealed to the CEO, who has 8 working days.
+  APPEALED
+  /// The CEO has ruled. FQ: "the above process exhausts all review
+  /// opportunities" — there is nowhere further to go from here.
+  APPEAL_DECIDED
+}
+
+/// One club's request to have specific line items re-examined.
+///
+/// One per assessment, enforced by the unique key. Football Queensland's process
+/// is a single round — request, response, optional appeal, done — and allowing a
+/// second request would quietly turn a bounded process into an open one.
+model ReviewRequest {
+  id           String         @id @default(cuid())
+  assessmentId String         @unique
+  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  status       ReviewStatus   @default(SUBMITTED)
+
+  submittedAt   DateTime @default(now())
+  submittedById String?
+  submittedBy   User?    @relation("ReviewSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
+
+  /// The Unit's covering feedback, alongside the per-item responses.
+  respondedAt   DateTime?
+  respondedById String?
+  respondedBy   User?     @relation("ReviewResponder", fields: [respondedById], references: [id], onDelete: SetNull)
+  response      String?
+
+  /// The club's grounds for taking it to the CEO.
+  appealedAt DateTime?
+  appeal     String?
+
+  /// The CEO's ruling. Free text because it is one person's decision letter,
+  /// not a structured outcome — the per-item revisions carry the numbers.
+  appealDecidedAt   DateTime?
+  appealDecidedById String?
+  appealDecidedBy   User?     @relation("AppealDecider", fields: [appealDecidedById], references: [id], onDelete: SetNull)
+  appealDecision    String?
+
+  /// The result as it stood when the club asked for the review, so the report
+  /// can show what the review actually moved. Recomputing it later would be
+  /// impossible once the revised scores are in.
+  percentBefore Float?
+  shieldBefore  Shield?
+
+  items ReviewItem[]
+
+  @@index([status])
+}
+
+/// What the Unit did with one line item it was asked to look at again.
+enum ReviewOutcome {
+  /// Not yet answered.
+  PENDING
+  /// Score changed.
+  REVISED
+  /// Score stands. FQ's own word — "revise or preserve the score".
+  PRESERVED
+}
+
+/// One line item a club has asked to have re-examined.
+///
+/// Football Queensland allows at most 4 Planning, 4 Delivery and 2 Outcomes
+/// items. Technical Qualifications is deliberately not reviewable here: it is
+/// computed from the staff register rather than scored by an assessor, so the
+/// remedy for a wrong Technical score is correcting the register, not appealing
+/// a judgement nobody made.
+model ReviewItem {
+  id          String        @id @default(cuid())
+  requestId   String
+  request     ReviewRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  criterionId String
+  criterion   Criterion     @relation(fields: [criterionId], references: [id], onDelete: Cascade)
+
+  /// The club's case. FQ only admits one ground — that relevant evidence was
+  /// missed due to an oversight — so this has to say which evidence and where
+  /// it was.
+  clubComment String
+
+  outcome     ReviewOutcome @default(PENDING)
+  /// The reconciled score before and after. Both stored: the club is entitled
+  /// to see the movement, and the before value is gone once the score is
+  /// rewritten.
+  scoreBefore Int?
+  scoreAfter  Int?
+  /// The Unit's "detailed feedback to the club regarding their request".
+  response    String?
+
+  @@unique([requestId, criterionId])
+  @@index([requestId])
+}
+
+/**
+ * ------------------------- Club Structure Standards -------------------------
+ *
+ * NN7's level is computed, not judged. Football Queensland maintains it in a
+ * workbook today: eleven named functions, each recorded from a fixed
+ * vocabulary, against a per-shield bar that ratchets year by year. Recomputing
+ * their own 2026 sheet from their own requirements tab disagreed on sixteen of
+ * thirty-three clubs, always in the club's favour — which is what a column
+ * typed by hand next to a rule nobody re-checks looks like.
+ */
+
+/// How one organisational function is recorded.
+enum StructureRoleKind {
+  /// Filled or not. Goalkeeping, Wellbeing, Sports Science, Analyst, and the
+  /// two submitted documents.
+  PRESENCE
+  /// Filled, and on what terms. The Technical Director only — FQ requires a
+  /// full-time TD at every shield, so part-time is a distinct answer from
+  /// absent and from present.
+  EMPLOYMENT
+  /// Filled, and to what qualification. The four Heads whose minimum diploma
+  /// rises with the shield.
+  QUALIFIED
+}
+
+/// What a club recorded against one function.
+///
+/// One vocabulary across all three kinds rather than three enums, because the
+/// answers form a single ladder: absent is worse than present-but-unqualified,
+/// which is worse than a C Diploma. Keeping them together is what lets the
+/// comparison be a number.
+enum RoleStatus {
+  /// Nobody in the role.
+  ABSENT
+  /// In post. The answer for a PRESENCE function.
+  PRESENT
+  /// EMPLOYMENT only.
+  PART_TIME
+  FULL_TIME
+  /// QUALIFIED: in post, but below the minimum diploma for any shield.
+  NOT_MIN_QUAL
+  C_DIPLOMA
+  /// FQ counts enrolment towards the B Diploma as holding it — "hold or are
+  /// enrolled in a min. B Diploma".
+  ENROLLED_B
+  B_DIPLOMA_PLUS
+}
+
+/// One of Football Queensland's organisational functions.
+model StructureRole {
+  id       String            @id @default(cuid())
+  code     String            @unique
+  label    String
+  kind     StructureRoleKind @default(PRESENCE)
+  /// False for the two submitted documents, which are required at every shield
+  /// but are not one of the eleven functions the coverage count is drawn from.
+  counts   Boolean           @default(true)
+  position Int               @default(0)
+  active   Boolean           @default(true)
+
+  entries      StructureEntry[]
+  requirements StructureRoleRequirement[]
+}
+
+/// The bar for one shield in one cycle.
+///
+/// Per cycle because FQ phases it in: 8 of 11 functions for Gold in 2026, 9 in
+/// 2027, all 11 in 2028. A new year is a data change here, not a code change.
+model StructureStandard {
+  id      String @id @default(cuid())
+  cycleId String
+  cycle   Cycle  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  shield  Shield
+  /// How many of the counting functions must be filled.
+  functionsRequired Int @default(0)
+
+  roles StructureRoleRequirement[]
+
+  @@unique([cycleId, shield])
+}
+
+/// What one shield demands of one function, over and above being counted.
+model StructureRoleRequirement {
+  id         String            @id @default(cuid())
+  standardId String
+  standard   StructureStandard @relation(fields: [standardId], references: [id], onDelete: Cascade)
+  roleId     String
+  role       StructureRole     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  /// Mandatory at this shield regardless of the coverage count.
+  required   Boolean           @default(false)
+  /// 0 = no qualification requirement. 1 = C Diploma. 2 = B Diploma or
+  /// enrolled. Stored as a level rather than a RoleStatus because the test is
+  /// "at least", and two different statuses satisfy level 2.
+  minQualLevel Int             @default(0)
+  /// EMPLOYMENT roles only: part-time doesn't satisfy this shield.
+  requireFullTime Boolean      @default(false)
+
+  @@unique([standardId, roleId])
+}
+
+/// What one club recorded against one function.
+model StructureEntry {
+  id           String         @id @default(cuid())
+  assessmentId String
+  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  roleId       String
+  role         StructureRole  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  status       RoleStatus     @default(ABSENT)
+  /// Who holds it. Not scored — it is what makes the Unit's check possible.
+  holderName   String?
+  note         String?
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([assessmentId, roleId])
+  @@index([assessmentId])
 }

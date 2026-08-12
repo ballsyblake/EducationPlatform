@@ -14,8 +14,11 @@ import {
   assessAgreement,
   checkEligibility,
   computeRating,
+  scoreAreas,
   scoreStarDomain,
   scoreTechnicalDomain,
+  shieldFor,
+  type AreaResult,
   type AssessorStar,
   type CriterionAgreement,
   type CriterionOutcome,
@@ -25,8 +28,14 @@ import {
   type TechnicalResult,
 } from "@/lib/cda/scoring";
 import { ASSESSED_DOMAINS } from "@/lib/cda/rubric";
+import {
+  STRUCTURE_STANDARDS_2026,
+  scoreStructure,
+  type StructureResult,
+  type StructureRoleSpec,
+} from "@/lib/cda/structure";
 import { displayName } from "@/lib/format";
-import type { Domain, Shield } from "@prisma-client";
+import type { Domain, RoleStatus, Shield } from "@prisma-client";
 
 /**
  * Assembles the whole picture of one assessment: staff, criteria, every
@@ -42,13 +51,25 @@ export type AssessmentOverview = {
   assessment: Awaited<ReturnType<typeof loadAssessmentRow>>;
   technical: TechnicalResult;
   domains: Record<Domain, DomainResult | null>;
+  /** Each domain broken into FQ's macro-areas, in catalogue order. */
+  areas: AreaResult[];
+  /** The CDU's paragraph per area, keyed "DOMAIN|Area". */
+  areaNotes: Map<string, string>;
   agreements: CriterionAgreement[];
   rating: RatingResult;
+  /**
+   * The rating the current scores actually produce, ignoring anything frozen.
+   * Identical to `rating` before a lock, and different after one.
+   */
+  live: RatingResult;
   /** True when the stored, frozen result is what's being shown. */
   frozen: boolean;
-  assessors: { id: string; name: string; submittedAt: Date | null }[];
+  /** Everyone holding a line item on this club's pool, with their progress. */
+  assessors: { id: string; name: string; items: number; submitted: number }[];
   criteria: ScorableCriterion[];
   unresolved: CriterionAgreement[];
+  /** Criteria nobody has been assigned yet — invisible otherwise. */
+  unassigned: CriterionAgreement[];
 };
 
 function loadAssessmentRow(id: string) {
@@ -57,28 +78,59 @@ function loadAssessmentRow(id: string) {
     include: {
       club: true,
       cycle: true,
+      pool: true,
       staff: { include: { qualification: true }, orderBy: { name: "asc" } },
-      assessors: { include: { assessor: true } },
       scores: { include: { assessor: true } },
       finalScores: true,
-      nonNegotiables: { include: { nonNegotiable: true } },
+      // Retired checks drop out. Their result rows are left in place as a
+      // record of what was asked at the time, but a check FQ has withdrawn must
+      // not go on holding a shield back — and a retired check sitting at PENDING
+      // forever would do exactly that.
+      nonNegotiables: {
+        where: { nonNegotiable: { active: true } },
+        include: { nonNegotiable: true },
+        orderBy: { nonNegotiable: { position: "asc" } },
+      },
       metrics: true,
+      areaNotes: true,
     },
   });
+}
+
+/** Stable key for an area note. Area names contain spaces; the domain doesn't. */
+export function areaKey(domain: Domain, area: string | null) {
+  return `${domain}|${area ?? ""}`;
 }
 
 export async function loadAssessment(id: string): Promise<AssessmentOverview> {
   const assessment = await loadAssessmentRow(id);
 
+  // Scoped to the club's tier. Tier 2 is assessed on a subset of the same coded
+  // items, so its maximum points — and therefore its percentage — come from
+  // fewer line items. Scoring every club against all of them would give a Tier 2
+  // club a denominator it was never assessed against.
+  const tier =
+    (assessment.tierId
+      ? await prisma.tier.findUnique({ where: { id: assessment.tierId } })
+      : null) ?? (await prisma.tier.findFirst({ orderBy: { position: "asc" } }));
+  const tierId = tier?.id ?? null;
+
   const criteria = await prisma.criterion.findMany({
-    where: { active: true, domain: { in: [...ASSESSED_DOMAINS] } },
+    where: {
+      active: true,
+      domain: { in: [...ASSESSED_DOMAINS] },
+      ...(tierId ? { tiers: { some: { id: tierId } } } : {}),
+    },
     // Position alone, deliberately. Positions are assigned across the whole
     // catalogue in domain order, so this yields Planning → Delivery → Outcomes.
     // Ordering by `domain` first would not: SQLite stores enums as TEXT, so
     // "asc" is alphabetical — Delivery, Outcomes, Planning — which is neither
     // the schema's order nor the order FQ presents the domains in.
     orderBy: [{ position: "asc" }, { code: "asc" }],
-    select: { id: true, code: true, title: true, domain: true, weight: true },
+    select: {
+      id: true, code: true, title: true, domain: true,
+      weight: true, maxScore: true, area: true,
+    },
   });
 
   /* ------------------------------- Technical ------------------------------ */
@@ -98,28 +150,43 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
           }
         : null,
     })),
+    // A tier may state its own Technical maximum; most inherit the cycle's.
+    tier?.technicalMaxPoints ?? assessment.cycle.technicalMaxPoints,
   );
 
   /* --------------------------- Assessor agreement -------------------------- */
 
-  const assessors = assessment.assessors
-    .map((a) => ({
-      id: a.assessorId,
-      name: displayName(a.assessor),
-      submittedAt: a.submittedAt,
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  // Assessors are now per line item, so each criterion has its own two or three
+  // — not one panel covering the whole club. The comparison is drawn from the
+  // assignments in this club's pool, which is also what makes an unassigned
+  // criterion visibly unassigned rather than merely unscored.
+  const assignments = assessment.poolId
+    ? await prisma.criterionAssignment.findMany({
+        where: { poolId: assessment.poolId },
+        include: { assessor: true },
+        orderBy: { slot: "asc" },
+      })
+    : [];
+
+  const byCriterion = new Map<string, typeof assignments>();
+  for (const a of assignments) {
+    const list = byCriterion.get(a.criterionId) ?? [];
+    list.push(a);
+    byCriterion.set(a.criterionId, list);
+  }
 
   const finalByCriterion = new Map(assessment.finalScores.map((f) => [f.criterionId, f]));
 
   const agreements = criteria.map((criterion) => {
-    const entries: AssessorStar[] = assessors.map((a) => {
+    const held = byCriterion.get(criterion.id) ?? [];
+
+    const entries: AssessorStar[] = held.map((a) => {
       const score = assessment.scores.find(
-        (s) => s.assessorId === a.id && s.criterionId === criterion.id,
+        (s) => s.assessorId === a.assessorId && s.criterionId === criterion.id,
       );
       return {
-        assessorId: a.id,
-        assessorName: a.name,
+        assessorId: a.assessorId,
+        assessorName: displayName(a.assessor),
         stars: score ? score.stars : null,
         comment: score?.comment ?? null,
       };
@@ -127,6 +194,16 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
 
     return assessAgreement(criterion, entries, finalByCriterion.get(criterion.id)?.stars ?? null);
   });
+
+  // Everyone with a hand in this club, for the summary panels.
+  const assessors = [...new Map(assignments.map((a) => [a.assessorId, a])).values()]
+    .map((a) => ({
+      id: a.assessorId,
+      name: displayName(a.assessor),
+      items: assignments.filter((x) => x.assessorId === a.assessorId).length,
+      submitted: assignments.filter((x) => x.assessorId === a.assessorId && x.submittedAt).length,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   /* ------------------------------- Domains -------------------------------- */
 
@@ -138,6 +215,11 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     criterion: a.criterion,
     stars: a.final ?? a.suggested,
   }));
+
+  const areas = scoreAreas(outcomes);
+  const areaNotes = new Map(
+    assessment.areaNotes.map((n) => [areaKey(n.domain, n.area), n.comment]),
+  );
 
   const domains: Record<Domain, DomainResult | null> = {
     TECHNICAL: null,
@@ -152,17 +234,20 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     code: r.nonNegotiable.code,
     title: r.nonNegotiable.title,
     verdict: r.verdict,
+    kind: r.nonNegotiable.kind,
+    shieldMet: r.shieldMet,
   }));
 
   const live = computeRating(
     {
-      TECHNICAL: technical.percent,
-      PLANNING: domains.PLANNING!.percent,
-      DELIVERY: domains.DELIVERY!.percent,
-      OUTCOMES: domains.OUTCOMES!.percent,
+      TECHNICAL: { earned: technical.earned, available: technical.available },
+      PLANNING: { earned: domains.PLANNING!.earned, available: domains.PLANNING!.available },
+      DELIVERY: { earned: domains.DELIVERY!.earned, available: domains.DELIVERY!.available },
+      OUTCOMES: { earned: domains.OUTCOMES!.earned, available: domains.OUTCOMES!.available },
     },
     assessment.cycle,
     nonNegotiables,
+    assessment.licenceCompliant,
   );
 
   // Once locked, the stored numbers are the answer. Recomputing would let a
@@ -170,21 +255,41 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
   // already been given in writing.
   const frozen = assessment.lockedAt !== null && assessment.finalPercent !== null;
 
-  const rating: RatingResult = frozen
-    ? {
-        ...live,
-        domains: {
-          TECHNICAL: assessment.technicalPct ?? 0,
-          PLANNING: assessment.planningPct ?? 0,
-          DELIVERY: assessment.deliveryPct ?? 0,
-          OUTCOMES: assessment.outcomesPct ?? 0,
-        },
-        percent: assessment.finalPercent!,
-        shield: assessment.eligible ? ((assessment.finalShield ?? "NONE") as Shield) : null,
-        provisionalShield: (assessment.finalShield ?? "NONE") as Shield,
-        eligibility: checkEligibility(nonNegotiables),
-      }
-    : live;
+  const rating: RatingResult = frozen ? freeze() : live;
+
+  function freeze(): RatingResult {
+    const awarded = (assessment.finalShield ?? "NONE") as Shield;
+    // The shield the frozen percentage earns on its own. Reconstructed rather
+    // than stored: the thresholds belong to this assessment's own cycle, so
+    // this is the same arithmetic that ran at lock, and it is what lets the
+    // report still explain a cap months after publication.
+    const provisional = shieldFor(assessment.finalPercent!, assessment.cycle);
+
+    return {
+      ...live,
+      // The frozen percentages are what the club was told. The points columns
+      // stay live: they describe the current catalogue, and are only ever
+      // shown as supporting detail beside the frozen figures.
+      domains: {
+        TECHNICAL: assessment.technicalPct ?? 0,
+        PLANNING: assessment.planningPct ?? 0,
+        DELIVERY: assessment.deliveryPct ?? 0,
+        OUTCOMES: assessment.outcomesPct ?? 0,
+      },
+      percent: assessment.finalPercent!,
+      shield: assessment.eligible ? awarded : null,
+      provisionalShield: provisional,
+      // The badge raises the award above what the score alone earned, so it is
+      // never a cap — checking for it here keeps a badged club from being told
+      // its shield was held down.
+      cappedDown:
+        assessment.eligible === true &&
+        awarded !== "DEVELOPMENT_COMMITTED" &&
+        awarded !== provisional,
+      developmentBadge: assessment.eligible === true && awarded === "DEVELOPMENT_COMMITTED",
+      eligibility: checkEligibility(nonNegotiables),
+    };
+  }
 
   return {
     assessment,
@@ -192,10 +297,23 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     domains,
     agreements,
     rating,
+    /**
+     * The rating as the current scores actually produce it, ignoring anything
+     * frozen. Identical to `rating` before a lock and different after one.
+     *
+     * Exposed because freezing needs it. `rating` deliberately returns the
+     * stored figures once locked, so a second freeze — which is exactly what a
+     * review revision triggers — would otherwise write the old numbers straight
+     * back and silently discard the revision.
+     */
+    live,
     frozen,
     assessors,
+    areas,
+    areaNotes,
     criteria,
     unresolved: agreements.filter((a) => a.final === null),
+    unassigned: agreements.filter((a) => a.entries.length === 0),
   };
 }
 
@@ -208,7 +326,11 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
  */
 export async function freezeResult(assessmentId: string, lockedById: string) {
   const overview = await loadAssessment(assessmentId);
-  const { rating, technical, domains } = overview;
+  // The *live* rating, never the frozen one. Locking an already-locked
+  // assessment is a real path — a review revision recomputes through here — and
+  // reading `rating` there would write the stored figures straight back and
+  // silently throw the revision away.
+  const { live: rating, technical, domains } = overview;
 
   return prisma.clubAssessment.update({
     where: { id: assessmentId },
@@ -221,7 +343,11 @@ export async function freezeResult(assessmentId: string, lockedById: string) {
       deliveryPct: domains.DELIVERY!.percent,
       outcomesPct: domains.OUTCOMES!.percent,
       finalPercent: rating.percent,
-      finalShield: rating.provisionalShield,
+      // The shield the club is actually awarded, after any threshold cap. When
+      // a gate check makes them ineligible there is no award to store, so the
+      // shield the score alone earned goes in instead — `eligible` is what
+      // decides whether anything is shown, and the CDU still wants the figure.
+      finalShield: rating.shield ?? rating.provisionalShield,
       eligible: rating.eligibility.eligible,
     },
   });
@@ -265,4 +391,155 @@ export async function activeCycle() {
       orderBy: { year: "desc" },
     })) ?? (await prisma.cycle.findFirst({ orderBy: { year: "desc" } }))
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Club Structure (NN7)                                                       */
+/* -------------------------------------------------------------------------- */
+
+export type StructureOverview = {
+  roles: (StructureRoleSpec & { status: RoleStatus; holderName: string | null; note: string | null })[];
+  result: StructureResult;
+  /** False when the cycle has no standard set, so nothing can be computed. */
+  configured: boolean;
+};
+
+/**
+ * Loads a club's recorded structure and works out what it computes to.
+ *
+ * The standards belong to the assessment's own cycle, so a club published under
+ * the 2026 bar keeps being measured against it after 2027's rows are added —
+ * the same reason the shield thresholds live on the cycle.
+ */
+export async function loadStructure(assessmentId: string): Promise<StructureOverview> {
+  const assessment = await prisma.clubAssessment.findUniqueOrThrow({
+    where: { id: assessmentId },
+    select: { id: true, cycleId: true },
+  });
+
+  const [roleRows, entries, standardRows] = await Promise.all([
+    prisma.structureRole.findMany({
+      where: { active: true },
+      orderBy: { position: "asc" },
+    }),
+    prisma.structureEntry.findMany({ where: { assessmentId } }),
+    prisma.structureStandard.findMany({
+      where: { cycleId: assessment.cycleId },
+      include: { roles: true },
+    }),
+  ]);
+
+  const byRole = new Map(entries.map((e) => [e.roleId, e]));
+
+  const roles = roleRows.map((r) => {
+    const entry = byRole.get(r.id);
+    return {
+      id: r.id,
+      code: r.code,
+      label: r.label,
+      kind: r.kind,
+      counts: r.counts,
+      status: entry?.status ?? ("ABSENT" as RoleStatus),
+      holderName: entry?.holderName ?? null,
+      note: entry?.note ?? null,
+    };
+  });
+
+  const result = scoreStructure(
+    roles,
+    roles.map((r) => ({ roleId: r.id, status: r.status })),
+    standardRows.map((s) => ({
+      shield: s.shield,
+      functionsRequired: s.functionsRequired,
+      roles: s.roles.map((rr) => ({
+        roleId: rr.roleId,
+        required: rr.required,
+        minQualLevel: rr.minQualLevel,
+        requireFullTime: rr.requireFullTime,
+      })),
+    })),
+  );
+
+  return { roles, result, configured: standardRows.length > 0 };
+}
+
+/**
+ * Writes the computed level onto NN7's result row.
+ *
+ * Called whenever a club edits its structure. `shieldMetDerived` always tracks
+ * the computation; `shieldMet` — the level that actually caps the shield — is
+ * only moved along with it while the Unit hasn't decided otherwise. Once they
+ * have recorded an override, a later edit updates what the rules say without
+ * silently reversing their decision.
+ */
+export async function syncStructureLevel(assessmentId: string) {
+  const check = await prisma.nonNegotiableResult.findFirst({
+    where: {
+      assessmentId,
+      nonNegotiable: { code: STRUCTURE_CHECK_CODE, active: true },
+    },
+  });
+  if (!check) return;
+
+  const { result, configured } = await loadStructure(assessmentId);
+  if (!configured) return;
+
+  await prisma.nonNegotiableResult.update({
+    where: { id: check.id },
+    data: {
+      shieldMetDerived: result.level,
+      ...(check.overrideReason ? {} : { shieldMet: check.verdict === "PASS" ? result.level : check.shieldMet }),
+    },
+  });
+}
+
+/** The Non-Negotiable whose level this computes. */
+export const STRUCTURE_CHECK_CODE = "NN7";
+
+/**
+ * Gives one cycle its per-shield structure bar, if it hasn't got one.
+ *
+ * Called when a cycle is created from the portal and again on every boot, so an
+ * instance that has never run the demo still computes NN7. Only creates what is
+ * missing: once clubs are being judged against a bar, neither a redeploy nor a
+ * second call may move it.
+ *
+ * Every cycle currently gets the 2026 figures, because they are the only ones
+ * Football Queensland has published. 2027 and 2028 raise the coverage counts —
+ * Gold to 9 and then 11 — and when FQ issues them they belong here as a
+ * per-year table rather than as an edit to this one.
+ */
+export async function ensureCycleStandards(cycleId: string) {
+  const roles = new Map(
+    (await prisma.structureRole.findMany({ select: { id: true, code: true } })).map((r) => [
+      r.code,
+      r.id,
+    ]),
+  );
+  if (roles.size === 0) return;
+
+  for (const std of STRUCTURE_STANDARDS_2026) {
+    const existing = await prisma.structureStandard.findUnique({
+      where: { cycleId_shield: { cycleId, shield: std.shield } },
+    });
+    if (existing) continue;
+
+    await prisma.structureStandard.create({
+      data: {
+        cycleId,
+        shield: std.shield,
+        functionsRequired: std.functionsRequired,
+        roles: {
+          create: std.roles
+            .filter((r) => roles.has(r.role))
+            .map((r) => ({
+              roleId: roles.get(r.role)!,
+              required: r.required ?? false,
+              minQualLevel: r.minQualLevel ?? 0,
+              requireFullTime: r.requireFullTime ?? false,
+            })),
+        },
+      },
+    });
+  }
 }

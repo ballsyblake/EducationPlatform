@@ -34,7 +34,7 @@ export default async function RubricPage() {
   const [criteria, qualifications, nonNegotiables] = await Promise.all([
     prisma.criterion.findMany({
       where: { active: true },
-      include: { _count: { select: { subCriteria: true } } },
+      include: { _count: { select: { subCriteria: true } }, tiers: { orderBy: { position: "asc" } } },
       // Position, not domain: SQLite sorts the enum as TEXT, which would order
       // the domains alphabetically rather than the way FQ presents them.
       orderBy: [{ position: "asc" }, { code: "asc" }],
@@ -69,10 +69,14 @@ export default async function RubricPage() {
         <div className="mb-6 card card-pad">
           <h2 className="mb-2 font-semibold text-ink-900">{cycle.name} weighting</h2>
           <p className="text-sm text-ink-600">
-            Technical Qualifications {cycle.technicalWeight}% · Planning {cycle.planningWeight}% ·
-            Delivery {cycle.deliveryWeight}% · Outcomes {cycle.outcomesWeight}%. A shield needs
-            Bronze {cycle.bronzeMin}%, Silver {cycle.silverMin}%, Gold {cycle.goldMin}%, Platinum{" "}
-            {cycle.platinumMin}% — and all nine Non-Negotiables met, whatever the score.
+            Every line item is worth its score times its weighting, and the rating is those points
+            summed across all four domains. Technical Qualifications contributes{" "}
+            {cycle.technicalMaxPoints} points; the other three take theirs from the line items
+            below. A shield needs Bronze {cycle.bronzeMin}%, Silver {cycle.silverMin}% or Gold{" "}
+            {cycle.goldMin}%. Below {cycle.bronzeMin}% a licence-compliant club receives the FQ
+            Development Committed badge instead. Every shield also depends on the gate
+            Non-Negotiables being met, whatever the score, and on the shield-based ones, which cap
+            the level rather than blocking it.
           </p>
         </div>
       )}
@@ -189,7 +193,6 @@ export default async function RubricPage() {
 
       {ASSESSED.map((domain) => {
         const inDomain = criteria.filter((c) => c.domain === domain);
-        const weightTotal = inDomain.reduce((n, c) => n + c.weight, 0);
 
         return (
           <section key={domain} className="mb-8">
@@ -205,48 +208,80 @@ export default async function RubricPage() {
                       Criterion
                     </th>
                     <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">
+                      Tiers
+                    </th>
+                    <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">
                       Evidence
                     </th>
                     <th className="px-3 py-2 text-xs font-semibold text-ink-500 uppercase">
-                      1 / 2 / 3 stars at
+                      Bands at
                     </th>
                     <th className="px-4 py-2 text-right text-xs font-semibold text-ink-500 uppercase">
-                      Weight
+                      Points
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-100">
-                  {inDomain.map((c) => (
+                  {inDomain.flatMap((c, i) => {
+                    // FQ's report is organised by macro-area, each with its own
+                    // subtotal — so the rubric reads the same way.
+                    const newArea = c.area && c.area !== inDomain[i - 1]?.area;
+                    const areaItems = inDomain.filter((x) => x.area === c.area);
+                    const rows = [];
+                    if (newArea) {
+                      rows.push(
+                        <tr key={`a-${c.area}`} className="bg-ink-50">
+                          <td colSpan={5} className="px-4 py-1.5 text-xs font-semibold text-ink-600">
+                            {c.area}
+                          </td>
+                          <td className="px-4 py-1.5 text-right text-xs font-semibold tabular-nums text-ink-600">
+                            {areaItems.reduce((n, x) => n + x.maxScore * x.weight, 0)}
+                          </td>
+                        </tr>,
+                      );
+                    }
+                    rows.push(
                     <tr key={c.id}>
                       <td className="px-4 py-2 text-xs text-ink-400">{c.code}</td>
                       <td className="px-3 py-2">
                         <span className="text-ink-800">{c.title}</span>
+                        {c.evidenceProvisional && (
+                          <span className="ml-2">
+                            <Badge tone="warn">Wording provisional</Badge>
+                          </span>
+                        )}
                         {c.description && (
                           <p className="text-xs text-ink-500">{c.description}</p>
                         )}
+                      </td>
+                      <td className="px-3 py-2 text-xs whitespace-nowrap text-ink-500">
+                        {c.tiers.map((t) => t.code).join(", ") || "—"}
                       </td>
                       <td className="px-3 py-2 tabular-nums text-ink-600">
                         {c._count.subCriteria}
                       </td>
                       <td className="px-3 py-2 tabular-nums text-ink-600">
                         {c.oneStarAt} / {c.twoStarAt} / {c.threeStarAt}
+                        {c.fourStarAt != null && ` / ${c.fourStarAt}`}
                       </td>
-                      <td className="px-4 py-2 text-right">
-                        {c.weight > 1 ? (
-                          <Badge tone="info">×{c.weight}</Badge>
-                        ) : (
-                          <span className="text-ink-400">×1</span>
-                        )}
+                      <td className="px-4 py-2 text-right whitespace-nowrap">
+                        <span className="tabular-nums text-ink-700">
+                          {c.maxScore} × {c.weight}
+                        </span>
+                        <span className="ml-1 text-ink-400">= {c.maxScore * c.weight}</span>
                       </td>
-                    </tr>
-                  ))}
+                    </tr>);
+                    return rows;
+                  })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-ink-200 bg-ink-50 text-xs text-ink-600">
-                    <td className="px-4 py-2" colSpan={4}>
-                      {inDomain.length} criteria, {weightTotal * 3} points available
+                    <td className="px-4 py-2" colSpan={5}>
+                      {inDomain.length} line items
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums">Σ {weightTotal}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      Σ {inDomain.reduce((n, c) => n + c.maxScore * c.weight, 0)} points
+                    </td>
                   </tr>
                 </tfoot>
               </table>
@@ -260,13 +295,28 @@ export default async function RubricPage() {
         <div className="card divide-y divide-ink-200">
           {nonNegotiables.map((n) => (
             <div key={n.id} className="px-5 py-3">
-              <p className="text-sm font-medium text-ink-900">
-                {n.code} — {n.title}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium text-ink-900">
+                  {n.code} — {n.title}
+                </p>
+                <Badge tone={n.kind === "SHIELD_THRESHOLD" ? "info" : "muted"}>
+                  {n.kind === "SHIELD_THRESHOLD" ? "Caps the shield" : "Blocks the shield"}
+                </Badge>
+              </div>
               <p className="mt-0.5 text-sm text-ink-600">{n.description}</p>
               {n.evidenceHint && (
                 <p className="mt-1 text-xs text-ink-500">
                   <span className="font-medium">Evidence:</span> {n.evidenceHint}
+                </p>
+              )}
+              {n.format && (
+                <p className="mt-1 text-xs text-ink-500">
+                  <span className="font-medium">Format:</span> {n.format}
+                </p>
+              )}
+              {n.shieldGuidance && (
+                <p className="mt-1 text-xs text-ink-500">
+                  <span className="font-medium">Standard:</span> {n.shieldGuidance}
                 </p>
               )}
             </div>

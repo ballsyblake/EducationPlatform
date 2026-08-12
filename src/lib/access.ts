@@ -60,10 +60,21 @@ export async function canAccessUpload(user: User, uploadId: string) {
 
   if (assessmentId) {
     if (user.role === "ASSESSOR") {
-      const assigned = await prisma.assessorAssignment.findUnique({
-        where: { assessmentId_assessorId: { assessmentId, assessorId: user.id } },
+      // Assessors hold line items across a pool, so evidence is readable by
+      // anyone holding any item in the club's pool — scoring "Blue card
+      // compliance" means reading the same certificates as scoring anything
+      // else. Access ends when their last item in that pool does.
+      const assessment = await prisma.clubAssessment.findUnique({
+        where: { id: assessmentId },
+        select: { poolId: true },
       });
-      return assigned ? upload : null;
+      if (!assessment?.poolId) return null;
+
+      const holds = await prisma.criterionAssignment.findFirst({
+        where: { poolId: assessment.poolId, assessorId: user.id },
+        select: { id: true },
+      });
+      return holds ? upload : null;
     }
 
     if (user.role === "CLUB") {

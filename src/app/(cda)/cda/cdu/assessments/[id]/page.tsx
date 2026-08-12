@@ -3,13 +3,16 @@ import { ShieldBadge } from "@/components/cda/shield";
 import { DomainBreakdown } from "@/components/cda/summary";
 import { Badge, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { requireCdu } from "@/lib/cda/access";
-import { loadAssessment } from "@/lib/cda/assessment";
-import { MAX_STAFF_POINTS, STAFF_ROLE_SPECS } from "@/lib/cda/rubric";
+import { STRUCTURE_CHECK_CODE, loadAssessment, loadStructure } from "@/lib/cda/assessment";
+import { MAX_STAFF_POINTS, SHIELD_LABELS, STAFF_ROLE_SPECS } from "@/lib/cda/rubric";
+import { reviewTimeline } from "@/lib/cda/review";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
+import { AreaNotes, type AreaRow } from "./area-notes";
 import { AssessorPanel } from "./assessor-panel";
 import { LockPanel } from "./lock-panel";
+import { ReviewPanel, type ReviewPanelData } from "./review-panel";
 import { VerifyForm, type VerifyItem } from "./verify-form";
 
 export const metadata = { title: "Assessment" };
@@ -21,21 +24,54 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
   const overview = await loadAssessment(id);
   const { assessment, technical, rating, agreements, frozen } = overview;
 
-  const [pool, scoreCounts] = await Promise.all([
-    prisma.user.findMany({
-      where: { role: "ASSESSOR", active: true },
-      include: { _count: { select: { assessorAssignments: true } } },
-      orderBy: { name: "asc" },
+  const areaRows: AreaRow[] = overview.areas.map((a) => ({
+    domain: a.domain,
+    area: a.area,
+    earned: a.earned,
+    available: a.available,
+    percent: a.percent,
+    total: a.total,
+    scored: a.scored,
+    note: overview.areaNotes.get(`${a.domain}|${a.area ?? ""}`) ?? "",
+  }));
+
+  const [pools, poolDetail] = await Promise.all([
+    prisma.pool.findMany({
+      where: { cycleId: assessment.cycleId },
+      orderBy: { position: "asc" },
+      select: { id: true, name: true },
     }),
-    prisma.assessorScore.groupBy({
-      by: ["assessorId"],
-      where: { assessmentId: id },
-      _count: { _all: true },
-    }),
+    assessment.poolId
+      ? prisma.pool.findUnique({
+          where: { id: assessment.poolId },
+          include: {
+            _count: { select: { assessments: true } },
+            assignments: { select: { criterionId: true, submittedAt: true } },
+          },
+        })
+      : null,
   ]);
 
-  const scoredBy = new Map(scoreCounts.map((c) => [c.assessorId, c._count._all]));
-  const assignedIds = new Set(assessment.assessors.map((a) => a.assessorId));
+  // "Allocated" counts line items with at least one assessor; "submitted" only
+  // those where every allocated slot is in, since one outstanding slot means the
+  // item isn't finished.
+  const poolSummary = poolDetail
+    ? {
+        id: poolDetail.id,
+        name: poolDetail.name,
+        clubs: poolDetail._count.assessments,
+        assigned: new Set(poolDetail.assignments.map((a) => a.criterionId)).size,
+        submitted: [...new Set(poolDetail.assignments.map((a) => a.criterionId))].filter((cid) =>
+          poolDetail.assignments.filter((a) => a.criterionId === cid).every((a) => a.submittedAt),
+        ).length,
+        criteriaTotal: agreements.length,
+      }
+    : null;
+
+  // NN7's level is computed from the club's recorded structure, so the Unit
+  // sees what the rules give alongside what has been recorded — and what is
+  // missing for each higher level, which is the part a club can act on.
+  const structure = await loadStructure(id);
 
   const checks: VerifyItem[] = assessment.nonNegotiables.map((n) => ({
     id: n.id,
@@ -43,6 +79,19 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
     title: n.nonNegotiable.title,
     description: n.nonNegotiable.description,
     evidenceHint: n.nonNegotiable.evidenceHint,
+    kind: n.nonNegotiable.kind,
+    format: n.nonNegotiable.format,
+    shieldGuidance: n.nonNegotiable.shieldGuidance,
+    shieldMet: n.shieldMet,
+    shieldMetDerived:
+      n.nonNegotiable.code === STRUCTURE_CHECK_CODE && structure.configured
+        ? structure.result.level
+        : n.shieldMetDerived,
+    overrideReason: n.overrideReason,
+    derivedFailures:
+      n.nonNegotiable.code === STRUCTURE_CHECK_CODE && structure.configured
+        ? structure.result.checks
+        : [],
     clubDeclared: n.clubDeclared,
     clubNote: n.clubNote,
     verdict: n.verdict,
@@ -60,6 +109,44 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
       filename: e.filename,
     });
   }
+
+  // The review, if the club has asked for one. Loaded here rather than inside
+  // loadAssessment because it is the only screen that needs it and it would
+  // otherwise ride along on every assessor and club page too.
+  const reviewRow = await prisma.reviewRequest.findUnique({
+    where: { assessmentId: id },
+    include: { items: { include: { criterion: true } } },
+  });
+
+  const timeline = reviewTimeline({
+    status: assessment.status,
+    publishedAt: assessment.publishedAt,
+    review: reviewRow,
+  });
+
+  const reviewData: ReviewPanelData | null = reviewRow && {
+    requestId: reviewRow.id,
+    submittedAt: reviewRow.submittedAt,
+    respondedAt: reviewRow.respondedAt,
+    response: reviewRow.response ?? "",
+    appealedAt: reviewRow.appealedAt,
+    appeal: reviewRow.appeal,
+    appealDecidedAt: reviewRow.appealDecidedAt,
+    appealDecision: reviewRow.appealDecision,
+    items: reviewRow.items.map((i) => ({
+      id: i.id,
+      code: i.criterion.code,
+      title: i.criterion.title,
+      maxScore: i.criterion.maxScore,
+      currentScore:
+        assessment.finalScores.find((f) => f.criterionId === i.criterionId)?.stars ?? null,
+      clubComment: i.clubComment,
+      outcome: i.outcome,
+      scoreBefore: i.scoreBefore,
+      scoreAfter: i.scoreAfter,
+      response: i.response ?? "",
+    })),
+  };
 
   const majorSplits = agreements.filter((a) => a.level === "MAJOR").length;
   const pendingChecks = checks.filter((c) => c.verdict === "PENDING").length;
@@ -94,9 +181,15 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
           label="Shield"
           value={<ShieldBadge shield={rating.shield} />}
           hint={
-            rating.eligibility.eligible
-              ? undefined
-              : `${rating.eligibility.failed.length} failed, ${rating.eligibility.pending.length} pending`
+            !rating.eligibility.eligible
+              ? `${rating.eligibility.failed.length} failed, ${rating.eligibility.pending.length} pending`
+              : rating.cappedDown
+                ? // The score alone would have earned more. Saying so here stops
+                  // the CDU chasing a scoring error that isn't there.
+                  `Scored ${SHIELD_LABELS[rating.provisionalShield]}, capped by ${rating.eligibility.cappedBy
+                    .map((c) => c.code)
+                    .join(", ")}`
+                : undefined
           }
         />
         <StatTile
@@ -115,6 +208,20 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
         <div className="min-w-0 space-y-6">
           <DomainBreakdown rating={rating} provisional={!frozen} />
+
+          <section>
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="section-title">By macro-area</h2>
+              <p className="text-xs text-ink-500">
+                The structure the club&apos;s report is built around.
+              </p>
+            </div>
+            <AreaNotes
+              assessmentId={id}
+              areas={areaRows}
+              editable={assessment.publishedAt === null}
+            />
+          </section>
 
           <section>
             <h2 className="section-title mb-3">Technical Qualifications breakdown</h2>
@@ -205,27 +312,27 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
             unresolved={overview.unresolved.length}
             pendingChecks={pendingChecks}
             summary={assessment.summary ?? ""}
+            licenceCompliant={assessment.licenceCompliant}
+            belowBronze={rating.provisionalShield === "NONE"}
           />
+
+          {assessment.publishedAt && (
+            <ReviewPanel
+              assessmentId={id}
+              review={reviewData}
+              stage={timeline.stage}
+              deadline={timeline.deadline}
+              overdue={timeline.overdue}
+              canConfirm={timeline.shouldConfirm}
+            />
+          )}
 
           <AssessorPanel
             assessmentId={id}
-            criteriaCount={agreements.length}
+            pool={poolSummary}
+            pools={pools}
+            assessors={overview.assessors}
             locked={locked}
-            assigned={assessment.assessors.map((a) => ({
-              id: a.assessorId,
-              name: displayName(a.assessor),
-              email: a.assessor.email,
-              submittedAt: a.submittedAt,
-              scored: scoredBy.get(a.assessorId) ?? 0,
-            }))}
-            available={pool
-              .filter((p) => !assignedIds.has(p.id))
-              .map((p) => ({
-                id: p.id,
-                name: displayName(p),
-                email: p.email,
-                load: p._count.assessorAssignments,
-              }))}
           />
 
           <div className="card card-pad">

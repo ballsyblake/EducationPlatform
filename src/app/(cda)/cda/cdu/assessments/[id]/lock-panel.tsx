@@ -8,6 +8,7 @@ import {
   lockAssessment,
   publishAssessment,
   reopenForClub,
+  setLicenceCompliance,
   unlockAssessment,
   withdrawAssessment,
   type CduFormState,
@@ -31,6 +32,8 @@ export function LockPanel({
   unresolved,
   pendingChecks,
   summary,
+  licenceCompliant,
+  belowBronze,
 }: {
   assessmentId: string;
   status: string;
@@ -39,14 +42,21 @@ export function LockPanel({
   unresolved: number;
   pendingChecks: number;
   summary: string;
+  licenceCompliant: boolean | null;
+  /** The score is below the Bronze bar, so the badge is what's at stake. */
+  belowBronze: boolean;
 }) {
   const [lockState, lockAction] = useActionState(lockAssessment, initialState);
   const [unlockState, unlockAction] = useActionState(unlockAssessment, initialState);
   const [publishState, publishAction] = useActionState(publishAssessment, initialState);
   const [withdrawState, withdrawAction] = useActionState(withdrawAssessment, initialState);
   const [reopenState, reopenAction] = useActionState(reopenForClub, initialState);
+  const [licenceState, licenceAction] = useActionState(setLicenceCompliance, initialState);
 
   const [summaryText, setSummaryText] = useState(summary);
+  const [licence, setLicence] = useState(
+    licenceCompliant === null ? "" : licenceCompliant ? "yes" : "no",
+  );
 
   const blockers: string[] = [];
   if (unresolved > 0) {
@@ -58,7 +68,14 @@ export function LockPanel({
     );
   }
 
-  const messages = [lockState, unlockState, publishState, withdrawState, reopenState];
+  // Only a blocker where it changes the outcome. Above the Bronze bar the club
+  // is getting a shield and the badge never comes into it, so demanding an
+  // answer would be make-work on every assessment to serve a handful.
+  if (belowBronze && licenceCompliant === null) {
+    blockers.push("licence compliance not recorded — needed for the Development Committed badge");
+  }
+
+  const messages = [lockState, unlockState, publishState, withdrawState, reopenState, licenceState];
 
   return (
     <div className="card card-pad space-y-4">
@@ -75,6 +92,42 @@ export function LockPanel({
 
       {!lockedAt && (
         <>
+          <form action={licenceAction} className="space-y-2 border-t border-ink-200 pt-3">
+            <input type="hidden" name="assessmentId" value={assessmentId} />
+            <fieldset>
+              <legend className="label">
+                Licence compliant, non-technical{" "}
+                <span className="font-normal text-ink-400">
+                  {belowBronze
+                    ? "(decides the Development Committed badge)"
+                    : "(only matters below the Bronze bar)"}
+                </span>
+              </legend>
+              <div className="flex flex-wrap gap-3">
+                {[
+                  { value: "yes", label: "Yes" },
+                  { value: "no", label: "No" },
+                  { value: "", label: "Not established" },
+                ].map((o) => (
+                  <label key={o.label} className="flex items-center gap-2 text-sm text-ink-700">
+                    <input
+                      type="radio"
+                      name="licenceCompliant"
+                      value={o.value}
+                      className="h-4 w-4 accent-maroon-600"
+                      checked={licence === o.value}
+                      onChange={() => setLicence(o.value)}
+                    />
+                    {o.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <SubmitButton className="btn-secondary btn-sm w-full" pendingLabel="Saving…">
+              Record compliance
+            </SubmitButton>
+          </form>
+
           {blockers.length > 0 && (
             <ul className="space-y-1 text-xs text-maroon-700">
               {blockers.map((b) => (

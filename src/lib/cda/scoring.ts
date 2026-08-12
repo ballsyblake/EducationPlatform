@@ -19,7 +19,6 @@ import type { Domain, Shield } from "@prisma-client";
 import {
   EMPLOYMENT_POINTS,
   MAX_STAFF_POINTS,
-  MAX_STARS,
   STAFF_ROLE_SPECS,
   experiencePoints,
   streamMultiplier,
@@ -91,6 +90,9 @@ export type RoleBreakdown = {
 
 export type TechnicalResult = {
   percent: number;
+  /** The domain's points, scaled onto the same currency as the line items. */
+  earned: number;
+  available: number;
   roles: RoleBreakdown[];
   staffCount: number;
   /** Roles the club has nobody in. The most actionable thing on the report. */
@@ -104,8 +106,20 @@ export type TechnicalResult = {
  * fill them; any slot left empty scores zero. Roles are then combined by
  * weight, so failing to appoint a Technical Director costs five times what
  * failing to appoint a MiniRoos Coordinator does.
+ *
+ * `maxPoints` converts the result into the same currency as the line items so
+ * the four domains can be added together. The staff rubric counts in units of
+ * its own — fifteen points per person, ten roles, differing slot counts — and
+ * those numbers have no relationship to a line item's `maxScore x weight`.
+ * Adding them raw would make Technical dwarf everything else. So the domain is
+ * scored as a ratio first and given its points afterwards, which is also how FQ
+ * does it: their Technical maximum comes from a table of team profiles rather
+ * than from the rubric's internals.
  */
-export function scoreTechnicalDomain(staff: ScorableStaff[]): TechnicalResult {
+export function scoreTechnicalDomain(
+  staff: ScorableStaff[],
+  maxPoints: number,
+): TechnicalResult {
   const roles: RoleBreakdown[] = (
     Object.keys(STAFF_ROLE_SPECS) as (keyof typeof STAFF_ROLE_SPECS)[]
   ).map((role) => {
@@ -137,9 +151,14 @@ export function scoreTechnicalDomain(staff: ScorableStaff[]): TechnicalResult {
 
   const totalWeight = roles.reduce((sum, r) => sum + r.weight, 0);
   const weighted = roles.reduce((sum, r) => sum + r.ratio * r.weight, 0);
+  const ratio = totalWeight === 0 ? 0 : weighted / totalWeight;
 
   return {
-    percent: totalWeight === 0 ? 0 : (weighted / totalWeight) * 100,
+    percent: ratio * 100,
+    // Rounded, so the domain contributes whole points like every line item does
+    // and a report's columns add up when read.
+    earned: Math.round(ratio * maxPoints),
+    available: maxPoints,
     roles,
     staffCount: staff.length,
     unfilledRoles: roles.filter((r) => r.declared === 0),
@@ -156,6 +175,9 @@ export type ScorableCriterion = {
   title: string;
   domain: Domain;
   weight: number;
+  maxScore: number;
+  /** FQ's macro-area within the domain, e.g. "Match Day Observations". */
+  area: string | null;
 };
 
 export type CriterionOutcome = {
@@ -167,14 +189,20 @@ export type CriterionOutcome = {
 export type DomainResult = {
   domain: Domain;
   percent: number;
+  /** Points earned: sum of score x weight. */
   earned: number;
+  /** Points available: sum of maxScore x weight. */
   available: number;
   scored: number;
   total: number;
 };
 
 /**
- * Scores one star-based domain.
+ * Scores one line-item domain, in points.
+ *
+ * A line item is worth `score x weight`, out of `maxScore x weight` — which is
+ * how Football Queensland's own sheets read, and why the maximum has to come
+ * from the criterion rather than a constant.
  *
  * Unscored criteria stay in the denominator. Dropping them would let a
  * half-finished assessment show a flattering percentage that collapses the
@@ -184,7 +212,10 @@ export type DomainResult = {
 export function scoreStarDomain(domain: Domain, outcomes: CriterionOutcome[]): DomainResult {
   const forDomain = outcomes.filter((o) => o.criterion.domain === domain);
 
-  const available = forDomain.reduce((sum, o) => sum + o.criterion.weight * MAX_STARS, 0);
+  const available = forDomain.reduce(
+    (sum, o) => sum + o.criterion.weight * o.criterion.maxScore,
+    0,
+  );
   const earned = forDomain.reduce((sum, o) => sum + (o.stars ?? 0) * o.criterion.weight, 0);
 
   return {
@@ -198,37 +229,187 @@ export function scoreStarDomain(domain: Domain, outcomes: CriterionOutcome[]): D
 }
 
 /* -------------------------------------------------------------------------- */
+/* Macro-areas                                                                */
+/* -------------------------------------------------------------------------- */
+
+export type AreaResult = {
+  domain: Domain;
+  /** null collects anything the catalogue hasn't placed in an area. */
+  area: string | null;
+  earned: number;
+  available: number;
+  percent: number;
+  scored: number;
+  total: number;
+  outcomes: CriterionOutcome[];
+};
+
+/**
+ * Subtotals each domain by macro-area.
+ *
+ * Football Queensland's report is organised around these rather than around the
+ * domain as a whole: a club is told it scored 67% on Program Management &
+ * Monitoring and 48% on Training Program Observations, with a paragraph on
+ * each. One Delivery percentage averages those into a number that describes
+ * neither and gives the club nothing to act on.
+ *
+ * Areas come out in catalogue order rather than alphabetically, so a report
+ * reads in the sequence the rubric was written in.
+ */
+export function scoreAreas(outcomes: CriterionOutcome[]): AreaResult[] {
+  const groups: AreaResult[] = [];
+
+  for (const o of outcomes) {
+    // Matched on the pair rather than a composite key: area names contain
+    // spaces and ampersands, and every separator that survives those is one
+    // more thing to get wrong.
+    let group = groups.find(
+      (g) => g.domain === o.criterion.domain && g.area === (o.criterion.area ?? null),
+    );
+
+    if (!group) {
+      group = {
+        domain: o.criterion.domain,
+        area: o.criterion.area ?? null,
+        earned: 0,
+        available: 0,
+        percent: 0,
+        scored: 0,
+        total: 0,
+        outcomes: [],
+      };
+      groups.push(group);
+    }
+
+    group.outcomes.push(o);
+    group.total += 1;
+    group.available += o.criterion.weight * o.criterion.maxScore;
+    group.earned += (o.stars ?? 0) * o.criterion.weight;
+    if (o.stars !== null) group.scored += 1;
+  }
+
+  for (const g of groups) {
+    g.percent = g.available === 0 ? 0 : (g.earned / g.available) * 100;
+  }
+
+  return groups;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Non-Negotiables                                                            */
 /* -------------------------------------------------------------------------- */
+
+/** Weakest to strongest, so a cap can be compared against a provisional shield. */
+export const SHIELD_ORDER: Shield[] = [
+  "NONE",
+  "DEVELOPMENT_COMMITTED",
+  "BRONZE",
+  "SILVER",
+  "GOLD",
+];
+
+const SHIELD_RANK: Record<Shield, number> = {
+  NONE: 0,
+  DEVELOPMENT_COMMITTED: 1,
+  BRONZE: 2,
+  SILVER: 3,
+  GOLD: 4,
+};
+
+/**
+ * The three levels a threshold Non-Negotiable can be recorded against.
+ *
+ * Development Committed is excluded on purpose: FQ sets its threshold standards
+ * per shield, and a badge is not a shield. A club below Bronze has no threshold
+ * bar to meet.
+ */
+export const THRESHOLD_LEVELS: Shield[] = ["NONE", "BRONZE", "SILVER", "GOLD"];
+
+/** The weaker of two shields. */
+export function minShield(a: Shield, b: Shield): Shield {
+  return SHIELD_RANK[a] <= SHIELD_RANK[b] ? a : b;
+}
 
 export type NonNegotiableState = {
   code: string;
   title: string;
   verdict: "PENDING" | "PASS" | "FAIL";
+  /**
+   * GATE checks are pass or fail; SHIELD_THRESHOLD checks set a different bar
+   * per shield. Defaults to GATE when absent so a caller that hasn't been
+   * updated still gets the stricter of the two behaviours.
+   */
+  kind?: "GATE" | "SHIELD_THRESHOLD";
+  /** SHIELD_THRESHOLD only: the highest shield whose bar this club met. */
+  shieldMet?: Shield | null;
 };
 
 export type EligibilityResult = {
-  /** True only when every Non-Negotiable has been verified as a pass. */
+  /** True only when every gate check has been verified as a pass. */
   eligible: boolean;
   passed: number;
   failed: NonNegotiableState[];
   pending: NonNegotiableState[];
   total: number;
+  /**
+   * The strongest shield the threshold checks allow, or null when none of them
+   * constrains the result. A club can be eligible and still capped.
+   */
+  cap: Shield | null;
+  /** The threshold checks that set that cap — the ones to name in the report. */
+  cappedBy: NonNegotiableState[];
 };
 
+/**
+ * Applies Football Queensland's two Non-Negotiable mechanisms.
+ *
+ * Six of the nine are gates: the documents are there or they aren't, and while
+ * one is missing "no assessment score can be elevated to 'Confirmed' status" —
+ * no shield at all, whatever the club scored.
+ *
+ * The other three are thresholds, and treating them as gates would be wrong in
+ * a way that punishes exactly the clubs the scheme is meant to bring along. FQ
+ * sets a different staffing and structure bar for each shield and phases them
+ * in over four years, explicitly exempting Silver and Bronze clubs from the
+ * Gold coaching requirement. So a club that meets the Silver bar but not the
+ * Gold one is not ineligible — it is a Silver club, and the cap says so.
+ */
 export function checkEligibility(items: NonNegotiableState[]): EligibilityResult {
-  const failed = items.filter((i) => i.verdict === "FAIL");
+  const gates = items.filter((i) => i.kind !== "SHIELD_THRESHOLD");
+  const thresholds = items.filter((i) => i.kind === "SHIELD_THRESHOLD");
+
+  const failed = gates.filter((i) => i.verdict === "FAIL");
+  // Pending counts against eligibility as much as a failure does, for threshold
+  // checks as much as for gates. A shield awarded on unverified checks is
+  // exactly the outcome the gate exists to prevent, so "not yet checked" can
+  // never resolve in the club's favour.
   const pending = items.filter((i) => i.verdict === "PENDING");
 
+  let cap: Shield | null = null;
+  for (const t of thresholds) {
+    // A threshold check the CDU marked as failed met nobody's bar. One left
+    // without a level recorded is treated the same way; it is already holding
+    // up eligibility as a pending item, and guessing upward here would let a
+    // half-finished verification award a shield.
+    const met: Shield = t.verdict === "FAIL" ? "NONE" : (t.shieldMet ?? "NONE");
+    cap = cap === null ? met : minShield(cap, met);
+  }
+
+  const cappedBy =
+    cap === null
+      ? []
+      : thresholds.filter(
+          (t) => (t.verdict === "FAIL" ? "NONE" : (t.shieldMet ?? "NONE")) === cap,
+        );
+
   return {
-    // Pending counts against eligibility as much as a failure does. A shield
-    // awarded on unverified checks is exactly the outcome the gate exists to
-    // prevent, so "not yet checked" can never resolve in the club's favour.
     eligible: items.length > 0 && failed.length === 0 && pending.length === 0,
     passed: items.filter((i) => i.verdict === "PASS").length,
     failed,
     pending,
     total: items.length,
+    cap,
+    cappedBy,
   };
 }
 
@@ -236,94 +417,140 @@ export function checkEligibility(items: NonNegotiableState[]): EligibilityResult
 /* Weighted total and shield                                                  */
 /* -------------------------------------------------------------------------- */
 
-export type CycleWeights = {
-  technicalWeight: number;
-  planningWeight: number;
-  deliveryWeight: number;
-  outcomesWeight: number;
-};
-
 export type ShieldThresholds = {
   bronzeMin: number;
   silverMin: number;
   goldMin: number;
-  platinumMin: number;
 };
 
-export type DomainPercentages = Record<Domain, number>;
+/** Points earned and available for one domain. */
+export type DomainPoints = { earned: number; available: number };
 
 export type RatingResult = {
-  domains: DomainPercentages;
-  weights: Record<Domain, number>;
+  /** Each domain's percentage, for display only — it contributes nothing. */
+  domains: Record<Domain, number>;
+  points: Record<Domain, DomainPoints>;
+  /** What share of the whole rating each domain turned out to carry. */
+  shares: Record<Domain, number>;
   /** Each domain's contribution to the total, in percentage points. */
   contributions: Record<Domain, number>;
+  earned: number;
+  available: number;
   percent: number;
   eligibility: EligibilityResult;
-  /** The shield the score earns, before the Non-Negotiable gate. */
+  /** The shield the score earns, before the Non-Negotiables are applied. */
   provisionalShield: Shield;
-  /** What the club is actually awarded — null when a Non-Negotiable blocks it. */
+  /** What the club is actually awarded — null when a gate check blocks it. */
   shield: Shield | null;
+  /**
+   * True when the club scored a higher shield than the threshold checks allow.
+   * The score isn't wrong and the club isn't ineligible; they are held at the
+   * level their structure and staffing actually support, and the report has to
+   * say so rather than quietly showing a smaller shield.
+   */
+  cappedDown: boolean;
+  /**
+   * True when the award is the Development Committed badge rather than a
+   * shield. Worth distinguishing because the two are used differently: a shield
+   * is a mark of standard the club publishes, and the badge is an
+   * acknowledgement that they are in the program and compliant.
+   */
+  developmentBadge: boolean;
 };
 
+/**
+ * The shield a percentage earns on its own.
+ *
+ * Below Bronze this returns NONE rather than the Development Committed badge:
+ * the badge also depends on licence compliance, which is not a scoring
+ * question, so it is applied in `computeRating` where that answer is available.
+ */
 export function shieldFor(percent: number, t: ShieldThresholds): Shield {
-  if (percent >= t.platinumMin) return "PLATINUM";
   if (percent >= t.goldMin) return "GOLD";
   if (percent >= t.silverMin) return "SILVER";
   if (percent >= t.bronzeMin) return "BRONZE";
   return "NONE";
 }
 
+const DOMAINS: Domain[] = ["TECHNICAL", "PLANNING", "DELIVERY", "OUTCOMES"];
+
 /**
- * Combines the four domains into the rating.
+ * Combines the four domains into the rating, by adding up points.
  *
- * Weights are normalised rather than assumed to total 100, so a cycle
- * configured 30/20/30/25 by mistake still produces a coherent percentage
- * instead of one that can't reach 100.
+ * This is Football Queensland's arithmetic, and it is not the same as scoring
+ * each domain to a percentage and then averaging those percentages by weight.
+ * Every line item contributes `score x weight` towards one grand total, and a
+ * domain's influence is simply how many points it happens to contain — 490 of
+ * FQ's 1314 sit in Delivery, so Delivery is 37% of the rating, and nobody
+ * configured that anywhere.
+ *
+ * The practical difference: under the weighted-average method a domain with few
+ * points still counts for its full configured share, so one bad mark in a small
+ * domain moves the total as much as several in a large one. Summing points
+ * makes every mark worth the same everywhere, which is what makes the weightings
+ * on the line items mean anything.
  */
 export function computeRating(
-  domains: DomainPercentages,
-  cycle: CycleWeights & ShieldThresholds,
+  points: Record<Domain, DomainPoints>,
+  cycle: ShieldThresholds,
   nonNegotiables: NonNegotiableState[],
+  /**
+   * Whether the club is licence compliant in non-technical areas — the one
+   * condition on the Development Committed badge. Null or false means no badge:
+   * FQ publishes it, and a recognition nobody has confirmed shouldn't be handed
+   * out because the field was left blank.
+   */
+  licenceCompliant: boolean | null = null,
 ): RatingResult {
-  const weights: Record<Domain, number> = {
-    TECHNICAL: cycle.technicalWeight,
-    PLANNING: cycle.planningWeight,
-    DELIVERY: cycle.deliveryWeight,
-    OUTCOMES: cycle.outcomesWeight,
-  };
+  const earned = DOMAINS.reduce((sum, d) => sum + points[d].earned, 0);
+  const available = DOMAINS.reduce((sum, d) => sum + points[d].available, 0);
 
-  const totalWeight =
-    weights.TECHNICAL + weights.PLANNING + weights.DELIVERY + weights.OUTCOMES;
+  const domains = {} as Record<Domain, number>;
+  const shares = {} as Record<Domain, number>;
+  const contributions = {} as Record<Domain, number>;
 
-  const contributions = {
-    TECHNICAL: 0,
-    PLANNING: 0,
-    DELIVERY: 0,
-    OUTCOMES: 0,
-  } as Record<Domain, number>;
-
-  for (const domain of Object.keys(weights) as Domain[]) {
-    contributions[domain] =
-      totalWeight === 0 ? 0 : (domains[domain] * weights[domain]) / totalWeight;
+  for (const domain of DOMAINS) {
+    const p = points[domain];
+    domains[domain] = p.available === 0 ? 0 : (p.earned / p.available) * 100;
+    shares[domain] = available === 0 ? 0 : (p.available / available) * 100;
+    contributions[domain] = available === 0 ? 0 : (p.earned / available) * 100;
   }
 
-  const percent =
-    contributions.TECHNICAL +
-    contributions.PLANNING +
-    contributions.DELIVERY +
-    contributions.OUTCOMES;
+  const percent = available === 0 ? 0 : (earned / available) * 100;
 
   const eligibility = checkEligibility(nonNegotiables);
   const provisionalShield = shieldFor(percent, cycle);
 
+  const capped =
+    eligibility.cap === null
+      ? provisionalShield
+      : minShield(provisionalShield, eligibility.cap);
+
+  // The badge is keyed off the score, not off the capped result. FQ's condition
+  // is "clubs scoring less than 40%", and a club that scored a shield but met no
+  // threshold standard is not a development-committed club — it is a club whose
+  // structure met no standard, which is a different finding and reads as NONE.
+  //
+  // Applied after the cap so the cap can't take it away: there is no threshold
+  // bar below Bronze for it to fall short of.
+  const badge = provisionalShield === "NONE" && licenceCompliant === true;
+  const awarded: Shield = badge ? "DEVELOPMENT_COMMITTED" : capped;
+
   return {
     domains,
-    weights,
+    points,
+    shares,
     contributions,
+    earned,
+    available,
     percent,
     eligibility,
     provisionalShield,
-    shield: eligibility.eligible ? provisionalShield : null,
+    shield: eligibility.eligible ? awarded : null,
+    // Measured against the capped result, not the awarded one, so the badge —
+    // which raises the award rather than lowering it — never reads as a cap.
+    cappedDown: eligibility.eligible && capped !== provisionalShield,
+    developmentBadge: eligibility.eligible === true && badge,
   };
 }
 

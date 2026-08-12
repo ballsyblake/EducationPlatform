@@ -20,8 +20,12 @@ export const metadata = { title: "Club evidence" };
  * is to judge the evidence, and showing them the Technical percentage the
  * register already produces would anchor how they score everything else.
  */
-export default async function ClubDataPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default async function ClubDataPage({
+  params,
+}: {
+  params: Promise<{ assessmentId: string }>;
+}) {
+  const { assessmentId: id } = await params;
   const assessor = await requireAssessor();
   const assessment = await requireAssessmentAccess(assessor, id);
 
@@ -33,7 +37,7 @@ export default async function ClubDataPage({ params }: { params: Promise<{ id: s
     }),
     prisma.clubMetric.findMany({ where: { assessmentId: id } }),
     prisma.nonNegotiableResult.findMany({
-      where: { assessmentId: id },
+      where: { assessmentId: id, nonNegotiable: { active: true } },
       include: { nonNegotiable: true, evidence: true },
       orderBy: { nonNegotiable: { position: "asc" } },
     }),
@@ -48,7 +52,7 @@ export default async function ClubDataPage({ params }: { params: Promise<{ id: s
       <PageHeader
         title={`${assessment.club.name} — submitted evidence`}
         subtitle="Everything the club declared for this cycle."
-        breadcrumb={{ href: `/cda/assess/${id}`, label: "Back to scoring" }}
+        breadcrumb={{ href: "/cda/assess", label: "My line items" }}
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">

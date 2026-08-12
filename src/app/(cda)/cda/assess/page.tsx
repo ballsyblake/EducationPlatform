@@ -1,119 +1,132 @@
 import Link from "next/link";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { requireAssessor } from "@/lib/cda/access";
+import { DOMAIN_LABELS } from "@/lib/cda/rubric";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/format";
 
-export const metadata = { title: "My clubs" };
+export const metadata = { title: "My line items" };
 
+/**
+ * An assessor's home is a list of line items, not a list of clubs.
+ *
+ * They hold one criterion across a whole pool, so the unit of work — and the
+ * thing they need progress on — is "D6 across Pool A", not "Lions FC".
+ */
 export default async function AssessorHomePage() {
   const assessor = await requireAssessor();
 
-  const assignments = await prisma.assessorAssignment.findMany({
+  const assignments = await prisma.criterionAssignment.findMany({
     where: { assessorId: assessor.id },
     include: {
-      assessment: {
+      criterion: true,
+      pool: {
         include: {
-          club: true,
           cycle: true,
-          _count: { select: { staff: true } },
+          _count: { select: { assessments: true } },
         },
       },
     },
-    orderBy: [{ submittedAt: "asc" }, { createdAt: "asc" }],
+    orderBy: [{ submittedAt: "asc" }, { criterion: { position: "asc" } }],
   });
-
-  const criteriaCount = await prisma.criterion.count({
-    where: { active: true, domain: { in: ["PLANNING", "DELIVERY", "OUTCOMES"] } },
-  });
-
-  // One grouped query rather than one per club — an assessor with a dozen
-  // assignments would otherwise pay a round trip each just to draw a progress bar.
-  const scoreCounts = await prisma.assessorScore.groupBy({
-    by: ["assessmentId"],
-    where: { assessorId: assessor.id },
-    _count: { _all: true },
-  });
-  const scoredByAssessment = new Map(scoreCounts.map((c) => [c.assessmentId, c._count._all]));
 
   if (assignments.length === 0) {
     return (
       <>
-        <PageHeader title="My clubs" />
+        <PageHeader title="My line items" />
         <EmptyState
-          title="No clubs assigned to you yet"
-          description="The Club Development Unit assigns assessors to clubs once those clubs have submitted their data. You'll see them here."
+          title="Nothing assigned to you yet"
+          description="The Club Assessment Unit allocates each line item to an assessor for a whole pool of clubs. Yours will appear here once they're allocated."
         />
       </>
     );
   }
 
-  const outstanding = assignments.filter((a) => !a.submittedAt).length;
-  const totalScored = assignments.reduce(
-    (n, a) => n + (scoredByAssessment.get(a.assessmentId) ?? 0),
+  // One grouped query rather than one per assignment — an assessor holding a
+  // dozen line items would otherwise pay a round trip each just to draw a bar.
+  const counts = await prisma.assessorScore.groupBy({
+    by: ["criterionId"],
+    where: { assessorId: assessor.id },
+    _count: { _all: true },
+  });
+  const scoredByCriterion = new Map(counts.map((c) => [c.criterionId, c._count._all]));
+
+  const outstanding = assignments.filter((a) => !a.submittedAt);
+  const totalClubs = outstanding.reduce((n, a) => n + a.pool._count.assessments, 0);
+  const totalScored = outstanding.reduce(
+    (n, a) => n + Math.min(scoredByCriterion.get(a.criterionId) ?? 0, a.pool._count.assessments),
     0,
   );
 
   return (
     <>
       <PageHeader
-        title="My clubs"
-        subtitle="Clubs assigned to you for this cycle. You only see the clubs you're assessing."
+        title="My line items"
+        subtitle="Each line item is scored across every club in its pool, so the standard stays the same between them."
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <StatTile label="Assigned" value={assignments.length} hint="Clubs to assess" />
+        <StatTile label="Line items" value={assignments.length} hint="Allocated to you" />
         <StatTile
           label="Outstanding"
-          value={outstanding}
-          tone={outstanding > 0 ? "warn" : "good"}
-          hint={outstanding > 0 ? "Not yet submitted" : "All submitted"}
+          value={outstanding.length}
+          tone={outstanding.length > 0 ? "warn" : "good"}
+          hint={outstanding.length > 0 ? "Not yet submitted" : "All submitted"}
         />
-        <StatTile label="Criteria scored" value={totalScored} hint="Across all your clubs" />
+        <StatTile
+          label="Clubs scored"
+          value={`${totalScored}/${totalClubs}`}
+          hint="Across your open line items"
+        />
       </div>
 
       <div className="card divide-y divide-ink-200">
-        {assignments.map((assignment) => {
-          const { assessment } = assignment;
-          const scored = scoredByAssessment.get(assessment.id) ?? 0;
-          const closed = assessment.status !== "SUBMITTED" && assessment.status !== "IN_ASSESSMENT";
+        {assignments.map((a) => {
+          const clubs = a.pool._count.assessments;
+          const scored = Math.min(scoredByCriterion.get(a.criterionId) ?? 0, clubs);
+          const complete = clubs > 0 && scored === clubs;
 
           return (
             <Link
-              key={assignment.id}
-              href={`/cda/assess/${assessment.id}`}
+              key={a.id}
+              href={`/cda/assess/${a.id}`}
               className="block px-5 py-4 hover:bg-ink-50"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium text-ink-900">{assessment.club.name}</p>
-                    {assignment.submittedAt ? (
+                    <span className="text-xs font-semibold tracking-wide text-ink-400">
+                      {a.criterion.code}
+                    </span>
+                    <p className="font-medium text-ink-900">{a.criterion.title}</p>
+                    {a.submittedAt ? (
                       <Badge tone="good">Submitted</Badge>
                     ) : scored === 0 ? (
                       <Badge tone="muted">Not started</Badge>
                     ) : (
                       <Badge tone="warn">In progress</Badge>
                     )}
-                    {closed && !assignment.submittedAt && <Badge tone="info">Closed</Badge>}
+                    {a.slot === 3 && <Badge tone="info">Tiebreaker</Badge>}
                   </div>
                   <p className="mt-0.5 text-xs text-ink-500">
-                    {[assessment.club.zone, assessment.club.tier].filter(Boolean).join(" · ")} ·{" "}
-                    {assessment.cycle.name} · {assessment._count.staff} staff on register
-                    {assignment.submittedAt && ` · submitted ${formatDate(assignment.submittedAt)}`}
+                    Pool {a.pool.name} · {clubs} club{clubs === 1 ? "" : "s"} ·{" "}
+                    {DOMAIN_LABELS[a.criterion.domain]} ·{" "}
+                    {a.criterion.mode === "OBSERVATION" ? "Observation" : "Evidence"} ·{" "}
+                    {a.pool.cycle.name}
+                    {a.submittedAt && ` · submitted ${formatDate(a.submittedAt)}`}
                   </p>
                 </div>
 
                 <div className="w-44">
                   <div className="mb-1 flex justify-between text-xs text-ink-500">
                     <span>
-                      {scored} / {criteriaCount}
+                      {scored} / {clubs}
                     </span>
-                    <span>{Math.round((scored / criteriaCount) * 100)}%</span>
+                    <span>{clubs ? Math.round((scored / clubs) * 100) : 0}%</span>
                   </div>
                   <ProgressBar
-                    value={(scored / criteriaCount) * 100}
-                    tone={scored === criteriaCount ? "good" : "warn"}
+                    value={clubs ? (scored / clubs) * 100 : 0}
+                    tone={complete ? "good" : "warn"}
                   />
                 </div>
               </div>
