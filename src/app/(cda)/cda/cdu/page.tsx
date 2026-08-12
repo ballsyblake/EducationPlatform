@@ -7,6 +7,7 @@ import { SHIELD_LABELS } from "@/lib/cda/rubric";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import { CycleSettings } from "./cycle-settings";
+import { NewCycle } from "./new-cycle";
 import type { Shield } from "@prisma-client";
 
 export const metadata = { title: "Cycle" };
@@ -44,11 +45,23 @@ export default async function CduHomePage() {
   if (!cycle) {
     return (
       <>
-        <PageHeader title="Club Development Unit" />
-        <EmptyState
-          title="No assessment cycle yet"
-          description="Create a cycle to start assessing clubs."
+        <PageHeader
+          title="Club Development Unit"
+          subtitle="Nothing has been set up yet."
         />
+        <div className="mb-6 card card-pad max-w-2xl text-sm text-ink-700">
+          <p>
+            The rating rubric is already loaded — Football Queensland&apos;s line items,
+            Non-Negotiables, qualifications and structure standards all ship with the portal and
+            are visible under <strong>Rubric</strong>. What&apos;s missing is a season to assess.
+          </p>
+          <p className="mt-2 text-ink-500">
+            Open a cycle below, add your clubs under <strong>Clubs</strong>, create an
+            administrator account for each under <strong>Assessors</strong>, then move the cycle to
+            Club entry when you want clubs to start submitting.
+          </p>
+        </div>
+        <NewCycle suggestedYear={new Date().getFullYear()} />
       </>
     );
   }

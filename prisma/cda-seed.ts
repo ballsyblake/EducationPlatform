@@ -13,7 +13,7 @@
 import type { PrismaClient, Shield } from "../generated/prisma/client.ts";
 import { defaultThresholds, starsFromEvidence } from "../src/lib/cda/rubric.ts";
 import { CRITERIA, NON_NEGOTIABLES, QUALIFICATIONS } from "./cda-catalog.ts";
-import { STRUCTURE_ROLES, STRUCTURE_STANDARDS_2026 } from "./cda-structure.ts";
+import { STRUCTURE_ROLES } from "../src/lib/cda/structure.ts";
 
 /* -------------------------------------------------------------------------- */
 /* Catalogue                                                                  */
@@ -72,6 +72,7 @@ export async function seedCatalog(prisma: PrismaClient) {
 
   await backfillNonNegotiables(prisma);
   await seedStructureRoles(prisma);
+  await ensureStructureStandards(prisma);
 
   // Tiers first: criteria attach to them, and a Tier 2 club is assessed on a
   // subset of the same coded items rather than a different catalogue.
@@ -221,37 +222,23 @@ async function seedStructureRoles(prisma: PrismaClient) {
  * is running, its bar is what its clubs were judged against and a redeploy must
  * not move it.
  */
-export async function seedStructureStandards(prisma: PrismaClient, cycleId: string) {
-  const roles = new Map(
-    (await prisma.structureRole.findMany({ select: { id: true, code: true } })).map((r) => [
-      r.code,
-      r.id,
-    ]),
-  );
-
-  for (const std of STRUCTURE_STANDARDS_2026) {
-    const existing = await prisma.structureStandard.findUnique({
-      where: { cycleId_shield: { cycleId, shield: std.shield } },
-    });
-    if (existing) continue;
-
-    await prisma.structureStandard.create({
-      data: {
-        cycleId,
-        shield: std.shield,
-        functionsRequired: std.functionsRequired,
-        roles: {
-          create: std.roles
-            .filter((r) => roles.has(r.role))
-            .map((r) => ({
-              roleId: roles.get(r.role)!,
-              required: r.required ?? false,
-              minQualLevel: r.minQualLevel ?? 0,
-              requireFullTime: r.requireFullTime ?? false,
-            })),
-        },
-      },
-    });
+/**
+ * Gives every cycle a structure bar, creating one only where none exists.
+ *
+ * Runs on every boot so a cycle created from the portal — which is how a real
+ * instance starts, unlike the demo — gets its standards without anyone knowing
+ * they exist. A cycle that already has them keeps them: once clubs are being
+ * judged against a bar, a redeploy must not move it.
+ *
+ * Every cycle currently gets the 2026 figures, because they are the only ones
+ * Football Queensland has published. 2027 and 2028 raise the coverage counts
+ * (Gold to 9 then 11), and when FQ issues them they belong here as a per-year
+ * table rather than as an edit to this one.
+ */
+async function ensureStructureStandards(prisma: PrismaClient) {
+  const { ensureCycleStandards } = await import("../src/lib/cda/assessment.ts");
+  for (const cycle of await prisma.cycle.findMany({ select: { id: true } })) {
+    await ensureCycleStandards(cycle.id);
   }
 }
 
@@ -736,9 +723,6 @@ export async function seedDemo(prisma: PrismaClient) {
       closesAt: new Date("2026-09-30"),
     },
   });
-
-  // The per-shield structure bar belongs to the cycle, so it is created with it.
-  await seedStructureStandards(prisma, cycle.id);
 
   const priorCycle = await prisma.cycle.create({
     data: { year: 2025, name: "2025 Club Rating", status: "PUBLISHED" },

@@ -34,6 +34,7 @@ export async function clubContext() {
         orderBy: { nonNegotiable: { position: "asc" } },
       },
       metrics: true,
+      structure: true,
     },
   });
 
@@ -54,6 +55,15 @@ export async function clubContext() {
       done: declared === assessment.nonNegotiables.length,
       declared,
       total: assessment.nonNegotiables.length,
+    },
+    // Counted as done once anything at all is recorded. A club with no Head of
+    // Junior has a legitimately incomplete structure and should still be able
+    // to submit — what it must not do is submit having never opened the page,
+    // because an unrecorded structure computes to NONE and caps the shield at
+    // nothing for a reason nobody chose.
+    structure: {
+      done: assessment.structure.some((e) => e.status !== "ABSENT"),
+      filled: assessment.structure.filter((e) => e.status !== "ABSENT").length,
     },
     participation: {
       done: metricsFilled === METRIC_SPECS.length,

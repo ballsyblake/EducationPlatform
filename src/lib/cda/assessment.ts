@@ -29,6 +29,7 @@ import {
 } from "@/lib/cda/scoring";
 import { ASSESSED_DOMAINS } from "@/lib/cda/rubric";
 import {
+  STRUCTURE_STANDARDS_2026,
   scoreStructure,
   type StructureResult,
   type StructureRoleSpec,
@@ -494,3 +495,51 @@ export async function syncStructureLevel(assessmentId: string) {
 
 /** The Non-Negotiable whose level this computes. */
 export const STRUCTURE_CHECK_CODE = "NN7";
+
+/**
+ * Gives one cycle its per-shield structure bar, if it hasn't got one.
+ *
+ * Called when a cycle is created from the portal and again on every boot, so an
+ * instance that has never run the demo still computes NN7. Only creates what is
+ * missing: once clubs are being judged against a bar, neither a redeploy nor a
+ * second call may move it.
+ *
+ * Every cycle currently gets the 2026 figures, because they are the only ones
+ * Football Queensland has published. 2027 and 2028 raise the coverage counts —
+ * Gold to 9 and then 11 — and when FQ issues them they belong here as a
+ * per-year table rather than as an edit to this one.
+ */
+export async function ensureCycleStandards(cycleId: string) {
+  const roles = new Map(
+    (await prisma.structureRole.findMany({ select: { id: true, code: true } })).map((r) => [
+      r.code,
+      r.id,
+    ]),
+  );
+  if (roles.size === 0) return;
+
+  for (const std of STRUCTURE_STANDARDS_2026) {
+    const existing = await prisma.structureStandard.findUnique({
+      where: { cycleId_shield: { cycleId, shield: std.shield } },
+    });
+    if (existing) continue;
+
+    await prisma.structureStandard.create({
+      data: {
+        cycleId,
+        shield: std.shield,
+        functionsRequired: std.functionsRequired,
+        roles: {
+          create: std.roles
+            .filter((r) => roles.has(r.role))
+            .map((r) => ({
+              roleId: roles.get(r.role)!,
+              required: r.required ?? false,
+              minQualLevel: r.minQualLevel ?? 0,
+              requireFullTime: r.requireFullTime ?? false,
+            })),
+        },
+      },
+    });
+  }
+}

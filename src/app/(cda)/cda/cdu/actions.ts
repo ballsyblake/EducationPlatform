@@ -9,6 +9,7 @@ import { activeCycle, ensureAssessment, freezeResult, loadAssessment } from "@/l
 import { MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
 import { STAGE_LABELS, reviewTimeline } from "@/lib/cda/review";
 import { THRESHOLD_LEVELS } from "@/lib/cda/scoring";
+import { ensureCycleStandards } from "@/lib/cda/assessment";
 import { prisma } from "@/lib/db";
 
 export type CduFormState = {
@@ -884,12 +885,21 @@ export async function createCycle(_prev: CduFormState, formData: FormData): Prom
   const existing = await prisma.cycle.findUnique({ where: { year } });
   if (existing) return { status: "error", message: `A ${year} cycle already exists.` };
 
-  await prisma.cycle.create({
+  const cycle = await prisma.cycle.create({
     data: { year, name: `${year} Club Rating`, status: "SETUP" },
   });
 
+  // A cycle without a structure bar can't compute NN7, and nothing in the
+  // portal would say so — the check would simply sit at "not set" forever. The
+  // demo used to be the only thing that created these, which made a real
+  // instance the one place the feature didn't work.
+  await ensureCycleStandards(cycle.id);
+
   refresh();
-  return { status: "ok", message: `${year} cycle created.` };
+  return {
+    status: "ok",
+    message: `${year} cycle created. Add clubs, then move it to Club entry when you're ready for them to submit.`,
+  };
 }
 
 /* -------------------------------------------------------------------------- */

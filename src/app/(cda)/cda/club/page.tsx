@@ -107,6 +107,15 @@ export default async function ClubOverviewPage() {
       warn: checklist.staff.missingBlueCards > 0,
     },
     {
+      href: "/cda/club/structure",
+      title: "Club structure",
+      done: checklist.structure.done,
+      detail: checklist.structure.filled
+        ? `${checklist.structure.filled} functions recorded`
+        : "Nothing recorded yet",
+      warn: false,
+    },
+    {
       href: "/cda/club/non-negotiables",
       title: "Non-Negotiables",
       done: checklist.nonNegotiables.done,
@@ -211,7 +220,7 @@ export default async function ClubOverviewPage() {
         <aside className="space-y-4">
           <SubmitPanel
             canSubmit={checklist.editable}
-            ready={checklist.nonNegotiables.done && checklist.staff.done}
+            ready={checklist.nonNegotiables.done && checklist.staff.done && checklist.structure.done}
             outstanding={checklist.nonNegotiables.total - checklist.nonNegotiables.declared}
           />
 
