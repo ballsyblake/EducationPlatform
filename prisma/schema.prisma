@@ -432,6 +432,8 @@ model Cycle {
 
   assessments ClubAssessment[]
   pools       Pool[]
+
+  structureStandards StructureStandard[]
 }
 
 enum AssessmentStatus {
@@ -541,6 +543,7 @@ model ClubAssessment {
   metrics        ClubMetric[]
   areaNotes      AreaNote[]
   review         ReviewRequest?
+  structure      StructureEntry[]
 
   @@unique([clubId, cycleId])
   @@index([cycleId])
@@ -906,8 +909,18 @@ model NonNegotiableResult {
   verdict         NonNegotiableVerdict @default(PENDING)
   /// For SHIELD_THRESHOLD checks: the highest shield whose bar this club met.
   /// Null on a GATE check, and null on a threshold check the CDU hasn't looked
-  /// at yet. NONE means "looked at, met nobody's bar".
+  /// at yet. NONE means "looked at, met nobody's bar". This is the effective
+  /// level — the one that caps the shield.
   shieldMet       Shield?
+  /// What the recorded structure actually computes to, for the checks that can
+  /// be computed. Stored alongside rather than instead of `shieldMet` so a
+  /// departure is visible as a departure: FQ's own workbook records a level
+  /// more generous than its rules on sixteen of thirty-three clubs, and the
+  /// portal should make that a decision somebody signed rather than a number
+  /// nobody re-derived.
+  shieldMetDerived Shield?
+  /// Required whenever `shieldMet` departs from `shieldMetDerived`.
+  overrideReason   String?
   adminNote       String?
   verifiedById    String?
   verifiedBy      User?                @relation("NonNegotiableVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
@@ -1066,4 +1079,121 @@ model ReviewItem {
 
   @@unique([requestId, criterionId])
   @@index([requestId])
+}
+
+/**
+ * ------------------------- Club Structure Standards -------------------------
+ *
+ * NN7's level is computed, not judged. Football Queensland maintains it in a
+ * workbook today: eleven named functions, each recorded from a fixed
+ * vocabulary, against a per-shield bar that ratchets year by year. Recomputing
+ * their own 2026 sheet from their own requirements tab disagreed on sixteen of
+ * thirty-three clubs, always in the club's favour — which is what a column
+ * typed by hand next to a rule nobody re-checks looks like.
+ */
+
+/// How one organisational function is recorded.
+enum StructureRoleKind {
+  /// Filled or not. Goalkeeping, Wellbeing, Sports Science, Analyst, and the
+  /// two submitted documents.
+  PRESENCE
+  /// Filled, and on what terms. The Technical Director only — FQ requires a
+  /// full-time TD at every shield, so part-time is a distinct answer from
+  /// absent and from present.
+  EMPLOYMENT
+  /// Filled, and to what qualification. The four Heads whose minimum diploma
+  /// rises with the shield.
+  QUALIFIED
+}
+
+/// What a club recorded against one function.
+///
+/// One vocabulary across all three kinds rather than three enums, because the
+/// answers form a single ladder: absent is worse than present-but-unqualified,
+/// which is worse than a C Diploma. Keeping them together is what lets the
+/// comparison be a number.
+enum RoleStatus {
+  /// Nobody in the role.
+  ABSENT
+  /// In post. The answer for a PRESENCE function.
+  PRESENT
+  /// EMPLOYMENT only.
+  PART_TIME
+  FULL_TIME
+  /// QUALIFIED: in post, but below the minimum diploma for any shield.
+  NOT_MIN_QUAL
+  C_DIPLOMA
+  /// FQ counts enrolment towards the B Diploma as holding it — "hold or are
+  /// enrolled in a min. B Diploma".
+  ENROLLED_B
+  B_DIPLOMA_PLUS
+}
+
+/// One of Football Queensland's organisational functions.
+model StructureRole {
+  id       String            @id @default(cuid())
+  code     String            @unique
+  label    String
+  kind     StructureRoleKind @default(PRESENCE)
+  /// False for the two submitted documents, which are required at every shield
+  /// but are not one of the eleven functions the coverage count is drawn from.
+  counts   Boolean           @default(true)
+  position Int               @default(0)
+  active   Boolean           @default(true)
+
+  entries      StructureEntry[]
+  requirements StructureRoleRequirement[]
+}
+
+/// The bar for one shield in one cycle.
+///
+/// Per cycle because FQ phases it in: 8 of 11 functions for Gold in 2026, 9 in
+/// 2027, all 11 in 2028. A new year is a data change here, not a code change.
+model StructureStandard {
+  id      String @id @default(cuid())
+  cycleId String
+  cycle   Cycle  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  shield  Shield
+  /// How many of the counting functions must be filled.
+  functionsRequired Int @default(0)
+
+  roles StructureRoleRequirement[]
+
+  @@unique([cycleId, shield])
+}
+
+/// What one shield demands of one function, over and above being counted.
+model StructureRoleRequirement {
+  id         String            @id @default(cuid())
+  standardId String
+  standard   StructureStandard @relation(fields: [standardId], references: [id], onDelete: Cascade)
+  roleId     String
+  role       StructureRole     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  /// Mandatory at this shield regardless of the coverage count.
+  required   Boolean           @default(false)
+  /// 0 = no qualification requirement. 1 = C Diploma. 2 = B Diploma or
+  /// enrolled. Stored as a level rather than a RoleStatus because the test is
+  /// "at least", and two different statuses satisfy level 2.
+  minQualLevel Int             @default(0)
+  /// EMPLOYMENT roles only: part-time doesn't satisfy this shield.
+  requireFullTime Boolean      @default(false)
+
+  @@unique([standardId, roleId])
+}
+
+/// What one club recorded against one function.
+model StructureEntry {
+  id           String         @id @default(cuid())
+  assessmentId String
+  assessment   ClubAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  roleId       String
+  role         StructureRole  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  status       RoleStatus     @default(ABSENT)
+  /// Who holds it. Not scored — it is what makes the Unit's check possible.
+  holderName   String?
+  note         String?
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([assessmentId, roleId])
+  @@index([assessmentId])
 }

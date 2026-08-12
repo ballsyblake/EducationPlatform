@@ -423,6 +423,22 @@ export async function verifyNonNegotiable(
     };
   }
 
+  // Departing from a computed level needs a reason on the record. The Unit is
+  // entitled to exercise judgement — FQ plainly does — but a level that differs
+  // from what the rules give should be a decision somebody signed, not a number
+  // indistinguishable from arithmetic. This is the same bargain the reconcile
+  // screen strikes when the CDU departs from the assessors' median.
+  const derived = result.shieldMetDerived;
+  const departing = threshold && verdict === "PASS" && derived !== null && shieldMet !== derived;
+  const overrideReason = String(formData.get("overrideReason") ?? "").trim() || null;
+
+  if (departing && !overrideReason) {
+    return {
+      status: "error",
+      message: `The club's recorded structure computes to ${derived}. Say why you're recording a different level.`,
+    };
+  }
+
   await prisma.nonNegotiableResult.update({
     where: { id: resultId },
     data: {
@@ -431,6 +447,7 @@ export async function verifyNonNegotiable(
       // A gate check has no level, and a level left behind on a check that has
       // been reset to unverified would go on capping the shield invisibly.
       shieldMet: threshold && verdict === "PASS" ? shieldMet : null,
+      overrideReason: departing ? overrideReason : null,
       verifiedById: verdict === "PENDING" ? null : cdu.id,
       verifiedAt: verdict === "PENDING" ? null : new Date(),
     },

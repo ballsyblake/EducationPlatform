@@ -28,8 +28,13 @@ import {
   type TechnicalResult,
 } from "@/lib/cda/scoring";
 import { ASSESSED_DOMAINS } from "@/lib/cda/rubric";
+import {
+  scoreStructure,
+  type StructureResult,
+  type StructureRoleSpec,
+} from "@/lib/cda/structure";
 import { displayName } from "@/lib/format";
-import type { Domain, Shield } from "@prisma-client";
+import type { Domain, RoleStatus, Shield } from "@prisma-client";
 
 /**
  * Assembles the whole picture of one assessment: staff, criteria, every
@@ -386,3 +391,106 @@ export async function activeCycle() {
     })) ?? (await prisma.cycle.findFirst({ orderBy: { year: "desc" } }))
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Club Structure (NN7)                                                       */
+/* -------------------------------------------------------------------------- */
+
+export type StructureOverview = {
+  roles: (StructureRoleSpec & { status: RoleStatus; holderName: string | null; note: string | null })[];
+  result: StructureResult;
+  /** False when the cycle has no standard set, so nothing can be computed. */
+  configured: boolean;
+};
+
+/**
+ * Loads a club's recorded structure and works out what it computes to.
+ *
+ * The standards belong to the assessment's own cycle, so a club published under
+ * the 2026 bar keeps being measured against it after 2027's rows are added —
+ * the same reason the shield thresholds live on the cycle.
+ */
+export async function loadStructure(assessmentId: string): Promise<StructureOverview> {
+  const assessment = await prisma.clubAssessment.findUniqueOrThrow({
+    where: { id: assessmentId },
+    select: { id: true, cycleId: true },
+  });
+
+  const [roleRows, entries, standardRows] = await Promise.all([
+    prisma.structureRole.findMany({
+      where: { active: true },
+      orderBy: { position: "asc" },
+    }),
+    prisma.structureEntry.findMany({ where: { assessmentId } }),
+    prisma.structureStandard.findMany({
+      where: { cycleId: assessment.cycleId },
+      include: { roles: true },
+    }),
+  ]);
+
+  const byRole = new Map(entries.map((e) => [e.roleId, e]));
+
+  const roles = roleRows.map((r) => {
+    const entry = byRole.get(r.id);
+    return {
+      id: r.id,
+      code: r.code,
+      label: r.label,
+      kind: r.kind,
+      counts: r.counts,
+      status: entry?.status ?? ("ABSENT" as RoleStatus),
+      holderName: entry?.holderName ?? null,
+      note: entry?.note ?? null,
+    };
+  });
+
+  const result = scoreStructure(
+    roles,
+    roles.map((r) => ({ roleId: r.id, status: r.status })),
+    standardRows.map((s) => ({
+      shield: s.shield,
+      functionsRequired: s.functionsRequired,
+      roles: s.roles.map((rr) => ({
+        roleId: rr.roleId,
+        required: rr.required,
+        minQualLevel: rr.minQualLevel,
+        requireFullTime: rr.requireFullTime,
+      })),
+    })),
+  );
+
+  return { roles, result, configured: standardRows.length > 0 };
+}
+
+/**
+ * Writes the computed level onto NN7's result row.
+ *
+ * Called whenever a club edits its structure. `shieldMetDerived` always tracks
+ * the computation; `shieldMet` — the level that actually caps the shield — is
+ * only moved along with it while the Unit hasn't decided otherwise. Once they
+ * have recorded an override, a later edit updates what the rules say without
+ * silently reversing their decision.
+ */
+export async function syncStructureLevel(assessmentId: string) {
+  const check = await prisma.nonNegotiableResult.findFirst({
+    where: {
+      assessmentId,
+      nonNegotiable: { code: STRUCTURE_CHECK_CODE, active: true },
+    },
+  });
+  if (!check) return;
+
+  const { result, configured } = await loadStructure(assessmentId);
+  if (!configured) return;
+
+  await prisma.nonNegotiableResult.update({
+    where: { id: check.id },
+    data: {
+      shieldMetDerived: result.level,
+      ...(check.overrideReason ? {} : { shieldMet: check.verdict === "PASS" ? result.level : check.shieldMet }),
+    },
+  });
+}
+
+/** The Non-Negotiable whose level this computes. */
+export const STRUCTURE_CHECK_CODE = "NN7";

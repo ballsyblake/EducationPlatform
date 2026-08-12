@@ -8,9 +8,10 @@ import {
   ratingVisibleToClub,
   requireClubUser,
 } from "@/lib/cda/access";
-import { activeCycle, ensureAssessment } from "@/lib/cda/assessment";
+import { activeCycle, ensureAssessment, syncStructureLevel } from "@/lib/cda/assessment";
 import { METRIC_SPECS } from "@/lib/cda/rubric";
 import { checkQuota, reviewTimeline } from "@/lib/cda/review";
+import { STATUS_OPTIONS } from "@/lib/cda/structure";
 import { prisma } from "@/lib/db";
 import { UploadError, storeUpload } from "@/lib/uploads";
 
@@ -495,4 +496,53 @@ export async function submitAppeal(
 
   revalidatePath("/cda/club", "layout");
   return { status: "ok", message: "Your appeal has been sent to the CEO of Football Queensland." };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Club structure (NN7)                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Saves the club's organisational structure.
+ *
+ * Written as one form rather than a row at a time because the standard is a
+ * count across the whole structure — filling one role can move the club a whole
+ * shield, and the club should see that happen in response to the change they
+ * actually made rather than to whichever row they saved last.
+ */
+export async function saveStructure(
+  _prev: ClubFormState,
+  formData: FormData,
+): Promise<ClubFormState> {
+  const { assessment } = await openAssessment();
+
+  const roles = await prisma.structureRole.findMany({
+    where: { active: true },
+    select: { id: true, kind: true },
+  });
+
+  for (const role of roles) {
+    const raw = String(formData.get(`status:${role.id}`) ?? "");
+    // Only answers the role's own kind allows. A PRESENCE role has no
+    // "B Diploma" answer, and accepting one would put a qualification level on
+    // a role the standard never asks about.
+    const status = STATUS_OPTIONS[role.kind].includes(raw as never)
+      ? (raw as (typeof STATUS_OPTIONS)[typeof role.kind][number])
+      : "ABSENT";
+    const holderName = String(formData.get(`holder:${role.id}`) ?? "").trim() || null;
+
+    await prisma.structureEntry.upsert({
+      where: { assessmentId_roleId: { assessmentId: assessment.id, roleId: role.id } },
+      update: { status, holderName },
+      create: { assessmentId: assessment.id, roleId: role.id, status, holderName },
+    });
+  }
+
+  await markInProgress(assessment.id, assessment.status);
+  // Keeps NN7's derived level in step with what the club just recorded, so the
+  // Unit never opens a check whose computation is a submission out of date.
+  await syncStructureLevel(assessment.id);
+
+  revalidatePath("/cda/club", "layout");
+  return { status: "ok", message: "Structure saved." };
 }

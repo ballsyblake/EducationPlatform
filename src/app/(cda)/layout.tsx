@@ -7,6 +7,7 @@ import { displayName, initials } from "@/lib/format";
 const CLUB_LINKS: NavLink[] = [
   { href: "/cda/club", label: "Overview" },
   { href: "/cda/club/staff", label: "Staff register" },
+  { href: "/cda/club/structure", label: "Structure" },
   { href: "/cda/club/non-negotiables", label: "Non-Negotiables" },
   { href: "/cda/club/participation", label: "Participation" },
   { href: "/cda/club/rating", label: "Our rating" },

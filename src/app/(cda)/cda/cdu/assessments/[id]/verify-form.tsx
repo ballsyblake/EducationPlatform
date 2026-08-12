@@ -22,6 +22,11 @@ export type VerifyItem = {
   format: string | null;
   shieldGuidance: string | null;
   shieldMet: Shield | null;
+  /** What the club's recorded data computes to, for checks that compute. */
+  shieldMetDerived: Shield | null;
+  overrideReason: string | null;
+  /** Why the computation fell short of each higher level. */
+  derivedFailures: { shield: Shield; met: boolean; failures: string[] }[];
   clubDeclared: boolean | null;
   clubNote: string | null;
   verdict: "PENDING" | "PASS" | "FAIL";
@@ -33,9 +38,14 @@ export function VerifyForm({ item, locked }: { item: VerifyItem; locked: boolean
   const [state, formAction] = useActionState(verifyNonNegotiable, initialState);
   const [verdict, setVerdict] = useState(item.verdict);
   const [note, setNote] = useState(item.adminNote);
-  const [level, setLevel] = useState<Shield | "">(item.shieldMet ?? "");
+  const [level, setLevel] = useState<Shield | "">(item.shieldMet ?? item.shieldMetDerived ?? "");
+  const [override, setOverride] = useState(item.overrideReason ?? "");
 
   const threshold = item.kind === "SHIELD_THRESHOLD";
+  // A departure from the computation is the only thing that needs justifying.
+  // Agreeing with it needs nothing, which is what keeps the common case fast.
+  const departing =
+    threshold && verdict === "PASS" && item.shieldMetDerived !== null && level !== item.shieldMetDerived;
 
   return (
     <form action={formAction} className="px-5 py-4">
@@ -72,6 +82,21 @@ export function VerifyForm({ item, locked }: { item: VerifyItem; locked: boolean
             <p className="mt-1 text-xs text-ink-500">
               <span className="font-medium">Standard:</span> {item.shieldGuidance}
             </p>
+          )}
+          {item.shieldMetDerived !== null && (
+            <div className="mt-2 rounded-lg bg-ink-50 px-3 py-2">
+              <p className="flex flex-wrap items-center gap-2 text-xs text-ink-700">
+                <span className="font-medium">The club&apos;s recorded structure computes to</span>
+                <ShieldBadge shield={item.shieldMetDerived} size="sm" short />
+              </p>
+              {item.derivedFailures
+                .filter((c) => !c.met)
+                .map((c) => (
+                  <p key={c.shield} className="mt-1 text-xs text-ink-600">
+                    <span className="font-medium">{c.shield}:</span> {c.failures.join(" ")}
+                  </p>
+                ))}
+            </div>
           )}
           {item.clubNote && (
             <p className="mt-2 rounded bg-ink-50 px-3 py-2 text-sm text-ink-700">
@@ -112,6 +137,11 @@ export function VerifyForm({ item, locked }: { item: VerifyItem; locked: boolean
             ) : (
               <p className="mt-1.5 text-xs text-ink-500">No standard met</p>
             ))}
+          {item.overrideReason && (
+            <p className="mt-1 max-w-56 text-xs text-maroon-700">
+              Overridden: {item.overrideReason}
+            </p>
+          )}
         </div>
       </div>
 
@@ -153,6 +183,24 @@ export function VerifyForm({ item, locked }: { item: VerifyItem; locked: boolean
           {threshold && verdict === "PASS" && (
             <>
             <input type="hidden" name="shieldMet" value={level} />
+            {departing && (
+              <div>
+                <label className="label" htmlFor={`override-${item.id}`}>
+                  Why you&apos;re departing from the computed level{" "}
+                  <span className="font-normal text-ink-400">(required)</span>
+                </label>
+                <textarea
+                  id={`override-${item.id}`}
+                  name="overrideReason"
+                  rows={2}
+                  className="input"
+                  value={override}
+                  onChange={(e) => setOverride(e.target.value)}
+                  placeholder="What the recorded structure doesn't capture."
+                />
+              </div>
+            )}
+            {!departing && <input type="hidden" name="overrideReason" value="" />}
             <fieldset>
               <legend className="label">
                 Highest standard met{" "}

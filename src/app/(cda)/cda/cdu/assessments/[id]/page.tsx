@@ -3,7 +3,7 @@ import { ShieldBadge } from "@/components/cda/shield";
 import { DomainBreakdown } from "@/components/cda/summary";
 import { Badge, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { requireCdu } from "@/lib/cda/access";
-import { loadAssessment } from "@/lib/cda/assessment";
+import { STRUCTURE_CHECK_CODE, loadAssessment, loadStructure } from "@/lib/cda/assessment";
 import { MAX_STAFF_POINTS, SHIELD_LABELS, STAFF_ROLE_SPECS } from "@/lib/cda/rubric";
 import { reviewTimeline } from "@/lib/cda/review";
 import { pct } from "@/lib/cda/scoring";
@@ -68,6 +68,11 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
       }
     : null;
 
+  // NN7's level is computed from the club's recorded structure, so the Unit
+  // sees what the rules give alongside what has been recorded — and what is
+  // missing for each higher level, which is the part a club can act on.
+  const structure = await loadStructure(id);
+
   const checks: VerifyItem[] = assessment.nonNegotiables.map((n) => ({
     id: n.id,
     code: n.nonNegotiable.code,
@@ -78,6 +83,15 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
     format: n.nonNegotiable.format,
     shieldGuidance: n.nonNegotiable.shieldGuidance,
     shieldMet: n.shieldMet,
+    shieldMetDerived:
+      n.nonNegotiable.code === STRUCTURE_CHECK_CODE && structure.configured
+        ? structure.result.level
+        : n.shieldMetDerived,
+    overrideReason: n.overrideReason,
+    derivedFailures:
+      n.nonNegotiable.code === STRUCTURE_CHECK_CODE && structure.configured
+        ? structure.result.checks
+        : [],
     clubDeclared: n.clubDeclared,
     clubNote: n.clubNote,
     verdict: n.verdict,

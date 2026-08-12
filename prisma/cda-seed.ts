@@ -13,6 +13,7 @@
 import type { PrismaClient, Shield } from "../generated/prisma/client.ts";
 import { defaultThresholds, starsFromEvidence } from "../src/lib/cda/rubric.ts";
 import { CRITERIA, NON_NEGOTIABLES, QUALIFICATIONS } from "./cda-catalog.ts";
+import { STRUCTURE_ROLES, STRUCTURE_STANDARDS_2026 } from "./cda-structure.ts";
 
 /* -------------------------------------------------------------------------- */
 /* Catalogue                                                                  */
@@ -70,6 +71,7 @@ export async function seedCatalog(prisma: PrismaClient) {
   }
 
   await backfillNonNegotiables(prisma);
+  await seedStructureRoles(prisma);
 
   // Tiers first: criteria attach to them, and a Tier 2 club is assessed on a
   // subset of the same coded items rather than a different catalogue.
@@ -175,6 +177,82 @@ export async function seedCatalog(prisma: PrismaClient) {
     `[cda] catalogue: ${counts.criteria} criteria (${counts.subCriteria} evidence points), ` +
       `${counts.nonNegotiables} Non-Negotiables, ${counts.qualifications} qualifications`,
   );
+}
+
+/**
+ * The eleven organisational functions, plus the two documents submitted with
+ * them.
+ *
+ * Structural rather than editorial: the kind decides which answers a club can
+ * give and whether the role counts towards coverage, so a release that changes
+ * one has to reach a running instance the same way a changed weight does. The
+ * label is left alone, since the CDU may reword a role to match how a club
+ * actually titles it.
+ */
+async function seedStructureRoles(prisma: PrismaClient) {
+  for (const [i, r] of STRUCTURE_ROLES.entries()) {
+    await prisma.structureRole.upsert({
+      where: { code: r.code },
+      update: {
+        position: i,
+        active: true,
+        kind: r.kind,
+        counts: r.counts ?? true,
+      },
+      create: { ...r, counts: r.counts ?? true, position: i },
+    });
+  }
+
+  const retired = await prisma.structureRole.updateMany({
+    where: { active: true, code: { notIn: STRUCTURE_ROLES.map((r) => r.code) } },
+    data: { active: false },
+  });
+  if (retired.count > 0) {
+    console.log(`[cda] retired ${retired.count} structure roles no longer in the catalogue`);
+  }
+}
+
+/**
+ * The per-shield structure bar for one cycle.
+ *
+ * Seeded per cycle because FQ phases the coverage requirement in over four
+ * years — 8 of 11 functions for Gold in 2026, 9 in 2027, all 11 in 2028 — so a
+ * new year is a row, not a code change. Only created when missing: once a cycle
+ * is running, its bar is what its clubs were judged against and a redeploy must
+ * not move it.
+ */
+export async function seedStructureStandards(prisma: PrismaClient, cycleId: string) {
+  const roles = new Map(
+    (await prisma.structureRole.findMany({ select: { id: true, code: true } })).map((r) => [
+      r.code,
+      r.id,
+    ]),
+  );
+
+  for (const std of STRUCTURE_STANDARDS_2026) {
+    const existing = await prisma.structureStandard.findUnique({
+      where: { cycleId_shield: { cycleId, shield: std.shield } },
+    });
+    if (existing) continue;
+
+    await prisma.structureStandard.create({
+      data: {
+        cycleId,
+        shield: std.shield,
+        functionsRequired: std.functionsRequired,
+        roles: {
+          create: std.roles
+            .filter((r) => roles.has(r.role))
+            .map((r) => ({
+              roleId: roles.get(r.role)!,
+              required: r.required ?? false,
+              minQualLevel: r.minQualLevel ?? 0,
+              requireFullTime: r.requireFullTime ?? false,
+            })),
+        },
+      },
+    });
+  }
 }
 
 /**
@@ -479,11 +557,145 @@ const CLUB_TIER: Record<string, string> = {
   "mount-isa-rovers": "T2",
 };
 
+/**
+ * A club's organisational structure, as a profile per strength band.
+ *
+ * Written as explicit profiles rather than derived from a single number,
+ * because the point of the demo is that the structure level and the score are
+ * *different* measurements. A club can document its philosophy beautifully and
+ * still not employ the people a Gold shield requires, and a formula keyed on
+ * one strength value would make the two move together — which is exactly the
+ * confusion the computed level exists to dispel.
+ *
+ * The bands land the demo clubs on Gold, Silver, Bronze and nothing, so every
+ * branch of the calculation has a club sitting on it.
+ */
+type StructureProfile = {
+  /** How many of the eleven functions are filled, in catalogue order. */
+  functions: number;
+  td: "FULL_TIME" | "PART_TIME" | "ABSENT";
+  youth: string;
+  junior: string;
+  girls: string;
+  individual: string;
+  documents: boolean;
+};
+
+function structureProfile(strength: number): StructureProfile {
+  if (strength >= 0.85) {
+    return {
+      functions: 11, td: "FULL_TIME",
+      youth: "B_DIPLOMA_PLUS", junior: "B_DIPLOMA_PLUS",
+      girls: "B_DIPLOMA_PLUS", individual: "C_DIPLOMA", documents: true,
+    };
+  }
+  if (strength >= 0.75) {
+    // Everything Gold asks for except the Head of Individual Development's
+    // qualification — the single miss that holds a strong club at Silver, and
+    // the case the club-facing "what's missing" list is written for.
+    return {
+      functions: 10, td: "FULL_TIME",
+      youth: "ENROLLED_B", junior: "C_DIPLOMA",
+      girls: "B_DIPLOMA_PLUS", individual: "NOT_MIN_QUAL", documents: true,
+    };
+  }
+  if (strength >= 0.55) {
+    return {
+      functions: 8, td: "FULL_TIME",
+      youth: "ENROLLED_B", junior: "C_DIPLOMA",
+      girls: "C_DIPLOMA", individual: "ABSENT", documents: true,
+    };
+  }
+  if (strength >= 0.45) {
+    // Bronze: no Head of Junior at all, which Bronze doesn't require.
+    return {
+      functions: 6, td: "FULL_TIME",
+      youth: "ENROLLED_B", junior: "ABSENT",
+      girls: "C_DIPLOMA", individual: "ABSENT", documents: true,
+    };
+  }
+  return {
+    functions: 5, td: "PART_TIME",
+    youth: "NOT_MIN_QUAL", junior: "ABSENT",
+    girls: "NOT_MIN_QUAL", individual: "ABSENT", documents: false,
+  };
+}
+
+async function seedStructureFor(
+  prisma: PrismaClient,
+  assessmentId: string,
+  strength: number,
+  unstarted: boolean,
+) {
+  // A club that hasn't started has nothing recorded at all, which is a
+  // different state from having recorded "not filled" everywhere.
+  if (unstarted) return;
+
+  const p = structureProfile(strength);
+  const roles = await prisma.structureRole.findMany({
+    where: { active: true },
+    orderBy: { position: "asc" },
+  });
+
+  const named: Record<string, string> = {
+    TD: p.td,
+    HO_YOUTH: p.youth,
+    HO_JUNIOR: p.junior,
+    HO_GIRLS: p.girls,
+    HO_INDIVIDUAL: p.individual,
+    POSITION_DESCRIPTIONS: p.documents ? "PRESENT" : "ABSENT",
+    ROSTER: p.documents ? "PRESENT" : "ABSENT",
+  };
+
+  // The remaining presence-only functions fill up to the profile's count, in
+  // catalogue order — roughly the order clubs appoint them in.
+  let filledSoFar = Object.entries(named).filter(
+    ([code, v]) => v !== "ABSENT" && code !== "POSITION_DESCRIPTIONS" && code !== "ROSTER",
+  ).length;
+
+  for (const [i, role] of roles.entries()) {
+    let status = named[role.code];
+
+    if (status === undefined) {
+      const take = role.counts && filledSoFar < p.functions;
+      if (take) filledSoFar += 1;
+      status = take ? "PRESENT" : "ABSENT";
+    }
+
+    await prisma.structureEntry.create({
+      data: {
+        assessmentId,
+        roleId: role.id,
+        status: status as never,
+        holderName:
+          status !== "ABSENT" && role.counts
+            ? STRUCTURE_HOLDERS[i % STRUCTURE_HOLDERS.length]
+            : null,
+      },
+    });
+  }
+}
+
+const STRUCTURE_HOLDERS = [
+  "Marcus Whitely",
+  "Anita Chow",
+  "Dev Ramachandran",
+  "Ellie Broadbent",
+  "Sam Tuiletufuga",
+  "Nadia Kessler",
+  "Tom Ferrier",
+];
+
 /** Where each club's own record sits, independent of its pool's progress. */
 const CLUB_STATE: Record<string, string> = {
   "brisbane-cityside": "PUBLISHED",
   "rockhampton-central": "PUBLISHED_INELIGIBLE",
-  "sunshine-coast-wanderers": "RECONCILING",
+  // Published deliberately, and the only club whose score outruns its
+  // structure: 77% earns Gold, but its Head of Individual Development is
+  // unqualified so NN7 computes to Silver and the shield is held there. It is
+  // the case the whole shield-based threshold mechanism exists for, and without
+  // a published example of it the club-facing explanation is never seen.
+  "sunshine-coast-wanderers": "PUBLISHED",
   "redlands-united": "RECONCILING",
   "toowoomba-ranges": "IN_ASSESSMENT",
   // Still entering its own data, so nobody can score it yet — which is exactly
@@ -498,6 +710,7 @@ export async function seedDemo(prisma: PrismaClient) {
 
   console.log("[cda] clearing demo data…");
   await prisma.areaNote.deleteMany();
+  await prisma.structureEntry.deleteMany();
   await prisma.scoreEvidence.deleteMany();
   await prisma.assessorScore.deleteMany();
   await prisma.finalScore.deleteMany();
@@ -523,6 +736,9 @@ export async function seedDemo(prisma: PrismaClient) {
       closesAt: new Date("2026-09-30"),
     },
   });
+
+  // The per-shield structure bar belongs to the cycle, so it is created with it.
+  await seedStructureStandards(prisma, cycle.id);
 
   const priorCycle = await prisma.cycle.create({
     data: { year: 2025, name: "2025 Club Rating", status: "PUBLISHED" },
@@ -631,6 +847,13 @@ export async function seedDemo(prisma: PrismaClient) {
           });
         }
       }
+
+      // Recorded for every club including the one still filling its submission
+      // in: structure is the first thing a club enters, and a partially-built
+      // one is the state the "what's missing for the next shield" list is
+      // most useful in. Only a club that has never opened the portal has none,
+      // and loadStructure treats a missing row as unfilled anyway.
+      await seedStructureFor(prisma, assessment.id, spec.strength, false);
 
       for (const [i, nn] of nonNegotiables.entries()) {
         const threshold = nn.kind === "SHIELD_THRESHOLD";
@@ -752,6 +975,15 @@ export async function seedDemo(prisma: PrismaClient) {
   }
 
   /* ---------------------------- Reconciliation ---------------------------- */
+
+  // NN7's recorded level now comes from the structure rather than from a guess
+  // about the club's strength, so it is derived through the same function the
+  // app uses. The demo would otherwise show a level the portal itself would
+  // never produce.
+  const { syncStructureLevel } = await import("../src/lib/cda/assessment.ts");
+  for (const a of await prisma.clubAssessment.findMany({ select: { id: true } })) {
+    await syncStructureLevel(a.id);
+  }
 
   const toReconcile = await prisma.clubAssessment.findMany({
     where: { cycleId: cycle.id, status: "PUBLISHED" },
