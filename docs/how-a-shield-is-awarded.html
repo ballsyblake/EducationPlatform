@@ -1,0 +1,1039 @@
+<title>How a Shield Is Awarded</title>
+<style>
+  :root {
+    --ground: #fbf9f9;
+    --surface: #ffffff;
+    --surface-2: #f5f1f2;
+    --ink: #1a1315;
+    --ink-soft: #453a3d;
+    --muted: #6e6165;
+    --rule: #e3dadd;
+    --rule-strong: #cdbfc4;
+    --accent: #88133d;
+    --accent-soft: #fdf3f6;
+    --accent-line: #e0aec2;
+    --gold: #a97f14;
+    --silver: #6d7883;
+    --bronze: #9a6435;
+    --shadow: 0 1px 2px rgba(26, 19, 21, .05);
+
+    --serif: "Iowan Old Style", "Charter", "Bitstream Charter", Georgia, "Times New Roman", serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #17090f;
+      --surface: #1f0d15;
+      --surface-2: #2a121c;
+      --ink: #f6ecef;
+      --ink-soft: #dcc9d0;
+      --muted: #ab929b;
+      --rule: #3d1d29;
+      --rule-strong: #562c3b;
+      --accent: #f0a3c0;
+      --accent-soft: #2c1019;
+      --accent-line: #7d3a53;
+      --gold: #e0bb56;
+      --silver: #b3bfca;
+      --bronze: #d99e6a;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #17090f;
+    --surface: #1f0d15;
+    --surface-2: #2a121c;
+    --ink: #f6ecef;
+    --ink-soft: #dcc9d0;
+    --muted: #ab929b;
+    --rule: #3d1d29;
+    --rule-strong: #562c3b;
+    --accent: #f0a3c0;
+    --accent-soft: #2c1019;
+    --accent-line: #7d3a53;
+    --gold: #e0bb56;
+    --silver: #b3bfca;
+    --bronze: #d99e6a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 62rem;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 4.5rem) clamp(1.1rem, 4vw, 2.5rem) 6rem;
+  }
+
+  /* ---------------------------------------------------------------- masthead */
+
+  .masthead { border-bottom: 2px solid var(--ink); padding-bottom: 1.6rem; }
+
+  .org {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1.1rem;
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.3rem, 6.5vw, 3.9rem);
+    line-height: 1.02;
+    letter-spacing: -.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 40rem;
+    margin: 1.1rem 0 0;
+    font-size: 1.08rem;
+    color: var(--ink-soft);
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.4rem;
+    margin-top: 1.6rem;
+    font-family: var(--mono);
+    font-size: .74rem;
+    letter-spacing: .04em;
+    color: var(--muted);
+  }
+
+  /* ------------------------------------------------------------------ phases */
+
+  .phase { margin-top: clamp(3rem, 7vw, 5rem); }
+
+  .phase-head {
+    display: grid;
+    grid-template-columns: 3.4rem 1fr;
+    gap: 1.2rem;
+    align-items: baseline;
+    border-top: 1px solid var(--rule-strong);
+    padding-top: 1.1rem;
+  }
+
+  .phase-num {
+    font-family: var(--serif);
+    font-size: 2.4rem;
+    line-height: 1;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.5rem, 3.4vw, 2rem);
+    line-height: 1.15;
+    letter-spacing: -.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .who {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: .45rem 0 0;
+  }
+
+  .phase-body { margin-left: 0; }
+  @media (min-width: 46rem) { .phase-body { margin-left: 4.6rem; } }
+
+  .phase-body > p { max-width: 38rem; }
+
+  h3 {
+    font-family: var(--sans);
+    font-size: .8rem;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 2rem 0 .7rem;
+  }
+
+  /* ------------------------------------------------------------------ figure */
+
+  figure {
+    margin: 1.8rem 0;
+    padding: 1.4rem 1.2rem 1rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+  }
+
+  figure svg { display: block; width: 100%; min-width: 30rem; height: auto; color: var(--ink-soft); }
+
+  figcaption {
+    margin-top: 1rem;
+    padding-top: .8rem;
+    border-top: 1px solid var(--rule);
+    font-size: .88rem;
+    color: var(--muted);
+    max-width: 44rem;
+  }
+
+  .svg-label { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 12px; fill: currentColor; }
+  .svg-label-sm { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 10.5px; fill: currentColor; }
+  .svg-lane { font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: .1em; fill: currentColor; opacity: .62; }
+  .svg-edge { font-family: ui-monospace, monospace; font-size: 9.5px; fill: currentColor; opacity: .72; }
+  .svg-box { fill: none; stroke: currentColor; stroke-width: 1.1; }
+  .svg-accent-box { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+  .svg-accent-text { fill: var(--accent); }
+  .svg-line { stroke: currentColor; stroke-width: 1.1; fill: none; }
+  .svg-accent-line { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+  .svg-dash { stroke: currentColor; stroke-width: 1.1; fill: none; stroke-dasharray: 4 3; opacity: .75; }
+  .svg-faint { stroke: currentColor; stroke-width: .8; opacity: .28; fill: none; }
+  .svg-fill-soft { fill: currentColor; opacity: .05; }
+  .svg-fill-accent { fill: var(--accent); opacity: .1; }
+
+  /* ------------------------------------------------------------------ splits */
+
+  .split { display: grid; gap: 1.2rem; margin: 1.5rem 0; }
+  @media (min-width: 40rem) { .split { grid-template-columns: 1fr 1fr; } }
+
+  .col-head {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding-bottom: .5rem;
+    border-bottom: 1px solid var(--accent-line);
+    margin-bottom: .7rem;
+  }
+
+  ul.tight { margin: 0; padding-left: 1.05rem; }
+  ul.tight li { margin-bottom: .45rem; font-size: .95rem; color: var(--ink-soft); }
+
+  /* ------------------------------------------------------------------ tokens */
+
+  code {
+    font-family: var(--mono);
+    font-size: .84em;
+    background: var(--surface-2);
+    padding: .1em .38em;
+    border-radius: 3px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  .note {
+    margin: 1.5rem 0;
+    padding: .95rem 1.1rem;
+    background: var(--accent-soft);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 3px 3px 0;
+    font-size: .93rem;
+    color: var(--ink-soft);
+  }
+  .note strong { color: var(--ink); }
+
+  /* ------------------------------------------------------------------ tables */
+
+  .table-wrap { overflow-x: auto; margin: 1.4rem 0; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 30rem;
+    font-size: .92rem;
+  }
+
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: .67rem;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 0 .8rem .55rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: .6rem .8rem .6rem 0;
+    border-bottom: 1px solid var(--rule);
+    color: var(--ink-soft);
+    vertical-align: top;
+  }
+
+  td:first-child { color: var(--ink); font-weight: 500; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .chip {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .06em;
+    padding: .12rem .45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .chip-gold { color: var(--gold); }
+  .chip-silver { color: var(--silver); }
+  .chip-bronze { color: var(--bronze); }
+  .chip-accent { color: var(--accent); }
+
+  /* ---------------------------------------------------------------- appendix */
+
+  .appendix { margin-top: clamp(3.5rem, 8vw, 6rem); border-top: 2px solid var(--ink); padding-top: 1.6rem; }
+  .appendix h2 { margin-bottom: 1.4rem; }
+  .ref { margin-bottom: 2.6rem; }
+  .ref > h3 { margin-top: 0; }
+
+  a { color: var(--accent); }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="org">Football Queensland &middot; Club Development &amp; Assessment</p>
+    <h1>How a shield is awarded</h1>
+    <p class="standfirst">
+      The whole season, end to end: who does what, what the portal computes, and the point at
+      which a club may finally display its shield.
+    </p>
+    <div class="meta">
+      <span>2026 cycle</span>
+      <span>3 roles</span>
+      <span>54 line items</span>
+      <span>9 Non&#8209;Negotiables</span>
+      <span>1,332 points</span>
+    </div>
+  </header>
+
+  <!-- =============================================================== OVERVIEW -->
+
+  <section class="phase" style="margin-top:2.6rem">
+    <div class="phase-head" style="border-top:none;padding-top:0">
+      <div class="phase-num" aria-hidden="true">&mdash;</div>
+      <div>
+        <h2>The season at a glance</h2>
+        <p class="who">Overview</p>
+      </div>
+    </div>
+
+    <div class="phase-body">
+      <p>
+        Three roles touch an assessment, and they hand it between them in a fixed order. The Club
+        Development Unit opens the season and closes it; clubs supply their own data; assessors
+        score. Nobody skips a step, and only the Unit can move an assessment backwards.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 1000 268" role="img"
+             aria-label="Swimlane flow: the Unit opens a cycle and adds clubs, clubs enter and submit their data, assessors score line items, the Unit reconciles then locks and releases, the club accepts or requests a review, and the Unit confirms the shield.">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+            </marker>
+            <marker id="ar-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)" />
+            </marker>
+          </defs>
+
+          <!-- lane rules -->
+          <line class="svg-faint" x1="0" y1="30" x2="1000" y2="30" />
+          <line class="svg-faint" x1="0" y1="100" x2="1000" y2="100" />
+          <line class="svg-faint" x1="0" y1="170" x2="1000" y2="170" />
+          <line class="svg-faint" x1="0" y1="240" x2="1000" y2="240" />
+
+          <text class="svg-lane" x="0" y="24">CLUB DEVELOPMENT UNIT</text>
+          <text class="svg-lane" x="0" y="94">CLUB</text>
+          <text class="svg-lane" x="0" y="164">ASSESSOR</text>
+
+          <!-- CDU lane -->
+          <rect class="svg-box" x="10" y="46" width="104" height="38" rx="3" />
+          <text class="svg-label" x="62" y="70" text-anchor="middle">Open cycle</text>
+
+          <rect class="svg-box" x="148" y="46" width="104" height="38" rx="3" />
+          <text class="svg-label" x="200" y="70" text-anchor="middle">Add clubs</text>
+
+          <rect class="svg-box" x="600" y="46" width="104" height="38" rx="3" />
+          <text class="svg-label" x="652" y="70" text-anchor="middle">Reconcile</text>
+
+          <rect class="svg-box" x="738" y="46" width="104" height="38" rx="3" />
+          <text class="svg-label" x="790" y="64" text-anchor="middle">Lock &amp;</text>
+          <text class="svg-label" x="790" y="78" text-anchor="middle">release</text>
+
+          <rect class="svg-accent-box" x="876" y="46" width="114" height="38" rx="3" />
+          <rect class="svg-fill-accent" x="876" y="46" width="114" height="38" rx="3" />
+          <text class="svg-label svg-accent-text" x="933" y="70" text-anchor="middle">Shield confirmed</text>
+
+          <!-- Club lane -->
+          <rect class="svg-box" x="286" y="116" width="104" height="38" rx="3" />
+          <text class="svg-label" x="338" y="134" text-anchor="middle">Enter &amp;</text>
+          <text class="svg-label" x="338" y="148" text-anchor="middle">submit</text>
+
+          <rect class="svg-box" x="876" y="116" width="114" height="38" rx="3" />
+          <text class="svg-label" x="933" y="134" text-anchor="middle">Accept or</text>
+          <text class="svg-label" x="933" y="148" text-anchor="middle">request review</text>
+
+          <!-- Assessor lane -->
+          <rect class="svg-box" x="424" y="186" width="128" height="38" rx="3" />
+          <text class="svg-label" x="488" y="210" text-anchor="middle">Score line items</text>
+
+          <!-- edges -->
+          <line class="svg-line" x1="114" y1="65" x2="142" y2="65" marker-end="url(#ar)" />
+
+          <path class="svg-line" d="M 252 65 L 269 65 L 269 135 L 280 135" marker-end="url(#ar)" />
+          <text class="svg-edge" x="274" y="106">opens to clubs</text>
+
+          <path class="svg-line" d="M 390 135 L 407 135 L 407 205 L 418 205" marker-end="url(#ar)" />
+          <text class="svg-edge" x="412" y="176">submitted</text>
+
+          <path class="svg-line" d="M 552 205 L 583 205 L 583 65 L 594 65" marker-end="url(#ar)" />
+          <text class="svg-edge" x="588" y="120">pool complete</text>
+
+          <line class="svg-line" x1="704" y1="65" x2="732" y2="65" marker-end="url(#ar)" />
+
+          <path class="svg-line" d="M 842 65 L 859 65 L 859 135 L 870 135" marker-end="url(#ar)" />
+          <text class="svg-edge" x="864" y="106">preliminary</text>
+
+          <line class="svg-accent-line" x1="933" y1="116" x2="933" y2="90" marker-end="url(#ar-a)" />
+        </svg>
+        <figcaption>
+          The one loop that isn&rsquo;t left-to-right: a released rating goes to the club first, and
+          only the club&rsquo;s response &mdash; accepting it, or exhausting a review &mdash; lets the
+          Unit confirm it.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ================================================================ PHASE 1 -->
+
+  <section class="phase">
+    <div class="phase-head">
+      <div class="phase-num" aria-hidden="true">1</div>
+      <div>
+        <h2>Open the season</h2>
+        <p class="who">Club Development Unit</p>
+      </div>
+    </div>
+
+    <div class="phase-body">
+      <p>
+        A cycle is one season&rsquo;s assessments. It starts in <code>SETUP</code>, where clubs
+        can&rsquo;t see it, so the Unit can build the season out before anyone is invited in.
+      </p>
+
+      <div class="split">
+        <div>
+          <p class="col-head">The Unit does</p>
+          <ul class="tight">
+            <li>Creates the cycle for the year, from the board at <code>/cda/cdu</code>.</li>
+            <li>Adds each affiliated club with its zone and tier.</li>
+            <li>Creates one administrator account per club and hands over the sign&#8209;in link
+                shown on screen.</li>
+            <li>Creates assessor accounts, and groups clubs into <strong>pools</strong>.</li>
+            <li>Allocates every line item across each pool &mdash; two assessors per item, plus a
+                third only to break a split.</li>
+            <li>Moves the cycle to <code>CLUB_ENTRY</code> when clubs should start.</li>
+          </ul>
+        </div>
+        <div>
+          <p class="col-head">The portal does</p>
+          <ul class="tight">
+            <li>Loads Football Queensland&rsquo;s rubric automatically &mdash; 54 line items, the nine
+                Non&#8209;Negotiables, the qualification ladder and the structure standards. Nothing
+                to configure.</li>
+            <li>Gives the new cycle its per&#8209;shield structure standards.</li>
+            <li>Opens an assessment for every club in the cycle, with a blank result row for each
+                Non&#8209;Negotiable.</li>
+            <li>Sets each shield&rsquo;s bar: Gold&nbsp;75%, Silver&nbsp;55%, Bronze&nbsp;40%.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="note">
+        <strong>Sign-in links are single use and shown once.</strong> Hand over the link the Clubs
+        page displays. A new administrator asking for their own on the login page will be told one is
+        on its way and get nothing, because the invite already issued is still live.
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================ PHASE 2 -->
+
+  <section class="phase">
+    <div class="phase-head">
+      <div class="phase-num" aria-hidden="true">2</div>
+      <div>
+        <h2>The club submits its data</h2>
+        <p class="who">Club administrator</p>
+      </div>
+    </div>
+
+    <div class="phase-body">
+      <p>
+        Four sections, all editable until the club presses submit. After that the club can read
+        everything and change nothing &mdash; only the Unit can reopen it.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Section</th><th>What it holds</th><th>What it feeds</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Staff register</td>
+              <td>Every technical role, with qualification, years, employment basis and Blue Card</td>
+              <td>The whole Technical Qualifications domain</td>
+            </tr>
+            <tr>
+              <td>Club structure</td>
+              <td>Eleven organisational functions, who holds them, and their diploma</td>
+              <td><span class="chip chip-accent">NN7</span> &mdash; computed, not judged</td>
+            </tr>
+            <tr>
+              <td>Non&#8209;Negotiables</td>
+              <td>A yes or not&#8209;yet against each of the nine, with evidence attached</td>
+              <td>Eligibility, and the shield cap</td>
+            </tr>
+            <tr>
+              <td>Participation</td>
+              <td>Registration, retention, female and youth figures</td>
+              <td>Outcomes line items</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <strong>The structure page is the one place a club sees its own score as it works.</strong>
+        Every other number stays hidden until release, because every other number is an
+        assessor&rsquo;s judgement. This one is a published rule, so a club that learns in March that
+        Gold needs a qualified Head of Individual Development can appoint one before the season
+        starts.
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================ PHASE 3 -->
+
+  <section class="phase">
+    <div class="phase-head">
+      <div class="phase-num" aria-hidden="true">3</div>
+      <div>
+        <h2>Assessors score, one line item at a time</h2>
+        <p class="who">Assessor</p>
+      </div>
+    </div>
+
+    <div class="phase-body">
+      <p>
+        An assessor does not take a club. They take <em>one line item across a whole pool of
+        clubs</em> &mdash; every club&rsquo;s Playing Style, say, one after another. That is how
+        Football Queensland allocates, and it is what makes two assessors comparable: they are
+        judging the same thing repeatedly rather than different things once.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 940 300" role="img"
+             aria-label="A grid of five clubs across and five line items down. An assessor is highlighted holding one row, the line item P3, across every club in the pool, rather than holding one column.">
+          <defs>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)" />
+            </marker>
+          </defs>
+
+          <text class="svg-lane" x="150" y="22">POOL A &mdash; FIVE CLUBS</text>
+
+          <!-- column headers -->
+          <text class="svg-label-sm" x="205" y="48" text-anchor="middle">Club 1</text>
+          <text class="svg-label-sm" x="315" y="48" text-anchor="middle">Club 2</text>
+          <text class="svg-label-sm" x="425" y="48" text-anchor="middle">Club 3</text>
+          <text class="svg-label-sm" x="535" y="48" text-anchor="middle">Club 4</text>
+          <text class="svg-label-sm" x="645" y="48" text-anchor="middle">Club 5</text>
+
+          <!-- row labels -->
+          <text class="svg-label-sm" x="140" y="80" text-anchor="end">P1</text>
+          <text class="svg-label-sm" x="140" y="122" text-anchor="end">P2</text>
+          <text class="svg-label-sm svg-accent-text" x="140" y="164" text-anchor="end">P3</text>
+          <text class="svg-label-sm" x="140" y="206" text-anchor="end">P4</text>
+          <text class="svg-label-sm" x="140" y="248" text-anchor="end">D1</text>
+
+          <!-- grid cells -->
+          <g>
+            <rect class="svg-box" x="160" y="62" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="160" y="62" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="270" y="62" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="270" y="62" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="380" y="62" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="380" y="62" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="490" y="62" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="490" y="62" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="600" y="62" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="600" y="62" width="90" height="26" rx="2" />
+
+            <rect class="svg-box" x="160" y="104" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="160" y="104" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="270" y="104" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="270" y="104" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="380" y="104" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="380" y="104" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="490" y="104" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="490" y="104" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="600" y="104" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="600" y="104" width="90" height="26" rx="2" />
+
+            <!-- highlighted row -->
+            <rect class="svg-accent-box" x="160" y="146" width="90" height="26" rx="2" /><rect class="svg-fill-accent" x="160" y="146" width="90" height="26" rx="2" />
+            <rect class="svg-accent-box" x="270" y="146" width="90" height="26" rx="2" /><rect class="svg-fill-accent" x="270" y="146" width="90" height="26" rx="2" />
+            <rect class="svg-accent-box" x="380" y="146" width="90" height="26" rx="2" /><rect class="svg-fill-accent" x="380" y="146" width="90" height="26" rx="2" />
+            <rect class="svg-accent-box" x="490" y="146" width="90" height="26" rx="2" /><rect class="svg-fill-accent" x="490" y="146" width="90" height="26" rx="2" />
+            <rect class="svg-accent-box" x="600" y="146" width="90" height="26" rx="2" /><rect class="svg-fill-accent" x="600" y="146" width="90" height="26" rx="2" />
+
+            <rect class="svg-box" x="160" y="188" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="160" y="188" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="270" y="188" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="270" y="188" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="380" y="188" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="380" y="188" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="490" y="188" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="490" y="188" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="600" y="188" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="600" y="188" width="90" height="26" rx="2" />
+
+            <rect class="svg-box" x="160" y="230" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="160" y="230" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="270" y="230" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="270" y="230" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="380" y="230" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="380" y="230" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="490" y="230" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="490" y="230" width="90" height="26" rx="2" />
+            <rect class="svg-box" x="600" y="230" width="90" height="26" rx="2" /><rect class="svg-fill-soft" x="600" y="230" width="90" height="26" rx="2" />
+          </g>
+
+          <!-- the assessor -->
+          <line class="svg-accent-line" x1="712" y1="159" x2="748" y2="159" marker-end="url(#ar2)" />
+          <rect class="svg-accent-box" x="754" y="140" width="172" height="38" rx="3" />
+          <text class="svg-label svg-accent-text" x="840" y="156" text-anchor="middle">One assessor holds</text>
+          <text class="svg-label svg-accent-text" x="840" y="170" text-anchor="middle">this row, not a column</text>
+
+          <text class="svg-label-sm" x="754" y="212">A second assessor holds the</text>
+          <text class="svg-label-sm" x="754" y="228">same row independently. A</text>
+          <text class="svg-label-sm" x="754" y="244">third joins only to break a split.</text>
+        </svg>
+        <figcaption>
+          Because no single person ever holds a complete club, no single person can declare one
+          finished. A club moves on when <em>every</em> line item covering its pool is in.
+        </figcaption>
+      </figure>
+
+      <div class="split">
+        <div>
+          <p class="col-head">The assessor sees</p>
+          <ul class="tight">
+            <li>Their allocated line items, and for each, the list of clubs in that pool.</li>
+            <li>The club&rsquo;s evidence and submitted documents.</li>
+            <li>A 0&ndash;3 or 0&ndash;4 scale with Football Queensland&rsquo;s evidence bands.</li>
+          </ul>
+        </div>
+        <div>
+          <p class="col-head">The assessor never sees</p>
+          <ul class="tight">
+            <li>What the other assessor on the same item scored.</li>
+            <li>Any club&rsquo;s total, percentage or shield.</li>
+            <li>Clubs outside the pools they hold an item in.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================ PHASE 4 -->
+
+  <section class="phase">
+    <div class="phase-head">
+      <div class="phase-num" aria-hidden="true">4</div>
+      <div>
+        <h2>The Unit reconciles</h2>
+        <p class="who">Club Development Unit</p>
+      </div>
+    </div>
+
+    <div class="phase-body">
+      <p>
+        Two independent scores per line item become one. The reconcile screen opens on the
+        disagreements rather than on all 54 rows, because the job is getting through the splits and a
+        full list of settled ones is how the two that matter get lost.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Flag</th><th>Meaning</th><th>What the Unit does</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Agreed</td><td>Both assessors gave the same score</td><td>Accept in bulk</td></tr>
+            <tr><td>1 star apart</td><td>A minor split</td><td>Resolve, usually to the median</td></tr>
+            <tr><td>2+ stars apart</td><td>A major split</td><td>Read both comments, decide, and record why</td></tr>
+            <tr><td>Not scored</td><td>Nobody was allocated the item</td><td>Allocate it &mdash; it counts as zero otherwise</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The Unit also verifies each of the nine Non&#8209;Negotiables, and writes a paragraph of
+        feedback per macro&#8209;area &mdash; the part of the report a club can actually act on. A
+        domain percentage says Delivery was 63%; an area note says match day was the problem and
+        training wasn&rsquo;t.
+      </p>
+
+      <div class="note">
+        <strong>Departing from a suggestion always costs a sentence.</strong> Overriding the
+        assessors&rsquo; median needs a rationale, and so does departing from NN7&rsquo;s computed
+        level. Judgement is allowed; it just has to be visible as judgement rather than
+        indistinguishable from arithmetic.
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================ PHASE 5 -->
+
+  <section class="phase">
+    <div class="phase-head">
+      <div class="phase-num" aria-hidden="true">5</div>
+      <div>
+        <h2>The rating is computed</h2>
+        <p class="who">The portal</p>
+      </div>
+    </div>
+
+    <div class="phase-body">
+      <p>
+        Every line item contributes <code>score &times; weight</code> to one grand total. A
+        domain&rsquo;s influence is however many points it happens to hold &mdash; not a share
+        anybody configured. Delivery is 37% of the rating because 490 of the 1,332 points sit there.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 960 394" role="img"
+             aria-label="Pipeline: four domains sum to a points total which becomes a percentage and a provisional shield. Gate Non-Negotiables can block any award; threshold Non-Negotiables cap the shield at the level met; below the Bronze bar a licence-compliant club receives the Development Committed badge.">
+          <defs>
+            <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+            </marker>
+            <marker id="ar3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)" />
+            </marker>
+          </defs>
+
+          <!-- domains -->
+          <text class="svg-lane" x="8" y="22">FOUR DOMAINS</text>
+
+          <rect class="svg-box" x="8" y="34" width="176" height="30" rx="3" />
+          <text class="svg-label-sm" x="18" y="53">Technical Qualifications</text>
+          <text class="svg-label-sm" x="176" y="53" text-anchor="end">330</text>
+
+          <rect class="svg-box" x="8" y="70" width="176" height="30" rx="3" />
+          <text class="svg-label-sm" x="18" y="89">Planning</text>
+          <text class="svg-label-sm" x="176" y="89" text-anchor="end">272</text>
+
+          <rect class="svg-box" x="8" y="106" width="176" height="30" rx="3" />
+          <text class="svg-label-sm" x="18" y="125">Delivery</text>
+          <text class="svg-label-sm" x="176" y="125" text-anchor="end">490</text>
+
+          <rect class="svg-box" x="8" y="142" width="176" height="30" rx="3" />
+          <text class="svg-label-sm" x="18" y="161">Outcomes</text>
+          <text class="svg-label-sm" x="176" y="161" text-anchor="end">240</text>
+
+          <text class="svg-edge" x="8" y="190">points available, Tier 1</text>
+
+          <!-- sum -->
+          <path class="svg-line" d="M 184 49 L 208 49 L 208 103" />
+          <path class="svg-line" d="M 184 85 L 208 85" />
+          <path class="svg-line" d="M 184 157 L 208 157 L 208 103" />
+          <line class="svg-line" x1="184" y1="121" x2="208" y2="121" />
+          <line class="svg-line" x1="208" y1="103" x2="240" y2="103" marker-end="url(#ar3)" />
+
+          <rect class="svg-box" x="246" y="82" width="140" height="42" rx="3" />
+          <text class="svg-label" x="316" y="99" text-anchor="middle">Points earned</text>
+          <text class="svg-label" x="316" y="115" text-anchor="middle">&divide; 1,332 available</text>
+
+          <line class="svg-line" x1="386" y1="103" x2="424" y2="103" marker-end="url(#ar3)" />
+          <text class="svg-edge" x="392" y="96">=</text>
+
+          <rect class="svg-box" x="430" y="82" width="128" height="42" rx="3" />
+          <text class="svg-label" x="494" y="99" text-anchor="middle">Overall</text>
+          <text class="svg-label" x="494" y="115" text-anchor="middle">percentage</text>
+
+          <line class="svg-line" x1="558" y1="103" x2="596" y2="103" marker-end="url(#ar3)" />
+
+          <rect class="svg-box" x="602" y="72" width="150" height="62" rx="3" />
+          <text class="svg-label" x="677" y="90" text-anchor="middle">Provisional shield</text>
+          <text class="svg-label-sm" x="677" y="108" text-anchor="middle">Gold 75 &middot; Silver 55</text>
+          <text class="svg-label-sm" x="677" y="124" text-anchor="middle">Bronze 40</text>
+
+          <!-- gate -->
+          <text class="svg-lane" x="8" y="238">NON-NEGOTIABLES</text>
+
+          <rect class="svg-box" x="246" y="250" width="196" height="46" rx="3" />
+          <text class="svg-label" x="344" y="268" text-anchor="middle">NN1&ndash;NN6 &middot; gates</text>
+          <text class="svg-label-sm" x="344" y="285" text-anchor="middle">any one missing &rarr; no award</text>
+
+          <rect class="svg-box" x="470" y="250" width="196" height="46" rx="3" />
+          <text class="svg-label" x="568" y="268" text-anchor="middle">NN7&ndash;NN9 &middot; thresholds</text>
+          <text class="svg-label-sm" x="568" y="285" text-anchor="middle">cap the shield at the level met</text>
+
+          <path class="svg-line" d="M 344 250 L 344 176 L 677 176 L 677 140" marker-end="url(#ar3)" />
+          <text class="svg-edge" x="356" y="170">blocks</text>
+
+          <path class="svg-line" d="M 568 250 L 568 202 L 677 202 L 677 140" marker-end="url(#ar3)" />
+          <text class="svg-edge" x="580" y="196">caps</text>
+
+          <!-- award -->
+          <line class="svg-accent-line" x1="752" y1="103" x2="790" y2="103" marker-end="url(#ar3a)" />
+
+          <rect class="svg-accent-box" x="796" y="72" width="156" height="62" rx="3" />
+          <rect class="svg-fill-accent" x="796" y="72" width="156" height="62" rx="3" />
+          <text class="svg-label svg-accent-text" x="874" y="98" text-anchor="middle">Shield awarded</text>
+          <text class="svg-label-sm svg-accent-text" x="874" y="116" text-anchor="middle">the weaker of score and cap</text>
+
+          <!-- badge branch -->
+          <path class="svg-dash" d="M 677 134 L 677 352 L 790 352" marker-end="url(#ar3)" />
+          <rect class="svg-box" x="796" y="330" width="156" height="46" rx="3" />
+          <text class="svg-label" x="874" y="348" text-anchor="middle">Development</text>
+          <text class="svg-label" x="874" y="364" text-anchor="middle">Committed badge</text>
+          <text class="svg-edge" x="785" y="334" text-anchor="end">below 40%,</text>
+          <text class="svg-edge" x="785" y="346" text-anchor="end">licence compliant</text>
+        </svg>
+        <figcaption>
+          The two Non&#8209;Negotiable mechanisms do different things. A gate stops any award at all;
+          a threshold lets the club keep its score but holds the shield at the standard its structure
+          and staffing actually support.
+        </figcaption>
+      </figure>
+
+      <h3>Where each domain&rsquo;s score comes from</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Domain</th><th>Scored from</th><th class="num">Points</th><th class="num">Share</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Technical Qualifications</td><td>The staff register &mdash; qualification, experience, employment basis, weighted by role</td><td class="num">330</td><td class="num">24.8%</td></tr>
+            <tr><td>Planning</td><td>15 line items across 5 macro&#8209;areas</td><td class="num">272</td><td class="num">20.4%</td></tr>
+            <tr><td>Delivery</td><td>25 line items, mostly observed at training and on match day</td><td class="num">490</td><td class="num">36.8%</td></tr>
+            <tr><td>Outcomes</td><td>14 line items, fed by the participation figures</td><td class="num">240</td><td class="num">18.0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.88rem;color:var(--muted);max-width:38rem">
+        Tier&nbsp;2 clubs are assessed on 18 of the same coded line items, with Technical scaled to
+        112 points, so their percentage comes from a denominator they were actually assessed against.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================================================================ PHASE 6 -->
+
+  <section class="phase">
+    <div class="phase-head">
+      <div class="phase-num" aria-hidden="true">6</div>
+      <div>
+        <h2>Release, review, confirm</h2>
+        <p class="who">All three roles</p>
+      </div>
+    </div>
+
+    <div class="phase-body">
+      <p>
+        Locking freezes the result; releasing shows it to the club. What the club receives is a
+        <strong>preliminary</strong> rating &mdash; Football Queensland is explicit that a club may
+        only communicate its rating by displaying its Club Shield once that rating is
+        <strong>confirmed</strong>.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 960 284" role="img"
+             aria-label="Timeline: the preliminary rating is released, then the club has 8 days to request a review. With no request the rating confirms itself. With one, the Unit responds within 10 working days, the club may appeal within 3 working days, and the CEO rules within 8 working days, after which the rating is confirmed.">
+          <defs>
+            <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+            </marker>
+            <marker id="ar4a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)" />
+            </marker>
+          </defs>
+
+          <!-- the clock: durations above each segment, who acts below -->
+          <circle cx="40" cy="152" r="4.5" fill="currentColor" />
+          <text class="svg-label-sm" x="40" y="182" text-anchor="middle">Released</text>
+          <text class="svg-edge" x="40" y="196" text-anchor="middle">preliminary</text>
+
+          <line class="svg-line" x1="46" y1="152" x2="256" y2="152" marker-end="url(#ar4)" />
+          <text class="svg-label-sm" x="150" y="144" text-anchor="middle">8 days</text>
+          <text class="svg-edge" x="150" y="172" text-anchor="middle">club may request a review</text>
+
+          <circle cx="264" cy="152" r="4.5" fill="currentColor" />
+
+          <line class="svg-line" x1="270" y1="152" x2="452" y2="152" marker-end="url(#ar4)" />
+          <text class="svg-label-sm" x="360" y="144" text-anchor="middle">10 working days</text>
+          <text class="svg-edge" x="360" y="172" text-anchor="middle">Unit answers every item</text>
+
+          <circle cx="460" cy="152" r="4.5" fill="currentColor" />
+
+          <line class="svg-line" x1="466" y1="152" x2="622" y2="152" marker-end="url(#ar4)" />
+          <text class="svg-label-sm" x="544" y="144" text-anchor="middle">3 working days</text>
+          <text class="svg-edge" x="544" y="172" text-anchor="middle">club may appeal</text>
+
+          <circle cx="630" cy="152" r="4.5" fill="currentColor" />
+
+          <line class="svg-line" x1="636" y1="152" x2="778" y2="152" marker-end="url(#ar4)" />
+          <text class="svg-label-sm" x="707" y="144" text-anchor="middle">8 working days</text>
+          <text class="svg-edge" x="707" y="172" text-anchor="middle">CEO rules</text>
+
+          <circle cx="786" cy="152" r="4.5" fill="currentColor" />
+          <path class="svg-accent-line" d="M 792 152 L 812 152" marker-end="url(#ar4a)" />
+
+          <!-- the two endings nobody has to action -->
+          <path class="svg-accent-line" d="M 264 147 L 264 56 L 812 56" marker-end="url(#ar4a)" />
+          <text class="svg-edge svg-accent-text" x="276" y="50">no request &rarr; confirms itself</text>
+
+          <path class="svg-accent-line" d="M 630 147 L 630 96 L 812 96" marker-end="url(#ar4a)" />
+          <text class="svg-edge svg-accent-text" x="642" y="90">no appeal &rarr; confirms itself</text>
+
+          <!-- terminal -->
+          <rect class="svg-accent-box" x="818" y="48" width="118" height="118" rx="3" />
+          <rect class="svg-fill-accent" x="818" y="48" width="118" height="118" rx="3" />
+          <text class="svg-label svg-accent-text" x="877" y="102" text-anchor="middle">Confirmed</text>
+          <text class="svg-label-sm svg-accent-text" x="877" y="120" text-anchor="middle">shield publishable</text>
+
+          <text class="svg-label-sm" x="20" y="232">Quotas per request: 4 Planning &middot; 4 Delivery &middot; 2 Outcomes, capped at 10 items.</text>
+          <text class="svg-label-sm" x="20" y="252">One request per cycle, and one appeal. The CEO&rsquo;s ruling exhausts the process.</text>
+          <text class="svg-label-sm" x="20" y="272">The only admissible ground is that relevant evidence was missed through an oversight.</text>
+        </svg>
+        <figcaption>
+          Two of the three endings need nobody to act: a window closing with no request, and an
+          appeal window closing with no appeal, both confirm the rating on their own.
+        </figcaption>
+      </figure>
+
+      <div class="note">
+        <strong>Technical Qualifications cannot be reviewed.</strong> It is computed from the staff
+        register rather than judged by an assessor, so a wrong Technical score is fixed by correcting
+        the register &mdash; there is no opinion to appeal.
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== APPENDIX -->
+
+  <div class="appendix">
+    <h2>Reference</h2>
+
+    <div class="ref">
+      <h3>Assessment status &mdash; what moves it</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Status</th><th>Meaning</th><th>Moved by</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>NOT_STARTED</code></td><td>Opened, club hasn&rsquo;t touched it</td><td>&mdash;</td></tr>
+            <tr><td><code>IN_PROGRESS</code></td><td>Club is entering data</td><td>The club saving anything</td></tr>
+            <tr><td><code>SUBMITTED</code></td><td>Club is done; assessors can score</td><td>The club submitting</td></tr>
+            <tr><td><code>IN_ASSESSMENT</code></td><td>At least one score is in</td><td>The first assessor to save</td></tr>
+            <tr><td><code>RECONCILING</code></td><td>Every line item in the pool is in</td><td>The last assessor to submit</td></tr>
+            <tr><td><code>LOCKED</code></td><td>Result computed and frozen</td><td>The Unit locking</td></tr>
+            <tr><td><code>PUBLISHED</code></td><td>Preliminary rating with the club</td><td>The Unit releasing</td></tr>
+            <tr><td><code>IN_REVIEW</code></td><td>Club has challenged specific items</td><td>The club requesting a review</td></tr>
+            <tr><td><code>UNDER_APPEAL</code></td><td>With the CEO</td><td>The club appealing</td></tr>
+            <tr><td><code>CONFIRMED</code></td><td>Final. The club may display its shield</td><td>A window lapsing, or the CEO ruling</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.88rem;color:var(--muted);max-width:38rem">
+        Three moves run backwards, all Unit&#8209;only: <em>reopen</em> returns a submission to the
+        club, <em>unlock</em> clears the frozen result and returns to reconciling, and
+        <em>withdraw</em> takes a released rating back from the club. Withdrawal is refused while a
+        review is open.
+      </p>
+    </div>
+
+    <div class="ref">
+      <h3>The nine Non&#8209;Negotiables</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Ref</th><th>Check</th><th>Mechanism</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>NN1</td><td>Fee transparency</td><td>Blocks the shield</td></tr>
+            <tr><td>NN2</td><td>Scholarship positions</td><td>Blocks the shield</td></tr>
+            <tr><td>NN3</td><td>Coaches&rsquo; registration in Squadi</td><td>Blocks the shield</td></tr>
+            <tr><td>NN4</td><td>Fielding teams and squad numbers</td><td>Blocks the shield</td></tr>
+            <tr><td>NN5</td><td>Technical Director qualification</td><td>Blocks the shield</td></tr>
+            <tr><td>NN6</td><td>Technical staff qualifications and Blue Cards</td><td>Blocks the shield</td></tr>
+            <tr><td>NN7</td><td>Club structure standards</td><td><span class="chip chip-accent">Caps the shield</span> &mdash; computed</td></tr>
+            <tr><td>NN8</td><td>Coaching standards</td><td><span class="chip chip-accent">Caps the shield</span></td></tr>
+            <tr><td>NN9</td><td>Training program standards</td><td><span class="chip chip-accent">Caps the shield</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.88rem;color:var(--muted);max-width:38rem">
+        An unverified check counts against the club exactly as a failed one does. &ldquo;Not yet
+        looked at&rdquo; can never resolve in the club&rsquo;s favour, which is the whole reason the
+        gate exists.
+      </p>
+    </div>
+
+    <div class="ref">
+      <h3>What a club is awarded</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Award</th><th class="num">Bar</th><th>Also requires</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="chip chip-gold">Gold</span></td><td class="num">75%</td><td>All six gates met; the Gold structure, coaching and training standards</td></tr>
+            <tr><td><span class="chip chip-silver">Silver</span></td><td class="num">55%</td><td>All six gates met; the Silver standards</td></tr>
+            <tr><td><span class="chip chip-bronze">Bronze</span></td><td class="num">40%</td><td>All six gates met; the Bronze standards</td></tr>
+            <tr><td>FQ Development Committed</td><td class="num">&lt; 40%</td><td>Licence compliant in non&#8209;technical areas. A badge, not a shield</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.88rem;color:var(--muted);max-width:38rem">
+        There is no Platinum. Gold is the top, and the portal will not offer a level Football
+        Queensland does not issue a shield for.
+      </p>
+    </div>
+
+    <div class="ref">
+      <h3>Who sees what</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th></th><th>Club</th><th>Assessor</th><th>Unit</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Its own submitted data</td><td>Yes</td><td>Assigned clubs only</td><td>Yes</td></tr>
+            <tr><td>Line-item weightings</td><td>No</td><td>No</td><td>Yes</td></tr>
+            <tr><td>Individual assessor scores</td><td>No</td><td>Own only</td><td>Yes</td></tr>
+            <tr><td>Assessor names</td><td>No</td><td>No</td><td>Yes</td></tr>
+            <tr><td>Its own rating</td><td>After release</td><td>No</td><td>Always</td></tr>
+            <tr><td>Macro-area grades and notes</td><td>After release</td><td>No</td><td>Always</td></tr>
+            <tr><td>Its structure standard</td><td>Immediately</td><td>No</td><td>Always</td></tr>
+            <tr><td>Any other club</td><td>No</td><td>Within its pools</td><td>Yes</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>

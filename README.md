@@ -153,6 +153,14 @@ season. After a reset, sign in as an admin, open a cycle at `/cda/cdu`, add your
 clubs and create an administrator account for each; the sign-in link is shown
 once, on screen, for you to hand over.
 
+### How the assessment works
+
+`docs/how-a-shield-is-awarded.pdf` walks the whole season end to end — the three
+roles and their handoffs, vertical assessment, how points become a shield, the
+two Non-Negotiable mechanisms, and the review and appeal clock. The HTML source
+sits beside it; `node docs/build-pdf.mjs` rebuilds the PDF after an edit, and
+prints what it needs if Playwright isn't installed.
+
 ---
 
 ## Stack
