@@ -20,6 +20,7 @@ import "dotenv/config";
 import { createHash, randomUUID } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { createClient } from "@libsql/client";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "prisma", "migrations");
@@ -64,7 +65,13 @@ function readMigration(name: string) {
   return { sql, checksum: createHash("sha256").update(sql, "utf8").digest("hex") };
 }
 
-async function main() {
+/**
+ * Applies every pending migration and returns.
+ *
+ * Exported so the boot sequence can call it in-process rather than paying for
+ * another Node start; still runnable on its own via `npm run db:deploy`.
+ */
+export async function applyMigrations() {
   const url = process.env.DATABASE_URL ?? "file:./prisma/dev.db";
   const authToken = process.env.TURSO_AUTH_TOKEN;
 
@@ -140,7 +147,11 @@ async function main() {
   client.close();
 }
 
-main().catch((error) => {
-  console.error("[migrate] failed:", error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+// Only when run directly. Imported by scripts/boot.ts, which handles its own
+// failures and has more to do afterwards.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  applyMigrations().catch((error) => {
+    console.error("[migrate] failed:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

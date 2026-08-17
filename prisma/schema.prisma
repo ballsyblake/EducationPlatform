@@ -26,6 +26,19 @@ enum Role {
   ASSESSOR
 }
 
+/// Small things the app has to remember between boots.
+///
+/// Currently one row: a fingerprint of the rubric catalogue shipped in the
+/// running image. The catalogue sync runs on every container start, and on a
+/// hosted database each of its ~160 upserts is a network round trip — several
+/// seconds spent, on every wake, to discover nothing has changed. Comparing one
+/// hash first turns that into a single query.
+model Meta {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique

@@ -102,6 +102,55 @@ export function areaKey(domain: Domain, area: string | null) {
   return `${domain}|${area ?? ""}`;
 }
 
+/**
+ * Which clubs a given line item is actually scored on.
+ *
+ * A pool is a group of clubs, and a line item is allocated across the whole
+ * pool — but Tier 2 is assessed on 18 of the same coded items, not all 54. So a
+ * pool holding both tiers means some allocated items simply do not apply to
+ * some of its clubs.
+ *
+ * Without this, the assessor's screen listed every club in the pool for every
+ * item they held and invited scores on all of them. Nothing broke and no rating
+ * was wrong — scoring scopes to the club's own tier when it computes — but the
+ * scores collected outside a club's tier were quietly discarded, which is
+ * assessor effort spent for nothing, with no warning that it was being wasted.
+ *
+ * Returns a predicate rather than a filtered list because the two callers want
+ * different things from the same answer: the assessor's screen drops the clubs,
+ * the CDU's pool page counts them.
+ */
+export async function tierScope(
+  assessments: { id: string; tierId: string | null }[],
+  criterionIds: string[],
+): Promise<(criterionId: string, assessmentId: string) => boolean> {
+  const [fallback, criteria] = await Promise.all([
+    prisma.tier.findFirst({ orderBy: { position: "asc" }, select: { id: true } }),
+    prisma.criterion.findMany({
+      where: { id: { in: criterionIds } },
+      select: { id: true, tiers: { select: { id: true } } },
+    }),
+  ]);
+
+  // Same fallback the scoring path uses, so this agrees with what the rating
+  // will actually count rather than with a second opinion about it.
+  const tierOf = new Map(
+    assessments.map((a) => [a.id, a.tierId ?? fallback?.id ?? null] as const),
+  );
+  const tiersFor = new Map(criteria.map((c) => [c.id, new Set(c.tiers.map((t) => t.id))]));
+
+  return (criterionId, assessmentId) => {
+    const allowed = tiersFor.get(criterionId);
+    // A criterion attached to no tier at all, or a club with no tier and no
+    // tiers configured, is a setup problem rather than an exclusion. Showing
+    // the club is the recoverable failure; hiding it silently is not.
+    if (!allowed || allowed.size === 0) return true;
+    const tier = tierOf.get(assessmentId);
+    if (!tier) return true;
+    return allowed.has(tier);
+  };
+}
+
 export async function loadAssessment(id: string): Promise<AssessmentOverview> {
   const assessment = await loadAssessmentRow(id);
 

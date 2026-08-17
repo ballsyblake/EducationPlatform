@@ -10,10 +10,14 @@
  *   seedDemo()     — clubs, assessors and part-finished assessments. Destructive
  *                    to CDA data, for a fresh instance only.
  */
+import { createHash } from "node:crypto";
 import type { PrismaClient, Shield } from "../generated/prisma/client.ts";
 import { defaultThresholds, starsFromEvidence } from "../src/lib/cda/rubric.ts";
 import { CRITERIA, NON_NEGOTIABLES, QUALIFICATIONS } from "./cda-catalog.ts";
 import { STRUCTURE_ROLES } from "../src/lib/cda/structure.ts";
+
+/** Where the catalogue fingerprint lives. */
+const CATALOG_FINGERPRINT_KEY = "cda.catalog.fingerprint";
 
 /* -------------------------------------------------------------------------- */
 /* Catalogue                                                                  */
@@ -28,7 +32,47 @@ const TIERS = [
   { code: "T2", name: "Tier 2", technicalMaxPoints: 112 },
 ];
 
-export async function seedCatalog(prisma: PrismaClient) {
+/**
+ * A hash of the catalogue this image ships.
+ *
+ * Everything the sync would write goes in, so any change to a criterion,
+ * threshold, Non-Negotiable, qualification, tier or structure role produces a
+ * different fingerprint and the sync runs. Nothing else does, so a boot that
+ * ships the same catalogue can tell in one query that there is nothing to do.
+ */
+function catalogFingerprint() {
+  return createHash("sha256")
+    .update(JSON.stringify({ TIERS, QUALIFICATIONS, NON_NEGOTIABLES, CRITERIA, STRUCTURE_ROLES }))
+    .digest("hex");
+}
+
+/**
+ * Brings the rubric catalogue in the database up to what this image ships.
+ *
+ * `skipIfUnchanged` is for the container entrypoint, which runs this on every
+ * boot. The work is ~160 sequential upserts, and on a hosted database every one
+ * of those is a network round trip — several seconds of a cold start spent
+ * establishing that nothing changed since the last boot. With the flag set it
+ * compares one stored hash first and returns.
+ *
+ * Left off everywhere else. Someone running `npm run cda:catalog` by hand has
+ * asked for the sync, and answering "no need" to a direct instruction is how
+ * you end up debugging a cache instead of a rubric.
+ */
+export async function seedCatalog(
+  prisma: PrismaClient,
+  { skipIfUnchanged = false }: { skipIfUnchanged?: boolean } = {},
+) {
+  const fingerprint = catalogFingerprint();
+
+  if (skipIfUnchanged) {
+    const seen = await prisma.meta.findUnique({ where: { key: CATALOG_FINGERPRINT_KEY } });
+    if (seen?.value === fingerprint) {
+      console.log("[cda] catalogue unchanged since last boot — skipped.");
+      return;
+    }
+  }
+
   for (const [i, q] of QUALIFICATIONS.entries()) {
     await prisma.qualification.upsert({
       where: { code: q.code },
@@ -178,6 +222,14 @@ export async function seedCatalog(prisma: PrismaClient) {
     `[cda] catalogue: ${counts.criteria} criteria (${counts.subCriteria} evidence points), ` +
       `${counts.nonNegotiables} Non-Negotiables, ${counts.qualifications} qualifications`,
   );
+
+  // Written last, so a run that fails part-way leaves no fingerprint and the
+  // next boot does the work again rather than trusting a half-applied rubric.
+  await prisma.meta.upsert({
+    where: { key: CATALOG_FINGERPRINT_KEY },
+    update: { value: fingerprint },
+    create: { key: CATALOG_FINGERPRINT_KEY, value: fingerprint },
+  });
 }
 
 /**

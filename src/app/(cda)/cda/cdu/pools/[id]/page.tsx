@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { ASSESSOR_POOL_WHERE, requireCdu } from "@/lib/cda/access";
+import { tierScope } from "@/lib/cda/assessment";
 import { ASSESSED_DOMAINS, DOMAIN_LABELS } from "@/lib/cda/rubric";
 import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
@@ -72,6 +73,17 @@ export default async function PoolPage({
 
   const clubCount = pool.assessments.length;
 
+  // Tier 2 is assessed on 18 of the same coded items, so a pool holding both
+  // tiers has line items that only apply to some of its clubs. The counts below
+  // are per item for that reason: "0/7" on an item only five of the clubs are
+  // scored on is a target the assessor can never reach.
+  const applies = await tierScope(pool.assessments, criteria.map((c) => c.id));
+  const applicableClubs = (criterionId: string) =>
+    pool.assessments.filter((a) => applies(criterionId, a.id)).length;
+
+  const tiersInPool = new Set(pool.assessments.map((a) => a.tierId ?? "—"));
+  const mixedTiers = tiersInPool.size > 1;
+
   const rows: AllocationRow[] = criteria
     .filter((c) => !domain || c.domain === domain)
     .map((c) => {
@@ -82,7 +94,8 @@ export default async function PoolPage({
         title: c.title,
         mode: c.mode,
         weight: c.weight,
-        clubs: clubCount,
+        clubs: applicableClubs(c.id),
+        poolClubs: clubCount,
         scored: held.reduce((n, h) => n + (scored.get(`${h.assessorId}:${c.id}`) ?? 0), 0),
         slots: [1, 2, 3].map((slot) => {
           const a = held.find((h) => h.slot === slot);
@@ -131,6 +144,19 @@ export default async function PoolPage({
           value={new Set(assignments.map((a) => a.assessorId)).size}
         />
       </div>
+
+      {mixedTiers && (
+        <div className="mb-6 card card-pad">
+          <h2 className="font-semibold text-ink-900">This pool mixes assessment tiers</h2>
+          <p className="mt-1 text-sm text-ink-600">
+            Tier 2 clubs are assessed on 18 of the same coded line items, not all{" "}
+            {criteria.length}. Items that don&apos;t apply to a club are simply not offered to the
+            assessor for it, so nothing is scored wrongly &mdash; but the rows below will show
+            uneven club counts, and a line item can be finished for one tier while still open for
+            the other. A pool per tier keeps the numbers straightforward.
+          </p>
+        </div>
+      )}
 
       <div className="mb-6 card card-pad">
         <h2 className="mb-2 font-semibold text-ink-900">Clubs in this pool</h2>

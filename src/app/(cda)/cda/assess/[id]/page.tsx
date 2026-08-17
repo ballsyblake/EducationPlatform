@@ -6,6 +6,7 @@ import {
   requireAssessor,
   requireAssignment,
 } from "@/lib/cda/access";
+import { tierScope } from "@/lib/cda/assessment";
 import { DOMAIN_LABELS } from "@/lib/cda/rubric";
 import { prisma } from "@/lib/db";
 import { ClubScoreCard, type ClubScoreData } from "./club-score-card";
@@ -27,7 +28,7 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
 
   const { criterion, pool } = assignment;
 
-  const assessments = await prisma.clubAssessment.findMany({
+  const poolAssessments = await prisma.clubAssessment.findMany({
     where: { poolId: pool.id },
     include: {
       club: true,
@@ -38,6 +39,13 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
     },
     orderBy: { club: { name: "asc" } },
   });
+
+  // Tier 2 is assessed on 18 of the same coded items, so a pool holding both
+  // tiers has clubs this line item doesn't apply to. Scoring them would be
+  // discarded at rating time, so they aren't offered.
+  const applies = await tierScope(poolAssessments, [criterion.id]);
+  const assessments = poolAssessments.filter((a) => applies(criterion.id, a.id));
+  const outOfTier = poolAssessments.length - assessments.length;
 
   // Last cycle's confirmed score for this line item, per club — the first thing
   // to sanity-check a new score against.
@@ -113,7 +121,9 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
           hint={
             waiting > 0
               ? `${waiting} club${waiting === 1 ? "" : "s"} not yet submitted`
-              : "Clubs in this pool"
+              : outOfTier > 0
+                ? `${outOfTier} club${outOfTier === 1 ? "" : "s"} in this pool aren't assessed on it`
+                : "Clubs in this pool"
           }
         />
         <StatTile
