@@ -1,5 +1,5 @@
 import { EmptyState, PageHeader, StatTile } from "@/components/ui";
-import { requireCdu } from "@/lib/cda/access";
+import { ASSESSOR_POOL_WHERE, requireCdu } from "@/lib/cda/access";
 import { activeCycle } from "@/lib/cda/assessment";
 import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
@@ -20,8 +20,28 @@ export default async function ClubsPage() {
   const tierCodes = tiers.map((t) => t.code);
   const tierName = new Map(tiers.map((t) => [t.id, t.name]));
 
+  // Everyone who can hold a line item, with how many clubs they already look
+  // after — spreading a portfolio evenly is impossible from a list that doesn't
+  // say who is already carrying what.
+  const ambassadorPool = await prisma.user.findMany({
+    where: { ...ASSESSOR_POOL_WHERE, active: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      _count: { select: { ambassadorFor: true } },
+    },
+    orderBy: [{ name: "asc" }, { email: "asc" }],
+  });
+  const ambassadors = ambassadorPool.map((u) => ({
+    id: u.id,
+    name: displayName(u),
+    clubs: u._count.ambassadorFor,
+  }));
+
   const clubs = await prisma.club.findMany({
     include: {
+      ambassadors: { include: { user: { select: { id: true, name: true, email: true } } } },
       members: {
         include: {
           user: {
@@ -49,6 +69,8 @@ export default async function ClubsPage() {
     assessmentId: c.assessments[0]?.id ?? null,
     assessmentTierId: c.tierId ?? "",
     assessmentTierName: c.tierId ? (tierName.get(c.tierId) ?? "") : "",
+    ambassadorIds: c.ambassadors.map((a) => a.user.id),
+    ambassadorNames: c.ambassadors.map((a) => displayName(a.user)),
     members: c.members.map((m) => ({
       id: m.user.id,
       name: displayName(m.user),
@@ -59,6 +81,7 @@ export default async function ClubsPage() {
   }));
 
   const withoutAdmin = rows.filter((r) => r.active && r.members.length === 0).length;
+  const withoutCda = rows.filter((r) => r.active && r.ambassadorIds.length === 0).length;
 
   return (
     <>
@@ -67,13 +90,19 @@ export default async function ClubsPage() {
         subtitle="Every affiliated club, and who administers it."
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile label="Clubs" value={rows.filter((r) => r.active).length} hint="Active" />
         <StatTile
           label="Without an administrator"
           value={withoutAdmin}
           tone={withoutAdmin > 0 ? "warn" : "good"}
           hint="Can't submit anything"
+        />
+        <StatTile
+          label="Without a CDA"
+          value={withoutCda}
+          tone={withoutCda > 0 ? "warn" : "good"}
+          hint="Nobody can assess them"
         />
         <StatTile label="Inactive" value={rows.filter((r) => !r.active).length} />
       </div>
@@ -95,7 +124,12 @@ export default async function ClubsPage() {
           ) : (
             <div className="card divide-y divide-ink-200">
               {rows.map((club) => (
-                <ClubRow key={club.id} club={club} tiers={tiers} />
+                <ClubRow
+                  key={club.id}
+                  club={club}
+                  tiers={tiers}
+                  ambassadors={ambassadors}
+                />
               ))}
             </div>
           )}

@@ -31,6 +31,8 @@ export type AllocationRow = {
     assessorName: string | null;
     submittedAt: Date | null;
     scored: number;
+    /** Clubs on this item that this assessor is also the CDA for. */
+    covers: number;
   }[];
 };
 
@@ -77,8 +79,18 @@ export function AllocateRow({
                 </span>
                 <span className="text-ink-700">{s.assessorName}</span>
                 <span className="tabular-nums text-ink-400">
-                  {s.scored}/{row.clubs}
+                  {s.scored}/{s.covers}
                 </span>
+                {/* An assessor reaches a club only where their portfolio and
+                    this allocation overlap, so an item can read "allocated"
+                    and still leave clubs nobody can score. */}
+                {s.covers < row.clubs && (
+                  <Badge tone={s.covers === 0 ? "bad" : "warn"}>
+                    {s.covers === 0
+                      ? "not their CDA on any"
+                      : `CDA for ${s.covers} of ${row.clubs}`}
+                  </Badge>
+                )}
                 {s.submittedAt ? (
                   <form action={reopenAssignment} className="inline">
                     <input type="hidden" name="assignmentId" value={s.assignmentId ?? ""} />

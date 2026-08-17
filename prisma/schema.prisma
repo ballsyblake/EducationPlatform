@@ -75,6 +75,7 @@ model User {
 
   // Club Development & Assessment
   clubMemberships        ClubMembership[]
+  ambassadorFor          ClubAmbassador[]      @relation("ClubAmbassadors")
   criterionAssignments   CriterionAssignment[] @relation("CriterionAssignments")
   assessorScores         AssessorScore[]       @relation("AssessorScores")
   resolvedScores         FinalScore[]          @relation("ScoreResolver")
@@ -399,9 +400,33 @@ model Club {
 
   members     ClubMembership[]
   assessments ClubAssessment[]
+  ambassadors ClubAmbassador[]
 
   @@index([zone])
   @@index([tierId])
+}
+
+/// The clubs a Club Development Ambassador looks after through the year.
+///
+/// Standing, and independent of any cycle: a CDA visits and supports these
+/// clubs whether or not a rating is running, so this outlives the pool and the
+/// line-item allocation that decide who scores what in a given season.
+///
+/// It is also the visibility boundary. An assessor reaches a club only where
+/// their portfolio and their allocation overlap — holding a line item across a
+/// pool no longer opens every club in it. Kept as its own table rather than a
+/// column on Club because a club can have more than one CDA, and because a CDA
+/// leaving takes their portfolio with them without touching the clubs.
+model ClubAmbassador {
+  id        String   @id @default(cuid())
+  clubId    String
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("ClubAmbassadors", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([clubId, userId])
+  @@index([userId])
 }
 
 /// Grants a CLUB user access to one club. Modelled as a join rather than a

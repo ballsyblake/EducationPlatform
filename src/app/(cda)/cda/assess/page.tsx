@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
-import { requireAssessor } from "@/lib/cda/access";
+import { portfolioFilter, requireAssessor } from "@/lib/cda/access";
+import { tierScope } from "@/lib/cda/assessment";
 import { DOMAIN_LABELS } from "@/lib/cda/rubric";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/format";
@@ -51,10 +52,34 @@ export default async function AssessorHomePage() {
   });
   const scoredByCriterion = new Map(counts.map((c) => [c.criterionId, c._count._all]));
 
+  // The denominator is the clubs this CDA can actually reach on each item —
+  // their own portfolio, in the tier the item applies to — not every club in
+  // the pool. Counting the pool made a bar that could never fill: an assessor
+  // with six of the pool's thirty clubs would sit at 6/30 having finished.
+  const poolIds = [...new Set(assignments.map((a) => a.poolId))];
+  const poolAssessments = await prisma.clubAssessment.findMany({
+    where: { poolId: { in: poolIds } },
+    select: { id: true, clubId: true, poolId: true, tierId: true },
+  });
+
+  const [applies, mine] = await Promise.all([
+    tierScope(poolAssessments, [...new Set(assignments.map((a) => a.criterionId))]),
+    portfolioFilter(assessor),
+  ]);
+
+  const clubsFor = (poolId: string, criterionId: string) =>
+    poolAssessments.filter(
+      (a) =>
+        a.poolId === poolId &&
+        (mine === null || mine.has(a.clubId)) &&
+        applies(criterionId, a.id),
+    ).length;
+
   const outstanding = assignments.filter((a) => !a.submittedAt);
-  const totalClubs = outstanding.reduce((n, a) => n + a.pool._count.assessments, 0);
+  const totalClubs = outstanding.reduce((n, a) => n + clubsFor(a.poolId, a.criterionId), 0);
   const totalScored = outstanding.reduce(
-    (n, a) => n + Math.min(scoredByCriterion.get(a.criterionId) ?? 0, a.pool._count.assessments),
+    (n, a) =>
+      n + Math.min(scoredByCriterion.get(a.criterionId) ?? 0, clubsFor(a.poolId, a.criterionId)),
     0,
   );
 
@@ -62,7 +87,7 @@ export default async function AssessorHomePage() {
     <>
       <PageHeader
         title="My line items"
-        subtitle="Each line item is scored across every club in its pool, so the standard stays the same between them."
+        subtitle="Each line item is scored across the clubs you look after, so the standard stays the same between them."
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
@@ -82,7 +107,7 @@ export default async function AssessorHomePage() {
 
       <div className="card divide-y divide-ink-200">
         {assignments.map((a) => {
-          const clubs = a.pool._count.assessments;
+          const clubs = clubsFor(a.poolId, a.criterionId);
           const scored = Math.min(scoredByCriterion.get(a.criterionId) ?? 0, clubs);
           const complete = clubs > 0 && scored === clubs;
 

@@ -1,5 +1,9 @@
-import { Badge, PageHeader, StatTile } from "@/components/ui";
-import { requireAssessmentAccess, requireAssessor } from "@/lib/cda/access";
+import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
+import {
+  requireAssessmentAccess,
+  requireAssessor,
+  visibleEvidenceFor,
+} from "@/lib/cda/access";
 import {
   EMPLOYMENT_LABELS,
   METRIC_SPECS,
@@ -12,13 +16,22 @@ import { prisma } from "@/lib/db";
 export const metadata = { title: "Club evidence" };
 
 /**
- * Everything the club submitted, read-only.
+ * What the club submitted that this assessor's line items actually turn on.
  *
- * An assessor scoring the Outcomes criteria needs the club's own numbers in
- * front of them, and scoring Technical Qualifications means reading the staff
- * register. What they deliberately don't get is any computed score: their job
- * is to judge the evidence, and showing them the Technical percentage the
- * register already produces would anchor how they score everything else.
+ * Read-only, and narrower than it was. This page used to show everything a club
+ * had submitted to anyone holding any line item in its pool: the full staff
+ * register with names, Blue Card status and downloadable certificates, the
+ * participation figures, and all nine Non-Negotiable declarations with the
+ * club's notes and uploaded files. Scoring one Planning item required none of
+ * it.
+ *
+ * Now each section appears only where a held line item justifies it, and the
+ * Non-Negotiable declarations appear for nobody — an assessor never scores one,
+ * they are the Unit's to verify.
+ *
+ * Still no computed score of any kind: their job is to judge the evidence, and
+ * showing them the Technical percentage the register already produces would
+ * anchor how they score everything else.
  */
 export default async function ClubDataPage({
   params,
@@ -29,18 +42,19 @@ export default async function ClubDataPage({
   const assessor = await requireAssessor();
   const assessment = await requireAssessmentAccess(assessor, id);
 
-  const [staff, metrics, nonNegotiables] = await Promise.all([
-    prisma.staffMember.findMany({
-      where: { assessmentId: id },
-      include: { qualification: true, certificates: true },
-      orderBy: { name: "asc" },
-    }),
-    prisma.clubMetric.findMany({ where: { assessmentId: id } }),
-    prisma.nonNegotiableResult.findMany({
-      where: { assessmentId: id, nonNegotiable: { active: true } },
-      include: { nonNegotiable: true, evidence: true },
-      orderBy: { nonNegotiable: { position: "asc" } },
-    }),
+  const visible = await visibleEvidenceFor(assessor.id, assessment.poolId);
+  const canSeeStaff = visible.has("STAFF");
+  const canSeeParticipation = visible.has("PARTICIPATION");
+
+  const [staff, metrics] = await Promise.all([
+    canSeeStaff
+      ? prisma.staffMember.findMany({
+          where: { assessmentId: id },
+          include: { qualification: true, certificates: true },
+          orderBy: { name: "asc" },
+        })
+      : [],
+    canSeeParticipation ? prisma.clubMetric.findMany({ where: { assessmentId: id } }) : [],
   ]);
 
   const byKey = new Map(metrics.map((m) => [m.key, m]));
@@ -51,25 +65,35 @@ export default async function ClubDataPage({
     <>
       <PageHeader
         title={`${assessment.club.name} — submitted evidence`}
-        subtitle="Everything the club declared for this cycle."
+        subtitle="What the club declared that your line items turn on."
         breadcrumb={{ href: "/cda/assess", label: "My line items" }}
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <StatTile label="Staff declared" value={staff.length} />
-        <StatTile
-          label="Without a Blue Card"
-          value={missingBlueCards}
-          tone={missingBlueCards > 0 ? "bad" : "good"}
+      {!canSeeStaff && !canSeeParticipation && (
+        <EmptyState
+          title="Nothing to show for your line items"
+          description="The line items allocated to you are judged on the evidence points themselves, not on the club's staff register or participation figures — so there is nothing here you need. Score from the evidence on the line item."
         />
-        <StatTile
-          label="Female technical staff"
-          value={femaleTechnical}
-          tone={femaleTechnical > 0 ? "good" : "bad"}
-        />
-      </div>
+      )}
+
+      {canSeeStaff && (
+        <div className="mb-6 grid gap-4 sm:grid-cols-3">
+          <StatTile label="Staff declared" value={staff.length} />
+          <StatTile
+            label="Without a Blue Card"
+            value={missingBlueCards}
+            tone={missingBlueCards > 0 ? "bad" : "good"}
+          />
+          <StatTile
+            label="Female technical staff"
+            value={femaleTechnical}
+            tone={femaleTechnical > 0 ? "good" : "bad"}
+          />
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
+        {canSeeStaff && (
         <section>
           <h2 className="section-title mb-3">Technical staff register</h2>
           <div className="card overflow-x-auto">
@@ -144,8 +168,10 @@ export default async function ClubDataPage({
             </table>
           </div>
         </section>
+        )}
 
         <div className="space-y-6">
+          {canSeeParticipation && (
           <section>
             <h2 className="section-title mb-3">Participation figures</h2>
             <div className="card overflow-x-auto">
@@ -200,58 +226,7 @@ export default async function ClubDataPage({
               </table>
             </div>
           </section>
-
-          <section>
-            <h2 className="section-title mb-3">Non-Negotiable declarations</h2>
-            <div className="card divide-y divide-ink-200">
-              {nonNegotiables.map((n) => (
-                <div key={n.id} className="px-4 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-medium text-ink-900">
-                      {n.nonNegotiable.code} — {n.nonNegotiable.title}
-                    </p>
-                    <Badge
-                      tone={
-                        n.verdict === "PASS"
-                          ? "good"
-                          : n.verdict === "FAIL"
-                            ? "bad"
-                            : n.clubDeclared === null
-                              ? "warn"
-                              : "muted"
-                      }
-                    >
-                      {n.verdict !== "PENDING"
-                        ? n.verdict === "PASS"
-                          ? "Verified"
-                          : "Failed"
-                        : n.clubDeclared === null
-                          ? "Not answered"
-                          : n.clubDeclared
-                            ? "Club says yes"
-                            : "Club says not yet"}
-                    </Badge>
-                  </div>
-                  {n.clubNote && <p className="mt-1 text-xs text-ink-600">{n.clubNote}</p>}
-                  {n.evidence.length > 0 && (
-                    <p className="mt-1 flex flex-wrap gap-2 text-xs">
-                      {n.evidence.map((e) => (
-                        <a
-                          key={e.id}
-                          href={`/api/files/${e.id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-maroon-700 underline"
-                        >
-                          {e.filename}
-                        </a>
-                      ))}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
+          )}
         </div>
       </div>
     </>
