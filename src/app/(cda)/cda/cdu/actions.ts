@@ -10,6 +10,7 @@ import { MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
 import { STAGE_LABELS, reviewTimeline } from "@/lib/cda/review";
 import { THRESHOLD_LEVELS } from "@/lib/cda/scoring";
 import { ensureCycleStandards } from "@/lib/cda/assessment";
+import { parseClubCsv, planImport, type ImportPlan } from "@/lib/cda/club-import";
 import { prisma } from "@/lib/db";
 
 export type CduFormState = {
@@ -75,10 +76,28 @@ export async function saveClub(_prev: CduFormState, formData: FormData): Promise
     contactEmail: parsed.data.contactEmail || null,
   };
 
+  // The assessment tier decides which line items apply, so it is set alongside
+  // the club rather than left to default. An empty value means "not set", which
+  // falls back to the first tier at scoring time. A *missing* field means the
+  // form didn't offer the control at all, and must leave the tier alone rather
+  // than silently clearing something somebody chose deliberately.
+  const tierGiven = formData.has("assessmentTierId");
+  const assessmentTierId = String(formData.get("assessmentTierId") ?? "") || null;
+  const withTier = tierGiven ? { ...data, tierId: assessmentTierId } : data;
+
   const clubId = String(formData.get("clubId") ?? "");
 
   if (clubId) {
-    await prisma.club.update({ where: { id: clubId }, data });
+    await prisma.club.update({ where: { id: clubId }, data: withTier });
+    // An assessment already open for this club follows the change, so a tier
+    // corrected mid-cycle actually reaches the season it applies to.
+    const open = await activeCycle();
+    if (tierGiven && open) {
+      await prisma.clubAssessment.updateMany({
+        where: { clubId, cycleId: open.id, lockedAt: null },
+        data: { tierId: assessmentTierId },
+      });
+    }
     refresh();
     return { status: "ok", message: `${data.name} updated.` };
   }
@@ -91,7 +110,7 @@ export async function saveClub(_prev: CduFormState, formData: FormData): Promise
     slug = `${slugify(data.name)}-${n}`;
   }
 
-  const club = await prisma.club.create({ data: { ...data, slug } });
+  const club = await prisma.club.create({ data: { ...withTier, slug } });
 
   // Bring the new club into the open cycle straight away, so it appears on the
   // CDU's board and can start entering data without a second step.
@@ -1166,4 +1185,191 @@ export async function confirmRating(
 
   revalidatePath(`/cda/cdu/assessments/${assessmentId}`, "layout");
   return { status: "ok", message: "Rating confirmed. The club may now display its shield." };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Bulk club import                                                           */
+/* -------------------------------------------------------------------------- */
+
+export type ImportPreviewState = {
+  status: "idle" | "ok" | "error";
+  message?: string;
+  plan?: ImportPlan;
+  /** Echoed back so the commit works from exactly what was previewed. */
+  csv?: string;
+};
+
+async function tierCodes() {
+  return (await prisma.tier.findMany({ orderBy: { position: "asc" } })).map((t) => t.code);
+}
+
+/**
+ * Reads the pasted file and says what it would do. Writes nothing.
+ *
+ * A separate step from the commit because thirty-seven clubs is too many to
+ * undo by hand. The preview and the write parse the same text with the same
+ * function, so what is approved is what happens.
+ */
+export async function previewClubImport(
+  _prev: ImportPreviewState,
+  formData: FormData,
+): Promise<ImportPreviewState> {
+  await requireCdu();
+
+  const csv = String(formData.get("csv") ?? "");
+  if (!csv.trim()) return { status: "error", message: "Paste some rows first." };
+
+  const parsed = parseClubCsv(csv, await tierCodes());
+
+  const [clubs, users] = await Promise.all([
+    prisma.club.findMany({ select: { name: true } }),
+    prisma.user.findMany({ select: { email: true } }),
+  ]);
+
+  const plan = planImport(parsed, clubs, users.map((u) => u.email));
+
+  if (plan.plans.length === 0) {
+    return {
+      status: "error",
+      message: "Nothing importable in that. See the problems below.",
+      plan,
+      csv,
+    };
+  }
+
+  return { status: "ok", plan, csv };
+}
+
+export type ImportCommitState = {
+  status: "idle" | "ok" | "error";
+  message?: string;
+  /** One per administrator created, to be handed out. Shown once. */
+  invites?: { club: string; name: string; email: string; url: string; expiresAt: string }[];
+};
+
+/**
+ * Creates or updates every club in the file, and any administrators with it.
+ *
+ * Sequential rather than a single transaction on purpose: a partial import that
+ * reports which rows landed is recoverable by re-pasting the same file, since
+ * every row is an upsert. An all-or-nothing import that fails on row thirty-one
+ * tells the operator nothing about rows one to thirty.
+ */
+export async function commitClubImport(
+  _prev: ImportCommitState,
+  formData: FormData,
+): Promise<ImportCommitState> {
+  await requireCdu();
+
+  const csv = String(formData.get("csv") ?? "");
+  const parsed = parseClubCsv(csv, await tierCodes());
+  if (parsed.rows.length === 0) {
+    return { status: "error", message: "Nothing to import." };
+  }
+
+  const cycle = await activeCycle();
+  const tiers = new Map(
+    (await prisma.tier.findMany()).map((t) => [t.code, t.id]),
+  );
+
+  // Matched here in JS, case-insensitively, because that is how the preview
+  // matched. SQLite has no `mode: "insensitive"`, so a database `equals` would
+  // create "brisbane city fc" alongside "Brisbane City FC" — the preview would
+  // have promised an update and the import would have delivered a duplicate.
+  const byName = new Map(
+    (await prisma.club.findMany({ select: { id: true, name: true } })).map((c) => [
+      c.name.trim().toLowerCase(),
+      c.id,
+    ]),
+  );
+
+  const invites: NonNullable<ImportCommitState["invites"]> = [];
+  let created = 0;
+  let updated = 0;
+  const failures: string[] = [];
+
+  for (const row of parsed.rows) {
+    try {
+      const tierId = row.assessmentTier ? (tiers.get(row.assessmentTier) ?? null) : null;
+
+      const data = {
+        name: row.name,
+        zone: row.zone || null,
+        tier: row.tier || null,
+        contactName: row.contactName || null,
+        contactEmail: row.contactEmail || null,
+        // Only when the file said so. A re-paste that omits the column must not
+        // wipe a tier somebody set deliberately.
+        ...(tierId ? { tierId } : {}),
+      };
+
+      const existingId = byName.get(row.name.trim().toLowerCase());
+
+      let club;
+      if (existingId) {
+        club = await prisma.club.update({ where: { id: existingId }, data });
+        updated += 1;
+      } else {
+        let slug = slugify(row.name);
+        for (let n = 2; await prisma.club.findUnique({ where: { slug } }); n += 1) {
+          slug = `${slugify(row.name)}-${n}`;
+        }
+        club = await prisma.club.create({ data: { ...data, slug } });
+        byName.set(club.name.trim().toLowerCase(), club.id);
+        created += 1;
+      }
+
+      if (cycle) {
+        // Creates the assessment, which inherits the tier just set on the club.
+        // An assessment that already existed is corrected too, so re-importing
+        // with a fixed tier repairs the season rather than only the club.
+        const assessment = await ensureAssessment(club.id, cycle.id);
+        if (tierId && assessment.tierId !== tierId) {
+          await prisma.clubAssessment.update({ where: { id: assessment.id }, data: { tierId } });
+        }
+      }
+
+      if (row.adminEmail) {
+        const email = normalizeEmail(row.adminEmail);
+        const already = await prisma.user.findUnique({ where: { email } });
+        if (!already) {
+          const user = await prisma.user.create({
+            data: {
+              email,
+              name: row.adminName || null,
+              title: "Club Administrator",
+              role: "CLUB",
+              clubMemberships: { create: { clubId: club.id } },
+            },
+          });
+          const invite = await buildInvite(user.id, email);
+          invites.push({
+            club: club.name,
+            name: row.adminName || email,
+            email,
+            url: invite.url,
+            expiresAt: invite.expiresAt,
+          });
+        }
+      }
+    } catch (e) {
+      failures.push(`Line ${row.line} (${row.name}): ${(e as Error).message}`);
+    }
+  }
+
+  refresh();
+
+  const summary =
+    `${created} club${created === 1 ? "" : "s"} added, ${updated} updated, ` +
+    `${invites.length} administrator${invites.length === 1 ? "" : "s"} created.`;
+
+  if (failures.length > 0) {
+    return {
+      status: "error",
+      message: `${summary} ${failures.length} row${failures.length === 1 ? "" : "s"} failed: ${failures.join("; ")}`,
+      invites,
+    };
+  }
+
+  return { status: "ok", message: summary, invites };
 }

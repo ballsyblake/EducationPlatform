@@ -358,10 +358,22 @@ model Club {
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
+  /// Which set of line items this club is normally assessed on.
+  ///
+  /// On the club rather than only on the assessment because it is a standing
+  /// fact about the club — a Tier 2 club is Tier 2 next season too — and because
+  /// clubs are often loaded before a cycle exists. Without it, a tier recorded
+  /// at import had nowhere to live until an assessment was opened and was
+  /// silently discarded. Each assessment still carries its own tier, so moving a
+  /// club between tiers never rewrites a season already scored.
+  tierId       String?
+  defaultTier  Tier?    @relation(fields: [tierId], references: [id], onDelete: SetNull)
+
   members     ClubMembership[]
   assessments ClubAssessment[]
 
   @@index([zone])
+  @@index([tierId])
 }
 
 /// Grants a CLUB user access to one club. Modelled as a join rather than a
@@ -571,6 +583,7 @@ model Tier {
 
   criteria    Criterion[]
   assessments ClubAssessment[]
+  clubs       Club[]
 }
 
 /// A group of clubs assessed together within a cycle.

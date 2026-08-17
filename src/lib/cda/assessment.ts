@@ -367,15 +367,20 @@ export async function ensureAssessment(clubId: string, cycleId: string) {
   });
   if (existing) return existing;
 
-  const checks = await prisma.nonNegotiable.findMany({
-    where: { active: true },
-    orderBy: { position: "asc" },
-  });
+  const [checks, club] = await Promise.all([
+    prisma.nonNegotiable.findMany({ where: { active: true }, orderBy: { position: "asc" } }),
+    prisma.club.findUnique({ where: { id: clubId }, select: { tierId: true } }),
+  ]);
 
   return prisma.clubAssessment.create({
     data: {
       clubId,
       cycleId,
+      // Inherited from the club, so a tier recorded before the cycle existed
+      // still reaches the season it applies to. The assessment keeps its own
+      // copy from here: moving a club between tiers must not rewrite a season
+      // already scored.
+      tierId: club?.tierId ?? null,
       nonNegotiables: {
         create: checks.map((c) => ({ nonNegotiableId: c.id })),
       },

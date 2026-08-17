@@ -17,16 +17,25 @@ export type ClubRowData = {
   contactEmail: string;
   active: boolean;
   assessmentId: string | null;
+  /** The club's standing assessment tier, so editing doesn't silently clear it. */
+  assessmentTierId: string;
+  assessmentTierName: string;
   members: { id: string; name: string; email: string; active: boolean; lastSeenAt: Date | null }[];
 };
 
-export function ClubRow({ club }: { club: ClubRowData }) {
+export function ClubRow({
+  club,
+  tiers = [],
+}: {
+  club: ClubRowData;
+  tiers?: { id: string; code: string; name: string }[];
+}) {
   const [editing, setEditing] = useState(false);
 
   if (editing) {
     return (
       <div className="bg-ink-50 px-5 py-4">
-        <ClubForm initial={club} onDone={() => setEditing(false)} />
+        <ClubForm initial={club} tiers={tiers} onDone={() => setEditing(false)} />
       </div>
     );
   }
@@ -39,6 +48,11 @@ export function ClubRow({ club }: { club: ClubRowData }) {
             <p className="font-medium text-ink-900">{club.name}</p>
             {!club.active && <Badge tone="bad">Inactive</Badge>}
             {club.members.length === 0 && <Badge tone="warn">No administrator</Badge>}
+            {club.assessmentTierName ? (
+              <Badge tone="muted">{club.assessmentTierName}</Badge>
+            ) : (
+              <Badge tone="warn">No assessment tier</Badge>
+            )}
           </div>
           <p className="mt-0.5 text-xs text-ink-500">
             {[club.zone, club.tier].filter(Boolean).join(" · ") || "No zone recorded"}

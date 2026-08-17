@@ -13,10 +13,14 @@ const EMPTY = { name: "", zone: "", tier: "", contactName: "", contactEmail: "" 
 export function ClubForm({
   initial,
   onDone,
+  tiers = [],
 }: {
-  initial?: typeof EMPTY & { id: string };
+  initial?: typeof EMPTY & { id: string; assessmentTierId?: string };
   onDone?: () => void;
+  /** Assessment tiers, so a club lands on the right line items from the start. */
+  tiers?: { id: string; code: string; name: string }[];
 }) {
+  const [assessmentTierId, setAssessmentTierId] = useState(initial?.assessmentTierId ?? "");
   const [state, formAction] = useActionState(
     async (prev: CduFormState, formData: FormData) => {
       const result = await saveClub(prev, formData);
@@ -61,6 +65,32 @@ export function ClubForm({
           />
         </div>
       ))}
+
+      {tiers.length > 0 && (
+        <div>
+          <label className="label" htmlFor={`assessmentTier-${initial?.id ?? "new"}`}>
+            Assessment tier
+          </label>
+          <select
+            id={`assessmentTier-${initial?.id ?? "new"}`}
+            name="assessmentTierId"
+            className="input"
+            value={assessmentTierId}
+            onChange={(e) => setAssessmentTierId(e.target.value)}
+          >
+            <option value="">Not set — uses the first tier</option>
+            {tiers.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <p className="hint mt-1">
+            Decides which line items the club is scored on. Separate from the competition tier
+            above.
+          </p>
+        </div>
+      )}
 
       {state.status === "error" && <FormError message={state.message} />}
       {state.status === "ok" && <FormSuccess message={state.message} />}
