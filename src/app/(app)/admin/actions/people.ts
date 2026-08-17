@@ -48,6 +48,21 @@ export async function addStaffMember(
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
+    // Naming the conflict, because "already on staff" is misleading when the
+    // address belongs to the other product and the person is looking at a
+    // staff list that no longer shows it.
+    if (existing.role === "ASSESSOR") {
+      return {
+        status: "error",
+        message: `${email} is a Club Development assessor. Assessors aren't coach-education staff — use a different address.`,
+      };
+    }
+    if (existing.role === "CLUB") {
+      return {
+        status: "error",
+        message: `${email} is a club administrator in Club Development. Use a different address.`,
+      };
+    }
     return { status: "error", message: `${email} is already on staff.` };
   }
 
@@ -79,6 +94,14 @@ export async function createSignInLink(
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { status: "error", message: "That account no longer exists." };
+  if (user.role === "CLUB" || user.role === "ASSESSOR") {
+    // Mirrors the guard on the portal side, which won't mint a link for an
+    // ADMIN. Neither product hands out sign-in links for the other's accounts.
+    return {
+      status: "error",
+      message: "That's a Club Development account. Issue its link from /cda/cdu.",
+    };
+  }
   if (!user.active) {
     return { status: "error", message: "Reactivate this account before issuing a link." };
   }
@@ -97,6 +120,17 @@ export async function updateStaffMember(formData: FormData) {
     // Guard against an admin locking themselves out.
     return;
   }
+
+  // Coach-education accounts only, checked here and not merely hidden from the
+  // page. Club Development's assessors and club administrators belong to the
+  // other product: promoting an assessor from here would hand them every
+  // club's assessment, and demoting one to COACH would strip the role their
+  // line-item allocations depend on. Those accounts are managed at /cda/cdu.
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  });
+  if (!target || target.role === "CLUB" || target.role === "ASSESSOR") return;
 
   if (action === "deactivate") {
     await prisma.user.update({ where: { id: userId }, data: { active: false } });

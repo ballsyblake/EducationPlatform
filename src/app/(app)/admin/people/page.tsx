@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, PageHeader } from "@/components/ui";
 import { magicLinkAvailable, requireAdmin } from "@/lib/auth";
@@ -13,7 +14,17 @@ export default async function PeoplePage() {
   const admin = await requireAdmin();
   const emailEnabled = magicLinkAvailable();
 
+  // Coach-education accounts only. This page listed every account in the
+  // instance, so Club Development's assessors and club administrators appeared
+  // among the coaches — with a "Make admin" button beside each of them, one
+  // click from handing an assessor the whole Club Development Unit, and a
+  // "Make coach" that would strip their role and lock them out of the portal
+  // while their line-item allocations stayed pointing at them.
+  //
+  // The two products share an account system and nothing else. Portal accounts
+  // are managed at /cda/cdu, where deactivating one also ends its session.
   const users = await prisma.user.findMany({
+    where: { role: { in: ["COACH", "ADMIN"] } },
     orderBy: [{ active: "desc" }, { role: "asc" }, { name: "asc" }, { email: "asc" }],
     include: {
       _count: { select: { enrollments: true, submissions: true, quizAttempts: true } },
@@ -25,7 +36,17 @@ export default async function PeoplePage() {
     <>
       <PageHeader
         title="Staff"
-        subtitle="Everyone with access. Nobody has a password — coaches sign in with a link."
+        subtitle={
+          <>
+            Coach education staff. Nobody has a password &mdash; they sign in with a link. Club
+            Development&apos;s assessors and club administrators are separate accounts, managed
+            under{" "}
+            <Link href="/cda/cdu/assessors" className="text-maroon-700 hover:underline">
+              Club Development
+            </Link>
+            .
+          </>
+        }
       />
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
