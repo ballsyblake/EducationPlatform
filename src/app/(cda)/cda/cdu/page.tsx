@@ -8,6 +8,7 @@ import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import { CycleSettings } from "./cycle-settings";
 import { NewCycle } from "./new-cycle";
+import { PoolsPanel, type PoolSummary } from "./pools-panel";
 import type { Shield } from "@prisma-client";
 
 export const metadata = { title: "Cycle" };
@@ -69,6 +70,24 @@ export default async function CduHomePage() {
   const criteriaCount = await prisma.criterion.count({
     where: { active: true, domain: { in: ["PLANNING", "DELIVERY", "OUTCOMES"] } },
   });
+
+  const poolRows = await prisma.pool.findMany({
+    where: { cycleId: cycle.id },
+    orderBy: { position: "asc" },
+    include: {
+      _count: { select: { assessments: true } },
+      assignments: { select: { criterionId: true } },
+    },
+  });
+  const pools: PoolSummary[] = poolRows.map((p) => ({
+    id: p.id,
+    name: p.name,
+    clubs: p._count.assessments,
+    // Line items with at least one assessor, not raw allocations: two slots on
+    // one item is one item covered, and reporting it as two overstates how far
+    // the pool has actually been staffed.
+    items: new Set(p.assignments.map((x) => x.criterionId)).size,
+  }));
 
   const assessments = await prisma.clubAssessment.findMany({
     where: { cycleId: cycle.id },
@@ -242,6 +261,8 @@ export default async function CduHomePage() {
         </section>
 
         <aside className="space-y-4">
+          <PoolsPanel cycleId={cycle.id} pools={pools} />
+
           <CycleSettings cycle={cycle} />
 
           {published.length > 0 && (

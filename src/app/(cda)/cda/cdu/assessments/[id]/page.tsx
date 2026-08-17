@@ -164,9 +164,14 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
         }
         breadcrumb={{ href: "/cda/cdu", label: "Cycle" }}
         action={
-          <Link href={`/cda/cdu/assessments/${id}/reconcile`} className="btn-primary btn-sm">
-            Reconcile scores
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href={`/cda/cdu/assessments/${id}/audit`} className="btn-secondary btn-sm">
+              Audit trail
+            </Link>
+            <Link href={`/cda/cdu/assessments/${id}/reconcile`} className="btn-primary btn-sm">
+              Reconcile scores
+            </Link>
+          </div>
         }
       />
 

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
-import { requireCdu } from "@/lib/cda/access";
+import { ASSESSOR_POOL_WHERE, requireCdu } from "@/lib/cda/access";
 import { ASSESSED_DOMAINS, DOMAIN_LABELS } from "@/lib/cda/rubric";
 import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
@@ -53,7 +53,7 @@ export default async function PoolPage({
       orderBy: { slot: "asc" },
     }),
     prisma.user.findMany({
-      where: { role: "ASSESSOR", active: true },
+      where: { ...ASSESSOR_POOL_WHERE, active: true },
       include: { _count: { select: { criterionAssignments: true } } },
       orderBy: { name: "asc" },
     }),

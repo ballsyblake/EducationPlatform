@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { BrandLogo } from "@/components/brand";
 import { NavLinks, type NavLink } from "@/components/nav";
-import { requireCdaUser } from "@/lib/cda/access";
+import { mayAssess, requireCdaUser } from "@/lib/cda/access";
 import { displayName, initials } from "@/lib/format";
 
 const CLUB_LINKS: NavLink[] = [
@@ -35,8 +35,13 @@ const ROLE_TITLES = {
 export default async function CdaLayout({ children }: { children: React.ReactNode }) {
   const user = await requireCdaUser();
 
+  // A Club Development Unit account in the assessor pool keeps the whole CDU
+  // navigation and gains the assessor's one screen. Last, because running the
+  // cycle is still the larger part of the job.
+  const cduLinks = mayAssess(user) ? [...CDU_LINKS, ...ASSESSOR_LINKS] : CDU_LINKS;
+
   const links =
-    user.cda === "CLUB" ? CLUB_LINKS : user.cda === "ASSESSOR" ? ASSESSOR_LINKS : CDU_LINKS;
+    user.cda === "CLUB" ? CLUB_LINKS : user.cda === "ASSESSOR" ? ASSESSOR_LINKS : cduLinks;
 
   return (
     <div className="min-h-screen">
