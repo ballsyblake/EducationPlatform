@@ -130,7 +130,8 @@ export function ImportClubsForm({ tierCodes }: { tierCodes: string[] }) {
         <div className="mt-2 space-y-2 text-xs text-ink-600">
           <p>
             Only <code className="font-mono">name</code> is required. Column order doesn&apos;t
-            matter and unrecognised columns are ignored.
+            matter and unrecognised columns are ignored. Copy the cells straight out of Excel or
+            save as CSV &mdash; tabs, commas and semicolons all work.
           </p>
           <p className="font-mono break-all text-ink-700">{TEMPLATE_HEADER}</p>
           <p>
@@ -184,6 +185,16 @@ export function ImportClubsForm({ tierCodes }: { tierCodes: string[] }) {
               <Badge tone="bad">{plan.problems.length} skipped</Badge>
             )}
           </div>
+
+          {plan.notes.length > 0 && (
+            <ul className="space-y-1">
+              {plan.notes.map((n) => (
+                <li key={n} className="text-xs text-ink-600">
+                  {n}
+                </li>
+              ))}
+            </ul>
+          )}
 
           {plan.unknownColumns.length > 0 && (
             <p className="text-xs text-ink-500">
