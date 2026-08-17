@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { InviteCallout } from "@/app/(app)/admin/people/invite-callout";
 import { SubmitButton } from "@/components/submit-button";
-import { FormError } from "@/components/ui";
+import { FormError, FormSuccess } from "@/components/ui";
 import { addPortalUser, type CduFormState } from "../actions";
 
 const initialState: CduFormState = { status: "idle" };
@@ -62,10 +62,19 @@ export function AddAssessorForm() {
         </div>
 
         {state.status === "error" && <FormError message={state.message} />}
+        {/* A Club Development Unit account joining the pool gets no sign-in
+            link — it already has a way in — so without this the form succeeded
+            in silence and looked like it had done nothing. */}
+        {state.status === "ok" && !state.invite && <FormSuccess message={state.message} />}
 
         <SubmitButton className="btn-primary w-full" pendingLabel="Adding…">
           Add assessor
         </SubmitButton>
+
+        <p className="hint">
+          A Club Development Unit address works here too — it joins the assessor pool and keeps its
+          own sign-in.
+        </p>
       </form>
 
       {state.status === "ok" && state.invite && (

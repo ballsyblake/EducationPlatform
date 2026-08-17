@@ -35,6 +35,21 @@ model User {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  /// Whether a Club Development Unit account also scores line items.
+  ///
+  /// An account holds one role, and for everything else that is right. But the
+  /// Unit is small enough that the people who administer the cycle are also
+  /// among the people who assess it, and forcing that person to hold two
+  /// accounts under two addresses buys nothing: it splits one human's work
+  /// across two identities, which is worse for the audit trail, not better.
+  ///
+  /// Off by default and only meaningful on an ADMIN. It grants no extra
+  /// authority — an ADMIN can already read every assessment — it only makes
+  /// them allocatable to a line item. The overlap it creates is recorded
+  /// rather than prevented: see the assessment's audit trail, which flags a
+  /// line item whose reconciled score was settled by one of its own assessors.
+  assesses  Boolean  @default(false)
+
   sessions     Session[]
   loginTokens  LoginToken[]
   enrollments  Enrollment[]

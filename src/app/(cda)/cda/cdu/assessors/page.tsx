@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
-import { requireCdu } from "@/lib/cda/access";
+import { ASSESSOR_POOL_WHERE, requireCdu } from "@/lib/cda/access";
 import { activeCycle } from "@/lib/cda/assessment";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate } from "@/lib/format";
 import { setUserActive } from "../actions";
 import { AddAssessorForm } from "./add-assessor-form";
+import { RemoveFromPool } from "./remove-from-pool";
 import { SignInLink } from "./sign-in-link";
 
 export const metadata = { title: "Assessors" };
@@ -16,7 +17,7 @@ export default async function AssessorsPage() {
   const cycle = await activeCycle();
 
   const assessors = await prisma.user.findMany({
-    where: { role: "ASSESSOR" },
+    where: ASSESSOR_POOL_WHERE,
     include: {
       sessions: { select: { lastSeenAt: true }, orderBy: { lastSeenAt: "desc" }, take: 1 },
       criterionAssignments: {
@@ -84,8 +85,11 @@ export default async function AssessorsPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-medium text-ink-900">{displayName(a)}</p>
+                        {a.role === "ADMIN" && <Badge tone="info">Club Development Unit</Badge>}
                         {!a.active && <Badge tone="bad">Deactivated</Badge>}
-                        {a.active && !a.sessions[0] && <Badge tone="warn">Never signed in</Badge>}
+                        {a.active && a.role !== "ADMIN" && !a.sessions[0] && (
+                          <Badge tone="warn">Never signed in</Badge>
+                        )}
                       </div>
                       <p className="mt-0.5 text-xs text-ink-500">
                         {a.title ? `${a.title} · ` : ""}
@@ -94,23 +98,34 @@ export default async function AssessorsPage() {
                       </p>
                     </div>
 
+                    {/* A CDU account gets neither control. It already has a way
+                        in, so a sign-in link is pointless; and deactivating it
+                        would switch off how somebody runs the cycle, which the
+                        assessors page has no business doing. Removing them from
+                        the pool is the action that belongs here. */}
                     <div className="flex flex-wrap items-start gap-2">
-                      <SignInLink userId={a.id} disabled={!a.active} />
-                      <form action={setUserActive}>
-                        <input type="hidden" name="userId" value={a.id} />
-                        <input type="hidden" name="active" value={a.active ? "false" : "true"} />
-                        <SubmitButton
-                          className={a.active ? "btn-danger btn-sm" : "btn-secondary btn-sm"}
-                          pendingLabel="…"
-                          confirm={
-                            a.active
-                              ? "Deactivate this assessor? They'll be signed out immediately. Their existing scores are kept."
-                              : undefined
-                          }
-                        >
-                          {a.active ? "Deactivate" : "Reactivate"}
-                        </SubmitButton>
-                      </form>
+                      {a.role === "ADMIN" ? (
+                        <RemoveFromPool userId={a.id} name={displayName(a)} />
+                      ) : (
+                        <>
+                          <SignInLink userId={a.id} disabled={!a.active} />
+                          <form action={setUserActive}>
+                            <input type="hidden" name="userId" value={a.id} />
+                            <input type="hidden" name="active" value={a.active ? "false" : "true"} />
+                            <SubmitButton
+                              className={a.active ? "btn-danger btn-sm" : "btn-secondary btn-sm"}
+                              pendingLabel="…"
+                              confirm={
+                                a.active
+                                  ? "Deactivate this assessor? They'll be signed out immediately. Their existing scores are kept."
+                                  : undefined
+                              }
+                            >
+                              {a.active ? "Deactivate" : "Reactivate"}
+                            </SubmitButton>
+                          </form>
+                        </>
+                      )}
                     </div>
                   </div>
 

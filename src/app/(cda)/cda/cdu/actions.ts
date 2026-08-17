@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import QRCode from "qrcode";
 import { z } from "zod";
 import { createInviteLink, normalizeEmail } from "@/lib/auth";
-import { RELEASED_STATUSES, requireCdu } from "@/lib/cda/access";
+import { ASSESSOR_POOL_WHERE, RELEASED_STATUSES, requireCdu } from "@/lib/cda/access";
 import { activeCycle, ensureAssessment, freezeResult, loadAssessment } from "@/lib/cda/assessment";
 import { MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
 import { STAGE_LABELS, reviewTimeline } from "@/lib/cda/review";
@@ -217,9 +217,32 @@ export async function addPortalUser(
     }
 
     if (existing.role === "ADMIN") {
+      if (role !== "ASSESSOR") {
+        return {
+          status: "error",
+          message: `${email} is a Club Development Unit account. Administering the cycle and administering a club are different jobs — use a different address.`,
+        };
+      }
+
+      // The Unit's own people assess too. Rather than a second account under a
+      // second address — which splits one person's work across two identities
+      // and makes the record harder to read — the existing account joins the
+      // assessor pool. No sign-in link: they already have a way in.
+      if (existing.assesses) {
+        return {
+          status: "error",
+          message: `${email} is already in the assessor pool, in the list on this page.`,
+        };
+      }
+
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { assesses: true, ...(title ? { title } : {}) },
+      });
+      refresh();
       return {
-        status: "error",
-        message: `${email} is a Club Development Unit account, and an account holds one role. CDU staff already see every assessment, but they can't be allocated line items — add the assessor under a second address, or ask for CDU accounts to be allowed to assess.`,
+        status: "ok",
+        message: `${email} is a Club Development Unit account and has been added to the assessor pool. They sign in as they already do — allocate them line items from a pool's page.`,
       };
     }
 
@@ -297,6 +320,50 @@ export async function setUserActive(formData: FormData) {
   refresh();
 }
 
+/**
+ * Takes a Club Development Unit account back out of the assessor pool.
+ *
+ * Deliberately not "deactivate": their CDU account is how they run the cycle,
+ * and the assessors page has no business switching that off. This only ends
+ * their standing to hold line items.
+ *
+ * Refused while they still hold any, because clearing the flag wouldn't remove
+ * the allocations — it would leave line items assigned to somebody the pool
+ * page no longer offers, which is a worse state than the one being fixed. The
+ * allocations come off from the pool's page, where the consequence (their
+ * scores on that item go too) is stated.
+ */
+export async function setAssesses(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  await requireCdu();
+  const userId = String(formData.get("userId") ?? "");
+  const assesses = formData.get("assesses") === "true";
+
+  const user = await prisma.user.findFirst({ where: { id: userId, role: "ADMIN" } });
+  if (!user) return { status: "error", message: "That isn't a Club Development Unit account." };
+
+  if (!assesses) {
+    const held = await prisma.criterionAssignment.count({ where: { assessorId: userId } });
+    if (held > 0) {
+      return {
+        status: "error",
+        message: `${user.email} still holds ${held} line item${held === 1 ? "" : "s"}. Unassign them from the pool's page first — that decides what happens to the scores they gave.`,
+      };
+    }
+  }
+
+  await prisma.user.update({ where: { id: userId }, data: { assesses } });
+  refresh();
+  return {
+    status: "ok",
+    message: assesses
+      ? `${user.email} added to the assessor pool.`
+      : `${user.email} removed from the assessor pool. Their Club Development Unit account is untouched.`,
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /* Assessor assignment                                                        */
 /* -------------------------------------------------------------------------- */
@@ -326,7 +393,7 @@ export async function assignCriterion(
   }
 
   const assessor = await prisma.user.findFirst({
-    where: { id: assessorId, role: "ASSESSOR", active: true },
+    where: { id: assessorId, ...ASSESSOR_POOL_WHERE, active: true },
   });
   if (!assessor) return { status: "error", message: "That assessor isn't available." };
 

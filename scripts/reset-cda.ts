@@ -77,6 +77,11 @@ async function main() {
   await prisma.loginToken.deleteMany({ where: { userId: { in: doomed.map((u) => u.id) } } });
   await prisma.user.deleteMany({ where: { role: { in: ["CLUB", "ASSESSOR"] } } });
 
+  // Admin accounts survive, but their standing as assessors does not: that is
+  // one season's staffing, not a property of the account. Leaving it set would
+  // put people in the new cycle's assessor pool that nobody had put there.
+  await prisma.user.updateMany({ where: { assesses: true }, data: { assesses: false } });
+
   if (!keepCycles) {
     // Structure standards hang off the cycle and go with it.
     await prisma.cycle.deleteMany();

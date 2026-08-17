@@ -25,6 +25,28 @@ export function cdaRole(user: Pick<User, "role">): CdaRole | null {
   return null;
 }
 
+/**
+ * Whether this account can hold line items.
+ *
+ * An assessor by role, or a Club Development Unit account marked as also
+ * assessing. The Unit is small enough that the people who run a cycle are among
+ * the people who score it; the alternative was a second account under a second
+ * address, which splits one person's work across two identities and makes the
+ * record harder to read rather than easier.
+ *
+ * This grants nothing an ADMIN did not already have — they can read every
+ * assessment regardless — it only makes them allocatable. Where it does create
+ * an overlap, the assessment's audit trail names it.
+ */
+export function mayAssess(user: Pick<User, "role" | "assesses">): boolean {
+  return user.role === "ASSESSOR" || (user.role === "ADMIN" && user.assesses);
+}
+
+/** The `where` that selects everyone eligible to hold a line item. */
+export const ASSESSOR_POOL_WHERE = {
+  OR: [{ role: "ASSESSOR" as const }, { role: "ADMIN" as const, assesses: true }],
+};
+
 /** Any account that belongs in the CDA portal at all. */
 export async function requireCdaUser(): Promise<User & { cda: CdaRole }> {
   const user = await requireUser();
@@ -49,7 +71,7 @@ export async function requireClubUser(): Promise<User> {
 
 export async function requireAssessor(): Promise<User> {
   const user = await requireUser();
-  if (user.role !== "ASSESSOR") redirect("/cda");
+  if (!mayAssess(user)) redirect("/cda");
   return user;
 }
 
