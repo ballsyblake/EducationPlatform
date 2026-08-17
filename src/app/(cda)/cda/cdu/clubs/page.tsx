@@ -5,12 +5,20 @@ import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
 import { AddClubAdminForm, ClubForm } from "./club-forms";
 import { ClubRow, type ClubRowData } from "./club-row";
+import { ImportClubsForm } from "./import-form";
 
 export const metadata = { title: "Clubs" };
 
 export default async function ClubsPage() {
   await requireCdu();
   const cycle = await activeCycle();
+
+  const tiers = await prisma.tier.findMany({
+    orderBy: { position: "asc" },
+    select: { id: true, code: true, name: true },
+  });
+  const tierCodes = tiers.map((t) => t.code);
+  const tierName = new Map(tiers.map((t) => [t.id, t.name]));
 
   const clubs = await prisma.club.findMany({
     include: {
@@ -39,6 +47,8 @@ export default async function ClubsPage() {
     contactEmail: c.contactEmail ?? "",
     active: c.active,
     assessmentId: c.assessments[0]?.id ?? null,
+    assessmentTierId: c.tierId ?? "",
+    assessmentTierName: c.tierId ? (tierName.get(c.tierId) ?? "") : "",
     members: c.members.map((m) => ({
       id: m.user.id,
       name: displayName(m.user),
@@ -68,6 +78,13 @@ export default async function ClubsPage() {
         <StatTile label="Inactive" value={rows.filter((r) => !r.active).length} />
       </div>
 
+      {/* Full width, not in the sidebar: the preview is the whole point of the
+          two-step import, and thirty-seven rows of it are unreadable in a third
+          of a column. Collapsed until asked for, so it doesn't crowd the page. */}
+      <div className="mb-6">
+        <ImportClubsForm tierCodes={tierCodes} />
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <section>
           {rows.length === 0 ? (
@@ -78,7 +95,7 @@ export default async function ClubsPage() {
           ) : (
             <div className="card divide-y divide-ink-200">
               {rows.map((club) => (
-                <ClubRow key={club.id} club={club} />
+                <ClubRow key={club.id} club={club} tiers={tiers} />
               ))}
             </div>
           )}
@@ -87,7 +104,7 @@ export default async function ClubsPage() {
         <aside className="space-y-4">
           <div className="card card-pad">
             <h2 className="mb-4 font-semibold text-ink-900">Add a club</h2>
-            <ClubForm />
+            <ClubForm tiers={tiers} />
             {cycle && (
               <p className="hint mt-3">
                 New clubs join {cycle.name} straight away and can start entering data.
