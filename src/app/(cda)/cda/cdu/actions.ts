@@ -161,9 +161,80 @@ export async function addPortalUser(
     return { status: "error", message: "Choose the club this administrator belongs to." };
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  // "Already has an account" on its own is a dead end: it is true, gives no
+  // clue which account, and leaves the operator with nothing to do. Every
+  // branch below either completes the job or names the conflict and the way
+  // out.
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    include: { clubMemberships: { include: { club: { select: { id: true, name: true } } } } },
+  });
+
   if (existing) {
-    return { status: "error", message: `${email} already has an account.` };
+    const label = role === "ASSESSOR" ? "assessor" : "club administrator";
+
+    if (existing.role === role) {
+      // Re-adding somebody we deactivated is the ordinary way this happens: an
+      // assessor sits out a season and comes back. Reactivating is plainly what
+      // "add this assessor" means, so do it rather than reporting a clash with
+      // a record the operator can't see from here.
+      if (!existing.active) {
+        const club = existing.clubMemberships[0]?.club;
+        if (role === "CLUB" && club && club.id !== clubId) {
+          return {
+            status: "error",
+            message: `${email} is a deactivated administrator for ${club.name}. Reactivate them from that club rather than adding them here.`,
+          };
+        }
+
+        const revived = await prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            active: true,
+            ...(name ? { name } : {}),
+            ...(title ? { title } : {}),
+            ...(role === "CLUB" && existing.clubMemberships.length === 0
+              ? { clubMemberships: { create: { clubId } } }
+              : {}),
+          },
+        });
+        refresh();
+        return {
+          status: "ok",
+          message: `${email} was a deactivated ${label} — reactivated.`,
+          invite: await buildInvite(revived.id, email),
+        };
+      }
+
+      const where =
+        role === "ASSESSOR"
+          ? "in the list on this page"
+          : `on ${existing.clubMemberships[0]?.club.name ?? "their club"}`;
+      return {
+        status: "error",
+        message: `${email} is already an active ${label}, ${where}. Use the sign-in link button on their row to issue a new link.`,
+      };
+    }
+
+    if (existing.role === "ADMIN") {
+      return {
+        status: "error",
+        message: `${email} is a Club Development Unit account, and an account holds one role. CDU staff already see every assessment, but they can't be allocated line items — add the assessor under a second address, or ask for CDU accounts to be allowed to assess.`,
+      };
+    }
+
+    if (existing.role === "CLUB") {
+      const club = existing.clubMemberships[0]?.club.name;
+      return {
+        status: "error",
+        message: `${email} administers ${club ?? "a club"}. The same account can't also score clubs — use a different address.`,
+      };
+    }
+
+    return {
+      status: "error",
+      message: `${email} is a coach-education account. Making it a portal account would take away their course access — use a different address.`,
+    };
   }
 
   const user = await prisma.user.create({
