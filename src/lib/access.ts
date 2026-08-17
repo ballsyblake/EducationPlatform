@@ -2,6 +2,7 @@ import "server-only";
 
 import { notFound } from "next/navigation";
 import { isAdmin } from "@/lib/auth";
+import { visibleEvidenceFor } from "@/lib/cda/access";
 import { prisma } from "@/lib/db";
 import type { User } from "@prisma-client";
 
@@ -60,21 +61,31 @@ export async function canAccessUpload(user: User, uploadId: string) {
 
   if (assessmentId) {
     if (user.role === "ASSESSOR") {
-      // Assessors hold line items across a pool, so evidence is readable by
-      // anyone holding any item in the club's pool — scoring "Blue card
-      // compliance" means reading the same certificates as scoring anything
-      // else. Access ends when their last item in that pool does.
+      // A Non-Negotiable attachment is never an assessor's to read: they don't
+      // score Non-Negotiables, the Unit verifies them. Checked before anything
+      // else, so the file can't be fetched by URL after being taken off the
+      // page.
+      if (upload.nonNegotiableProofOf) return null;
+
       const assessment = await prisma.clubAssessment.findUnique({
         where: { id: assessmentId },
-        select: { poolId: true },
+        select: { poolId: true, clubId: true },
       });
       if (!assessment?.poolId) return null;
 
-      const holds = await prisma.criterionAssignment.findFirst({
-        where: { poolId: assessment.poolId, assessorId: user.id },
-        select: { id: true },
-      });
-      return holds ? upload : null;
+      // Three conditions, matching the page this file is reached from: the club
+      // is in their portfolio, they hold a line item in its pool, and that item
+      // is one the staff register is evidence for. A qualification certificate
+      // carries somebody's name and credentials, so an assessor whose items
+      // don't turn on the register has no reason to open one.
+      const [ambassador, holds] = await Promise.all([
+        prisma.clubAmbassador.findUnique({
+          where: { clubId_userId: { clubId: assessment.clubId, userId: user.id } },
+          select: { id: true },
+        }),
+        visibleEvidenceFor(user.id, assessment.poolId),
+      ]);
+      return ambassador && holds.has("STAFF") ? upload : null;
     }
 
     if (user.role === "CLUB") {

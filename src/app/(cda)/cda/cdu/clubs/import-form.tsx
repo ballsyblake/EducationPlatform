@@ -143,6 +143,11 @@ export function ImportClubsForm({ tierCodes }: { tierCodes: string[] }) {
             Give <code className="font-mono">admin_email</code> and the club&apos;s administrator
             account is created in the same pass, with its sign&#8209;in link returned at the end.
           </p>
+          <p>
+            <code className="font-mono">cda_email</code> is the Club Development Ambassador who
+            looks after the club. They must already be an assessor &mdash; it sets a portfolio, it
+            doesn&apos;t create an account.
+          </p>
           <button
             type="button"
             className="btn-secondary btn-sm"
@@ -221,6 +226,7 @@ export function ImportClubsForm({ tierCodes }: { tierCodes: string[] }) {
                   <th className="px-2 py-1.5 font-semibold text-ink-500">Zone</th>
                   <th className="px-2 py-1.5 font-semibold text-ink-500">Tier</th>
                   <th className="px-2 py-1.5 font-semibold text-ink-500">Administrator</th>
+                  <th className="px-2 py-1.5 font-semibold text-ink-500">CDA</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
@@ -247,6 +253,16 @@ export function ImportClubsForm({ tierCodes }: { tierCodes: string[] }) {
                         <>
                           {p.row.adminEmail}{" "}
                           {p.admin === "exists" && <Badge tone="muted">has an account</Badge>}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-ink-600">
+                      {p.row.cdaEmail ? (
+                        <>
+                          {p.row.cdaEmail}{" "}
+                          {p.cda === "unknown" && <Badge tone="bad">not an assessor</Badge>}
                         </>
                       ) : (
                         "—"

@@ -113,14 +113,29 @@ export async function requireAssessmentAccess(user: User, assessmentId: string) 
 
   if (user.role === "ADMIN") return assessment;
 
+  // Assessors only. A Club Development Unit account that also assesses returned
+  // above: the Unit reads every assessment by definition, so the portfolio
+  // bounds who an assessor is, not what the Unit may see.
   if (user.role === "ASSESSOR") {
     // A club not yet placed in a pool has no assessors by definition.
     if (!assessment.poolId) notFound();
-    const holds = await prisma.criterionAssignment.findFirst({
-      where: { poolId: assessment.poolId, assessorId: user.id },
-      select: { id: true },
-    });
-    if (!holds) notFound();
+
+    // Two conditions, not one. Holding a line item across a pool says what this
+    // assessor scores; their ambassador portfolio says which clubs are theirs
+    // at all. A CDA who looks after six clubs has no business reading the
+    // other thirty in the pool, and until now holding a single item opened
+    // every one of them.
+    const [holds, ambassador] = await Promise.all([
+      prisma.criterionAssignment.findFirst({
+        where: { poolId: assessment.poolId, assessorId: user.id },
+        select: { id: true },
+      }),
+      prisma.clubAmbassador.findUnique({
+        where: { clubId_userId: { clubId: assessment.clubId, userId: user.id } },
+        select: { id: true },
+      }),
+    ]);
+    if (!holds || !ambassador) notFound();
     return assessment;
   }
 
@@ -133,6 +148,90 @@ export async function requireAssessmentAccess(user: User, assessmentId: string) 
   }
 
   notFound();
+}
+
+/**
+ * The clubs a CDA looks after — their standing portfolio.
+ *
+ * Separate from the assessment allocation on purpose: the portfolio is a
+ * year-round support relationship and survives a cycle ending, while the
+ * allocation says what they score this season. Visibility is the overlap.
+ */
+export async function ambassadorClubIds(userId: string) {
+  const rows = await prisma.clubAmbassador.findMany({
+    where: { userId },
+    select: { clubId: true },
+  });
+  return new Set(rows.map((r) => r.clubId));
+}
+
+/**
+ * The portfolio to filter an assessor's screens by, or null for no limit.
+ *
+ * Null for a Club Development Unit account that also assesses: the Unit reads
+ * every assessment anyway, and filtering its own scoring screens to a portfolio
+ * it was never given would show it nothing. The boundary describes what an
+ * assessor is, not what the Unit may see.
+ */
+export async function portfolioFilter(
+  user: Pick<User, "id" | "role">,
+): Promise<Set<string> | null> {
+  if (user.role === "ADMIN") return null;
+  return ambassadorClubIds(user.id);
+}
+
+/**
+ * Which parts of a club's submission a set of line items actually justifies
+ * reading.
+ *
+ * The assessor's evidence page used to show everything a club submitted to
+ * anyone holding any item in its pool: the full staff register with names,
+ * Blue Card status and downloadable certificates, the participation figures,
+ * and all nine Non-Negotiable declarations with the club's own notes and
+ * uploaded files. Scoring one Planning item does not require any of that.
+ *
+ * Mapped at the domain rather than per criterion because domain is an enum and
+ * the areas are free text the Unit rewords. If FQ wants this finer, this
+ * constant is the one place to change.
+ */
+export const EVIDENCE_FOR_DOMAIN = {
+  // Planning and Delivery items turn on who is in post and who delivers —
+  // Coach Education and Support, Coach Reviews & Mentoring, the observation
+  // areas — so the staff register is the evidence behind them.
+  PLANNING: ["STAFF"],
+  DELIVERY: ["STAFF"],
+  // Outcomes items are player development, retention and satisfaction, read
+  // against the club's own registration numbers.
+  OUTCOMES: ["PARTICIPATION"],
+} as const satisfies Record<string, readonly ("STAFF" | "PARTICIPATION")[]>;
+
+export type EvidenceSection = "STAFF" | "PARTICIPATION";
+
+/**
+ * What this assessor may read of a club's submission, from the line items they
+ * hold in that club's pool.
+ *
+ * Non-Negotiables are on nobody's list. An assessor never scores one — they are
+ * the Unit's to verify — so the declarations, the club's notes on them and the
+ * files attached to them are not an assessor's to read at all.
+ */
+export async function visibleEvidenceFor(
+  assessorId: string,
+  poolId: string | null,
+): Promise<Set<EvidenceSection>> {
+  const sections = new Set<EvidenceSection>();
+  if (!poolId) return sections;
+
+  const held = await prisma.criterionAssignment.findMany({
+    where: { poolId, assessorId },
+    select: { criterion: { select: { domain: true } } },
+  });
+
+  for (const h of held) {
+    const domain = h.criterion.domain as keyof typeof EVIDENCE_FOR_DOMAIN;
+    for (const s of EVIDENCE_FOR_DOMAIN[domain] ?? []) sections.add(s);
+  }
+  return sections;
 }
 
 /**

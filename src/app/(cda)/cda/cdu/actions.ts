@@ -365,6 +365,63 @@ export async function setAssesses(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Ambassador portfolios                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Sets which CDAs look after a club through the year.
+ *
+ * Standing, not per cycle: a Club Development Ambassador visits and supports
+ * these clubs whether or not a rating is running. It is also what an assessor
+ * can see — they reach a club only where their portfolio and their line-item
+ * allocation overlap — so this is the control that decides who reads a club's
+ * evidence, and it belongs with the club rather than buried in a cycle.
+ */
+export async function setClubAmbassadors(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  await requireCdu();
+
+  const clubId = String(formData.get("clubId") ?? "");
+  if (!clubId) return { status: "error", message: "No club given." };
+
+  const club = await prisma.club.findUnique({ where: { id: clubId }, select: { name: true } });
+  if (!club) return { status: "error", message: "That club no longer exists." };
+
+  const wanted = formData.getAll("ambassadorId").map(String).filter(Boolean);
+
+  // Only people who can actually hold a line item. A club administrator or a
+  // coach in this list would be a portfolio that grants nothing and confuses
+  // the pool page's coverage warning.
+  const eligible = await prisma.user.findMany({
+    where: { id: { in: wanted }, ...ASSESSOR_POOL_WHERE, active: true },
+    select: { id: true },
+  });
+  const ids = eligible.map((u) => u.id);
+
+  await prisma.$transaction([
+    prisma.clubAmbassador.deleteMany({ where: { clubId, userId: { notIn: ids } } }),
+    ...ids.map((userId) =>
+      prisma.clubAmbassador.upsert({
+        where: { clubId_userId: { clubId, userId } },
+        update: {},
+        create: { clubId, userId },
+      }),
+    ),
+  ]);
+
+  refresh();
+  return {
+    status: "ok",
+    message:
+      ids.length === 0
+        ? `${club.name} has no CDA. Nobody can assess it until one is assigned.`
+        : `${club.name}: ${ids.length} CDA${ids.length === 1 ? "" : "s"}.`,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Assessor assignment                                                        */
 /* -------------------------------------------------------------------------- */
 
@@ -1359,12 +1416,18 @@ export async function previewClubImport(
 
   const parsed = parseClubCsv(csv, await tierCodes());
 
-  const [clubs, users] = await Promise.all([
+  const [clubs, users, assessors] = await Promise.all([
     prisma.club.findMany({ select: { name: true } }),
     prisma.user.findMany({ select: { email: true } }),
+    prisma.user.findMany({ where: { ...ASSESSOR_POOL_WHERE, active: true }, select: { email: true } }),
   ]);
 
-  const plan = planImport(parsed, clubs, users.map((u) => u.email));
+  const plan = planImport(
+    parsed,
+    clubs,
+    users.map((u) => u.email),
+    assessors.map((u) => u.email),
+  );
 
   if (plan.plans.length === 0) {
     return {
@@ -1464,6 +1527,23 @@ export async function commitClubImport(
         const assessment = await ensureAssessment(club.id, cycle.id);
         if (tierId && assessment.tierId !== tierId) {
           await prisma.clubAssessment.update({ where: { id: assessment.id }, data: { tierId } });
+        }
+      }
+
+      if (row.cdaEmail) {
+        const cda = await prisma.user.findFirst({
+          where: { email: normalizeEmail(row.cdaEmail), ...ASSESSOR_POOL_WHERE, active: true },
+          select: { id: true },
+        });
+        // Silent when the address isn't an assessor: the preview already said
+        // so per row, and creating the account here would mint one nobody
+        // asked for.
+        if (cda) {
+          await prisma.clubAmbassador.upsert({
+            where: { clubId_userId: { clubId: club.id, userId: cda.id } },
+            update: {},
+            create: { clubId: club.id, userId: cda.id },
+          });
         }
       }
 

@@ -21,6 +21,7 @@ export const IMPORT_COLUMNS = [
   "contact_email",
   "admin_name",
   "admin_email",
+  "cda_email",
 ] as const;
 
 export type ImportColumn = (typeof IMPORT_COLUMNS)[number];
@@ -29,8 +30,8 @@ export const TEMPLATE_HEADER = IMPORT_COLUMNS.join(",");
 
 export const TEMPLATE_CSV = [
   TEMPLATE_HEADER,
-  "Brisbane City FC,Brisbane Metro,NPL,T1,Priya Raman,office@brisbanecity.example,Priya Raman,priya@brisbanecity.example",
-  "Noosa Lions,Sunshine Coast,FQPL,T2,Sam Ngata,office@noosalions.example,,",
+  "Brisbane City FC,Brisbane Metro,NPL,T1,Priya Raman,office@brisbanecity.example,Priya Raman,priya@brisbanecity.example,n.calloway@fq.example",
+  "Noosa Lions,Sunshine Coast,FQPL,T2,Sam Ngata,office@noosalions.example,,,n.calloway@fq.example",
 ].join("\n");
 
 export type ParsedRow = {
@@ -44,6 +45,8 @@ export type ParsedRow = {
   contactEmail: string;
   adminName: string;
   adminEmail: string;
+  /** The CDA who looks after this club, by email. */
+  cdaEmail: string;
   /** Fields discarded as malformed, reported as warnings rather than skips. */
   dropped: string[];
 };
@@ -176,6 +179,11 @@ function normaliseHeader(raw: string): ImportColumn | null {
     administrator_name: "admin_name",
     admin_email: "admin_email",
     administrator_email: "admin_email",
+    cda: "cda_email",
+    cda_email: "cda_email",
+    ambassador: "cda_email",
+    ambassador_email: "cda_email",
+    club_development_ambassador: "cda_email",
   };
 
   return aliases[key] ?? null;
@@ -287,6 +295,12 @@ export function parseClubCsv(text: string, knownTierCodes: string[] = []): Parse
       adminEmail = "";
     }
 
+    let cdaEmail = cleanEmail(at(cells, "cda_email"));
+    if (cdaEmail && !EMAIL.test(cdaEmail)) {
+      dropped.push(`CDA email "${cdaEmail}" isn't valid — no ambassador set`);
+      cdaEmail = "";
+    }
+
     const licenceTier = at(cells, "tier");
     let assessmentTier = normaliseAssessmentTier(at(cells, "assessment_tier"));
 
@@ -332,6 +346,7 @@ export function parseClubCsv(text: string, knownTierCodes: string[] = []): Parse
       contactEmail,
       adminName: at(cells, "admin_name"),
       adminEmail,
+      cdaEmail,
       dropped,
     });
   }
@@ -360,6 +375,8 @@ export type RowPlan = {
   club: "create" | "update";
   /** `skip` when no administrator email was given, `exists` when they already have an account. */
   admin: "create" | "skip" | "exists";
+  /** Whether the named CDA is somebody who can actually hold a line item. */
+  cda: "set" | "unknown" | "none";
   warnings: string[];
 };
 
@@ -382,9 +399,11 @@ export function planImport(
   parsed: ParseResult,
   existing: { name: string }[],
   existingEmails: string[],
+  assessorEmails: string[] = [],
 ): ImportPlan {
   const byName = new Set(existing.map((c) => c.name.trim().toLowerCase()));
   const emails = new Set(existingEmails.map((e) => e.trim().toLowerCase()));
+  const assessors = new Set(assessorEmails.map((e) => e.trim().toLowerCase()));
 
   const plans: RowPlan[] = parsed.rows.map((row) => {
     const warnings: string[] = [...row.dropped];
@@ -404,7 +423,22 @@ export function planImport(
       warnings.push("No assessment tier — will be assessed on the first tier's line items.");
     }
 
-    return { row, club, admin, warnings };
+    // The CDA has to already be an assessor. Creating one from an import would
+    // mint an account nobody chose to make, and a portfolio pointing at an
+    // address that can't hold a line item grants nothing.
+    let cda: RowPlan["cda"] = "none";
+    if (row.cdaEmail) {
+      cda = assessors.has(row.cdaEmail.toLowerCase()) ? "set" : "unknown";
+      if (cda === "unknown") {
+        warnings.push(
+          `${row.cdaEmail} isn't an assessor — add them under Assessors first, then re-paste. No CDA set.`,
+        );
+      }
+    } else {
+      warnings.push("No CDA — nobody can assess this club until one is assigned.");
+    }
+
+    return { row, club, admin, cda, warnings };
   });
 
   return {

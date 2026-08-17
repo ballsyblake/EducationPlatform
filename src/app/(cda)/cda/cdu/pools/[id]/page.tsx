@@ -84,6 +84,25 @@ export default async function PoolPage({
   const tiersInPool = new Set(pool.assessments.map((a) => a.tierId ?? "—"));
   const mixedTiers = tiersInPool.size > 1;
 
+  // An assessor now reaches a club only if they are its CDA, so an allocation
+  // covers a line item across the pool only where the two overlap. Without this
+  // an item can read "allocated" and still leave half its clubs unscored, with
+  // nothing on any screen saying so until the deadline.
+  const portfolios = await prisma.clubAmbassador.findMany({
+    where: { club: { assessments: { some: { poolId: id } } } },
+    select: { userId: true, clubId: true },
+  });
+  const looksAfter = new Map<string, Set<string>>();
+  for (const p of portfolios) {
+    const set = looksAfter.get(p.userId) ?? new Set<string>();
+    set.add(p.clubId);
+    looksAfter.set(p.userId, set);
+  }
+  const coveredBy = (assessorId: string, criterionId: string) =>
+    pool.assessments.filter(
+      (a) => applies(criterionId, a.id) && looksAfter.get(assessorId)?.has(a.clubId),
+    ).length;
+
   const rows: AllocationRow[] = criteria
     .filter((c) => !domain || c.domain === domain)
     .map((c) => {
@@ -106,6 +125,7 @@ export default async function PoolPage({
             assessorName: a ? displayName(a.assessor) : null,
             submittedAt: a?.submittedAt ?? null,
             scored: a ? (scored.get(`${a.assessorId}:${c.id}`) ?? 0) : 0,
+            covers: a ? coveredBy(a.assessorId, c.id) : 0,
           };
         }),
       };

@@ -2,6 +2,7 @@ import { Stars, StarScale } from "@/components/cda/stars";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
 import {
   RELEASED_STATUSES,
+  portfolioFilter,
   assessorCanScore,
   requireAssessor,
   requireAssignment,
@@ -40,12 +41,23 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
     orderBy: { club: { name: "asc" } },
   });
 
-  // Tier 2 is assessed on 18 of the same coded items, so a pool holding both
-  // tiers has clubs this line item doesn't apply to. Scoring them would be
-  // discarded at rating time, so they aren't offered.
-  const applies = await tierScope(poolAssessments, [criterion.id]);
-  const assessments = poolAssessments.filter((a) => applies(criterion.id, a.id));
-  const outOfTier = poolAssessments.length - assessments.length;
+  // Two filters, for two different reasons.
+  //
+  // Tier: Tier 2 is assessed on 18 of the same coded items, so a pool holding
+  // both tiers has clubs this line item doesn't apply to, and scoring them
+  // would be discarded at rating time.
+  //
+  // Portfolio: a CDA sees the clubs they look after. Holding a line item across
+  // a pool says what they score, not which clubs are theirs — an assessor with
+  // six clubs has no business reading the other thirty in the pool.
+  const [applies, mine] = await Promise.all([
+    tierScope(poolAssessments, [criterion.id]),
+    portfolioFilter(assessor),
+  ]);
+  const inTier = poolAssessments.filter((a) => applies(criterion.id, a.id));
+  const assessments = mine === null ? inTier : inTier.filter((a) => mine.has(a.clubId));
+  const outOfTier = poolAssessments.length - inTier.length;
+  const notMine = inTier.length - assessments.length;
 
   // Last cycle's confirmed score for this line item, per club — the first thing
   // to sanity-check a new score against.
@@ -121,9 +133,11 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
           hint={
             waiting > 0
               ? `${waiting} club${waiting === 1 ? "" : "s"} not yet submitted`
-              : outOfTier > 0
-                ? `${outOfTier} club${outOfTier === 1 ? "" : "s"} in this pool aren't assessed on it`
-                : "Clubs in this pool"
+              : notMine > 0
+                ? `${notMine} more in this pool, looked after by another CDA`
+                : outOfTier > 0
+                  ? `${outOfTier} club${outOfTier === 1 ? "" : "s"} in this pool aren't assessed on it`
+                  : "Clubs you look after"
           }
         />
         <StatTile
@@ -172,8 +186,16 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
 
           {clubs.length === 0 ? (
             <EmptyState
-              title="No clubs in this pool yet"
-              description="The Club Assessment Unit hasn't placed any clubs in this pool."
+              title={
+                poolAssessments.length === 0
+                  ? "No clubs in this pool yet"
+                  : "None of your clubs are scored on this line item"
+              }
+              description={
+                poolAssessments.length === 0
+                  ? "The Club Assessment Unit hasn't placed any clubs in this pool."
+                  : "This pool has clubs, but none of them are both yours to look after and assessed on this item. The Club Assessment Unit allocates line items; ask them if you were expecting clubs here."
+              }
             />
           ) : (
             clubs.map((club) => (
