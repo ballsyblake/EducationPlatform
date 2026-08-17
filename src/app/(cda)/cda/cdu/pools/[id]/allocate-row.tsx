@@ -20,7 +20,10 @@ export type AllocationRow = {
   mode: "EVIDENCE" | "OBSERVATION";
   weight: number;
   scored: number;
+  /** Clubs in the pool this line item actually applies to. */
   clubs: number;
+  /** Clubs in the pool at all, so a tier mismatch can be shown as one. */
+  poolClubs: number;
   slots: {
     slot: number;
     assignmentId: string | null;
@@ -59,6 +62,11 @@ export function AllocateRow({
             {row.weight > 1 && <Badge tone="info">×{row.weight}</Badge>}
             {row.mode === "OBSERVATION" && <Badge tone="muted">Observation</Badge>}
             {filled.length === 0 && <Badge tone="bad">Unallocated</Badge>}
+            {row.clubs < row.poolClubs && (
+              <Badge tone="warn">
+                {row.clubs} of {row.poolClubs} clubs
+              </Badge>
+            )}
           </div>
 
           <ul className="mt-2 flex flex-wrap gap-x-5 gap-y-1">

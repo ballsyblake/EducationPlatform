@@ -21,22 +21,27 @@ case "${DATABASE_URL}" in
     ;;
 esac
 
-# Applies any migrations this image ships that the database hasn't seen yet.
-# Only ever moves forward — nothing is reset or dropped — so it's safe on every
-# boot. Not `prisma migrate deploy`: that can't talk to a hosted libSQL URL.
-echo "[boot] applying migrations…"
-npx tsx scripts/migrate.ts
-
-# Makes sure ADMIN_EMAILS can always sign in. Prints a link when they can't.
-echo "[boot] checking admin accounts…"
-npx tsx scripts/bootstrap-admin.ts
-
-# Adds any CDA criteria, Non-Negotiables or qualifications this image ships that
-# the database hasn't got yet. Additive only: rows that already exist are left
-# alone, so wording the Club Development Unit has edited since is never
-# overwritten. No demo data — that needs `npm run cda:seed` explicitly.
-echo "[boot] syncing the CDA rubric catalogue…"
-npx tsx scripts/seed-cda.ts
+# One process for the three things that have to happen before we serve:
+#
+#   1. Apply any migrations this image ships that the database hasn't seen.
+#      Only ever moves forward — nothing is reset or dropped. Not
+#      `prisma migrate deploy`: that can't talk to a hosted libSQL URL.
+#   2. Make sure ADMIN_EMAILS can always sign in, printing a link when they
+#      can't.
+#   3. Bring the CDA rubric catalogue up to what this image ships. Additive
+#      only, so wording the Club Development Unit has edited is never
+#      overwritten, and skipped in a single query when the catalogue hasn't
+#      changed since the last boot.
+#
+# Three separate `npx tsx` calls used to do this, which meant three Node starts,
+# three TypeScript transpiles and three connections to the database before the
+# server began listening. On a host that sleeps idle instances, that whole cost
+# lands on whoever opens the site next.
+#
+# `./node_modules/.bin/…` rather than `npx`, which spends a few hundred
+# milliseconds resolving a package that is already right there.
+echo "[boot] preparing the database…"
+./node_modules/.bin/tsx scripts/boot.ts
 
 echo "[boot] starting server on port ${PORT:-3000}"
-exec npx next start --port "${PORT:-3000}" --hostname 0.0.0.0
+exec ./node_modules/.bin/next start --port "${PORT:-3000}" --hostname 0.0.0.0

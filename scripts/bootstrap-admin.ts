@@ -10,10 +10,9 @@
  */
 import "dotenv/config";
 import { createHash, randomBytes } from "node:crypto";
+import { pathToFileURL } from "node:url";
 import { PrismaClient } from "../generated/prisma/client.ts";
 import { createAdapter } from "../src/lib/adapter.ts";
-
-const prisma = new PrismaClient({ adapter: createAdapter() });
 
 const INVITE_TTL_DAYS = Number(process.env.INVITE_LINK_TTL_DAYS ?? 7);
 
@@ -21,7 +20,7 @@ const INVITE_TTL_DAYS = Number(process.env.INVITE_LINK_TTL_DAYS ?? 7);
  * Mints a sign-in link the same way the app does. Duplicated rather than
  * imported because src/lib/auth.ts is "server-only" and can't load here.
  */
-async function issueSignInLink(userId: string) {
+async function issueSignInLink(prisma: PrismaClient, userId: string) {
   const token = randomBytes(32).toString("base64url");
   await prisma.loginToken.updateMany({
     where: { userId, usedAt: null },
@@ -44,7 +43,11 @@ async function issueSignInLink(userId: string) {
   return `${base}/auth/verify?token=${token}`;
 }
 
-async function main() {
+/**
+ * Exported so the boot sequence can call it with the client it already has,
+ * rather than starting another Node process to open a second connection.
+ */
+export async function bootstrapAdmins(prisma: PrismaClient) {
   const emails = (process.env.ADMIN_EMAILS ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
@@ -65,7 +68,7 @@ async function main() {
       const user = await prisma.user.create({
         data: { email, role: "ADMIN", title: "Program Admin" },
       });
-      const link = await issueSignInLink(user.id);
+      const link = await issueSignInLink(prisma, user.id);
       console.log(`[bootstrap] Created admin ${email}`);
       console.log("[bootstrap] ---------------------------------------------");
       console.log("[bootstrap]  Open this link to sign in as the first admin:");
@@ -103,7 +106,7 @@ async function main() {
       continue;
     }
 
-    const link = await issueSignInLink(existing.id);
+    const link = await issueSignInLink(prisma, existing.id);
     console.log("[bootstrap] ---------------------------------------------");
     console.log(`[bootstrap]  ${email} is not signed in. Sign in with:`);
     console.log(`[bootstrap]  ${link}`);
@@ -113,9 +116,13 @@ async function main() {
   }
 }
 
-main()
-  .catch((error) => {
-    console.error("[bootstrap] Failed:", error);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+// Only when run directly; scripts/boot.ts owns the client and the error path.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const prisma = new PrismaClient({ adapter: createAdapter() });
+  bootstrapAdmins(prisma)
+    .catch((error) => {
+      console.error("[bootstrap] Failed:", error);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}
