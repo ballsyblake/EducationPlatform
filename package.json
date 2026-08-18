@@ -20,7 +20,8 @@
     "db:reset": "prisma migrate reset --force && npm run db:seed && npm run cda:seed",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
     "cda:reset": "tsx scripts/reset-cda.ts",
-    "boot": "tsx scripts/boot.ts"
+    "boot": "tsx scripts/boot.ts",
+    "cda:import-2026": "tsx scripts/import-fq-2026.ts"
   },
   "repository": {
     "type": "git",
