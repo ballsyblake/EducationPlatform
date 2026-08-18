@@ -21,6 +21,7 @@ const ASSESSOR_LINKS: NavLink[] = [{ href: "/cda/assess", label: "My line items"
 
 const CDU_LINKS: NavLink[] = [
   { href: "/cda/cdu", label: "Cycle" },
+  { href: "/cda/cdu/progress", label: "Progress" },
   { href: "/cda/cdu/clubs", label: "Clubs" },
   { href: "/cda/cdu/assessors", label: "Assessors" },
   { href: "/cda/cdu/rubric", label: "Rubric" },
