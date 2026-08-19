@@ -67,7 +67,7 @@ export function AmbassadorsForm({
       </div>
 
       {picked.length === 0 && (
-        <Badge tone="warn">No CDA — nobody can assess {clubName}</Badge>
+        <Badge tone="warn">No CDA — nobody can open what {clubName} submits</Badge>
       )}
 
       {state.status === "error" && <FormError message={state.message} />}

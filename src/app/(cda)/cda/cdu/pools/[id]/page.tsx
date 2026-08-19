@@ -84,10 +84,11 @@ export default async function PoolPage({
   const tiersInPool = new Set(pool.assessments.map((a) => a.tierId ?? "—"));
   const mixedTiers = tiersInPool.size > 1;
 
-  // An assessor now reaches a club only if they are its CDA, so an allocation
-  // covers a line item across the pool only where the two overlap. Without this
-  // an item can read "allocated" and still leave half its clubs unscored, with
-  // nothing on any screen saying so until the deadline.
+  // An allocation covers its line item across the whole pool — that is the
+  // point of allocating by item. What the portfolio decides is narrower: which
+  // of those clubs' submissions this assessor may actually open. Worth showing
+  // on this screen, because allocating an item to somebody who is CDA for none
+  // of the pool means they score it on the evidence points alone.
   const portfolios = await prisma.clubAmbassador.findMany({
     where: { club: { assessments: { some: { poolId: id } } } },
     select: { userId: true, clubId: true },

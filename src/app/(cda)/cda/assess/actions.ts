@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { assessorCanScore, requireAssessor } from "@/lib/cda/access";
+import { tierScope } from "@/lib/cda/assessment";
 import { starsFromEvidence } from "@/lib/cda/rubric";
 import { prisma } from "@/lib/db";
 
@@ -14,6 +15,11 @@ export type AssessFormState = { status: "idle" | "ok" | "error"; message?: strin
  * club must be in that assignment's pool. Without the second check an assessor
  * holding D6 for Pool A could post a score against a Pool B club by editing a
  * hidden field, and the pool boundary is the only thing separating them.
+ *
+ * The pool is the whole boundary — a line item is scored for every club in it,
+ * which is what keeps one standard between them. Whether the assessor is that
+ * club's CDA decides something else entirely: whether they may open what the
+ * club submitted. That gate lives on the evidence page.
  */
 async function scorable(assignmentId: string, assessmentId: string) {
   const assessor = await requireAssessor();
@@ -31,11 +37,26 @@ async function scorable(assignmentId: string, assessmentId: string) {
 
   const assessment = await prisma.clubAssessment.findUnique({
     where: { id: assessmentId },
-    select: { id: true, status: true, poolId: true, club: { select: { name: true } } },
+    select: {
+      id: true,
+      status: true,
+      poolId: true,
+      tierId: true,
+      club: { select: { name: true } },
+    },
   });
   if (!assessment || assessment.poolId !== assignment.poolId) {
     throw new Error("That club isn't in your pool for this line item.");
   }
+
+  // The screen already omits clubs on a tier this item doesn't cover, but the
+  // rating discards such scores when it computes — so accepting one here would
+  // record assessor effort that silently counts for nothing.
+  const applies = await tierScope([assessment], [assignment.criterionId]);
+  if (!applies(assignment.criterionId, assessment.id)) {
+    throw new Error(`${assessment.club.name} isn't assessed on this line item.`);
+  }
+
   if (!assessorCanScore(assessment.status)) {
     throw new Error(`${assessment.club.name} is no longer open for scoring.`);
   }

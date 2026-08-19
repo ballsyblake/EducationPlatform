@@ -113,29 +113,23 @@ export async function requireAssessmentAccess(user: User, assessmentId: string) 
 
   if (user.role === "ADMIN") return assessment;
 
-  // Assessors only. A Club Development Unit account that also assesses returned
-  // above: the Unit reads every assessment by definition, so the portfolio
-  // bounds who an assessor is, not what the Unit may see.
   if (user.role === "ASSESSOR") {
     // A club not yet placed in a pool has no assessors by definition.
     if (!assessment.poolId) notFound();
 
-    // Two conditions, not one. Holding a line item across a pool says what this
-    // assessor scores; their ambassador portfolio says which clubs are theirs
-    // at all. A CDA who looks after six clubs has no business reading the
-    // other thirty in the pool, and until now holding a single item opened
-    // every one of them.
-    const [holds, ambassador] = await Promise.all([
-      prisma.criterionAssignment.findFirst({
-        where: { poolId: assessment.poolId, assessorId: user.id },
-        select: { id: true },
-      }),
-      prisma.clubAmbassador.findUnique({
-        where: { clubId_userId: { clubId: assessment.clubId, userId: user.id } },
-        select: { id: true },
-      }),
-    ]);
-    if (!holds || !ambassador) notFound();
+    // Holding a line item anywhere in this club's pool. A line item is
+    // allocated across a whole pool and scored for every club in it, which is
+    // what keeps one standard between them — so scoring reach follows the pool.
+    //
+    // The ambassador portfolio is a separate, narrower gate over the club's
+    // submitted evidence; see `requireAmbassadorFor`. Scoring one item across
+    // twelve clubs and reading twelve clubs' staff registers are different
+    // asks, and only the second needs to be somebody's own club.
+    const holds = await prisma.criterionAssignment.findFirst({
+      where: { poolId: assessment.poolId, assessorId: user.id },
+      select: { id: true },
+    });
+    if (!holds) notFound();
     return assessment;
   }
 
@@ -178,6 +172,35 @@ export async function portfolioFilter(
 ): Promise<Set<string> | null> {
   if (user.role === "ADMIN") return null;
   return ambassadorClubIds(user.id);
+}
+
+/** Whether this user is one of the club's Club Development Ambassadors. */
+export async function isAmbassadorFor(
+  user: Pick<User, "id" | "role">,
+  clubId: string,
+): Promise<boolean> {
+  if (user.role === "ADMIN") return true;
+  const row = await prisma.clubAmbassador.findUnique({
+    where: { clubId_userId: { clubId, userId: user.id } },
+    select: { id: true },
+  });
+  return row !== null;
+}
+
+/**
+ * Gate on a club's submitted evidence: the assessor must be its CDA.
+ *
+ * Scoring reach follows the pool, because a line item is allocated across a
+ * whole pool and has to be scored the same way for every club in it. Reading a
+ * club's submission is a different ask — names, Blue Card status, certificates,
+ * registration figures — and that stays with the person who already works with
+ * the club through the year.
+ *
+ * 404 rather than 403 for the same reason as everywhere else here: the response
+ * must not confirm that a club it names is being assessed.
+ */
+export async function requireAmbassadorFor(user: Pick<User, "id" | "role">, clubId: string) {
+  if (!(await isAmbassadorFor(user, clubId))) notFound();
 }
 
 /**

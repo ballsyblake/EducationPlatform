@@ -102,7 +102,7 @@ export default async function ClubsPage() {
           label="Without a CDA"
           value={withoutCda}
           tone={withoutCda > 0 ? "warn" : "good"}
-          hint="Nobody can assess them"
+          hint="Nobody can open their submission"
         />
         <StatTile label="Inactive" value={rows.filter((r) => !r.active).length} />
       </div>

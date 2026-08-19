@@ -31,7 +31,10 @@ export type AllocationRow = {
     assessorName: string | null;
     submittedAt: Date | null;
     scored: number;
-    /** Clubs on this item that this assessor is also the CDA for. */
+    /**
+     * Clubs on this item whose submitted evidence this assessor may open —
+     * the ones they are CDA for. They score all of them either way.
+     */
     covers: number;
   }[];
 };
@@ -79,16 +82,15 @@ export function AllocateRow({
                 </span>
                 <span className="text-ink-700">{s.assessorName}</span>
                 <span className="tabular-nums text-ink-400">
-                  {s.scored}/{s.covers}
+                  {s.scored}/{row.clubs}
                 </span>
-                {/* An assessor reaches a club only where their portfolio and
-                    this allocation overlap, so an item can read "allocated"
-                    and still leave clubs nobody can score. */}
+                {/* They score every club on this item. The portfolio only says
+                    whose submission they can open while doing it. */}
                 {s.covers < row.clubs && (
-                  <Badge tone={s.covers === 0 ? "bad" : "warn"}>
+                  <Badge tone="muted">
                     {s.covers === 0
-                      ? "not their CDA on any"
-                      : `CDA for ${s.covers} of ${row.clubs}`}
+                      ? "sees no submissions"
+                      : `sees ${s.covers} of ${row.clubs} submissions`}
                   </Badge>
                 )}
                 {s.submittedAt ? (

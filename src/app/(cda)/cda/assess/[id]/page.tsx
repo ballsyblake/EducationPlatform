@@ -41,23 +41,23 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
     orderBy: { club: { name: "asc" } },
   });
 
-  // Two filters, for two different reasons.
+  // One filter on which clubs are scored here, and one on what may be read.
   //
-  // Tier: Tier 2 is assessed on 18 of the same coded items, so a pool holding
-  // both tiers has clubs this line item doesn't apply to, and scoring them
-  // would be discarded at rating time.
+  // Tier decides the first: Tier 2 is assessed on 18 of the same coded items, so
+  // a pool holding both tiers has clubs this line item doesn't apply to, and
+  // scoring them would be discarded at rating time. Everything else in the pool
+  // is scored — a line item allocated across a pool is judged the same way for
+  // every club in it, which is the whole reason it's allocated that way.
   //
-  // Portfolio: a CDA sees the clubs they look after. Holding a line item across
-  // a pool says what they score, not which clubs are theirs — an assessor with
-  // six clubs has no business reading the other thirty in the pool.
+  // The portfolio decides the second. Reading a club's submitted evidence —
+  // staff names, Blue Card status, registration figures — stays with the CDA who
+  // works with that club through the year, so only their cards link to it.
   const [applies, mine] = await Promise.all([
     tierScope(poolAssessments, [criterion.id]),
     portfolioFilter(assessor),
   ]);
-  const inTier = poolAssessments.filter((a) => applies(criterion.id, a.id));
-  const assessments = mine === null ? inTier : inTier.filter((a) => mine.has(a.clubId));
-  const outOfTier = poolAssessments.length - inTier.length;
-  const notMine = inTier.length - assessments.length;
+  const assessments = poolAssessments.filter((a) => applies(criterion.id, a.id));
+  const outOfTier = poolAssessments.length - assessments.length;
 
   // Last cycle's confirmed score for this line item, per club — the first thing
   // to sanity-check a new score against.
@@ -91,6 +91,7 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
       metIds: score ? score.evidence.map((e) => e.subCriterionId) : [],
       comment: score?.comment ?? "",
       open: assessorCanScore(a.status),
+      canReadEvidence: mine === null || mine.has(a.clubId),
     };
   });
 
@@ -133,11 +134,9 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
           hint={
             waiting > 0
               ? `${waiting} club${waiting === 1 ? "" : "s"} not yet submitted`
-              : notMine > 0
-                ? `${notMine} more in this pool, looked after by another CDA`
-                : outOfTier > 0
-                  ? `${outOfTier} club${outOfTier === 1 ? "" : "s"} in this pool aren't assessed on it`
-                  : "Clubs you look after"
+              : outOfTier > 0
+                ? `${outOfTier} club${outOfTier === 1 ? "" : "s"} in this pool aren't assessed on it`
+                : "Every club in the pool"
           }
         />
         <StatTile
@@ -189,12 +188,12 @@ export default async function ScoreLineItemPage({ params }: { params: Promise<{ 
               title={
                 poolAssessments.length === 0
                   ? "No clubs in this pool yet"
-                  : "None of your clubs are scored on this line item"
+                  : "No club in this pool is assessed on this line item"
               }
               description={
                 poolAssessments.length === 0
                   ? "The Club Assessment Unit hasn't placed any clubs in this pool."
-                  : "This pool has clubs, but none of them are both yours to look after and assessed on this item. The Club Assessment Unit allocates line items; ask them if you were expecting clubs here."
+                  : "Every club in this pool is on a tier that doesn't include this item, so there is nothing to score. Ask the Club Assessment Unit if you were expecting clubs here."
               }
             />
           ) : (
