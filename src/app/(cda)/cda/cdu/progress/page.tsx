@@ -180,6 +180,28 @@ export default async function ProgressPage() {
     return reachable === 0;
   }).length;
 
+  // The number that actually decides whether a season can finish: for every
+  // club and every line item it is assessed on, is there anybody who both holds
+  // that item in its pool and looks after that club?
+  //
+  // It is its own measure because the two halves each look fine alone. Every
+  // line item can be allocated and every club can have a CDA while most pairs
+  // still have nobody: a line item allocated to two assessors covers only the
+  // clubs those two are ambassadors for, and a pool of twelve clubs spread over
+  // six CDAs leaves the other four uncovered on that item.
+  let pairs = 0;
+  let coveredPairs = 0;
+  for (const a of assessments) {
+    if (!a.poolId) continue;
+    for (const c of criteria) {
+      if (!applies(c.id, a.id)) continue;
+      pairs += 1;
+      const holders = assignments.filter((x) => x.poolId === a.poolId && x.criterionId === c.id);
+      if (holders.some((x) => looksAfter.get(x.assessorId)?.has(a.club.id))) coveredPairs += 1;
+    }
+  }
+  const uncovered = pairs - coveredPairs;
+
   const nn = Object.fromEntries(nnRows.map((r) => [r.verdict, r._count._all]));
   const pendingNn = nn.PENDING ?? 0;
 
@@ -202,6 +224,13 @@ export default async function ProgressPage() {
       tone: "warn" as const,
       what: `${unallocated} line item${unallocated === 1 ? "" : "s"} unallocated`,
       why: "Nobody is scoring them.",
+      href: "/cda/cdu",
+    },
+    uncovered && {
+      tone: "bad" as const,
+      what: `${uncovered} of ${pairs} scores have nobody to give them`,
+      why:
+        "For these club and line-item pairs, no assessor both holds the item in that pool and looks after that club.",
       href: "/cda/cdu",
     },
     unreachable && {
@@ -246,9 +275,10 @@ export default async function ProgressPage() {
           hint="Reconciled across all clubs"
         />
         <StatTile
-          label="Assessors working"
-          value={assessors.length}
-          hint={`${assessors.reduce((n, a) => n + a.items, 0)} line items held`}
+          label="Scores reachable"
+          value={pairs ? `${Math.round((coveredPairs / pairs) * 100)}%` : "—"}
+          tone={pairs === 0 ? "muted" : coveredPairs === pairs ? "good" : "warn"}
+          hint="Somebody holds the item and looks after the club"
         />
         <StatTile
           label="Locked"

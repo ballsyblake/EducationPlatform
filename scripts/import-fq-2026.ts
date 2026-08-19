@@ -19,10 +19,8 @@
  *     computes them from the imported scores and the Unit can compare that
  *     against what FQ recorded before freezing anything. Locking is a decision,
  *     not an import step.
- *   - Assign Club Development Ambassadors. The workbooks name assessors per
- *     line item but never say which CDA looks after which club, and portfolios
- *     are the visibility boundary — guessing would hand the wrong people the
- *     wrong clubs. The run reports this rather than inventing it.
+ *   - Enter the clubs' staff registers. They are in none of the workbooks, so
+ *     Technical Qualifications stays at zero until somebody enters them.
  */
 import "dotenv/config";
 import { readFileSync } from "node:fs";
@@ -65,6 +63,7 @@ type Data = {
     criteria: number; stars: number | null; comment: string; confirmed?: number | null;
   }[];
   agreed: { club: string; code: string; stars: number }[];
+  ambassadors: { club: string; assessor: string }[];
 };
 
 async function main() {
@@ -106,7 +105,14 @@ async function main() {
   /* ------------------------------- assessors ------------------------------ */
 
   const names = [
-    ...new Set([...data.allocations.map((a) => a.assessor), ...data.scores.map((s) => s.assessor)]),
+    ...new Set([
+      ...data.allocations.map((a) => a.assessor),
+      ...data.scores.map((s) => s.assessor),
+      // Regional ambassadors appear only on the Action Plan Matrix. They hold
+      // no line items, but they look after clubs, so they need an account for
+      // the portfolio to point at.
+      ...data.ambassadors.map((a) => a.assessor),
+    ]),
   ].sort();
   const assessorId = new Map<string, string>();
   let newAssessors = 0;
@@ -290,18 +296,49 @@ async function main() {
   }
   say(`agreed scores: ${finals}`);
 
+  /* ------------------------------- portfolios ----------------------------- */
+
+  // Which CDA looks after which club, from the Action Plan Matrix. This is the
+  // visibility boundary — an assessor reaches a club only where their portfolio
+  // and their line-item allocation overlap — so it is the difference between
+  // twelve assessors who can see nothing and twelve who can work.
+  let portfolios = 0;
+  const missingClub = new Set<string>();
+  for (const a of data.ambassadors) {
+    const cid = clubId.get(a.club);
+    const uid = assessorId.get(a.assessor);
+    if (!cid) { missingClub.add(a.club); continue; }
+    if (!uid) continue;
+    portfolios += 1;
+    if (DRY) continue;
+    await prisma.clubAmbassador.upsert({
+      where: { clubId_userId: { clubId: cid, userId: uid } },
+      update: {},
+      create: { clubId: cid, userId: uid },
+    });
+  }
+  say(`ambassador portfolios: ${portfolios} over ${new Set(data.ambassadors.map((a) => a.club)).size} clubs`);
+  if (missingClub.size) say(`  no such club: ${[...missingClub].join(", ")}`);
+
+  const firstNameOnly = [...new Set(data.ambassadors.map((a) => a.assessor))].filter(
+    (n) => !n.includes(" "),
+  );
+
   /* -------------------------------- what next ----------------------------- */
 
   console.log("");
-  say("done. Two things this import could not do, and one to check:");
+  say("done. Three things to check:");
   say("");
-  say("1. Club Development Ambassadors are NOT assigned. The workbooks name an");
-  say("   assessor per line item but never say which CDA looks after which club.");
-  say("   Until portfolios are set, no assessor can open any club — set them on");
-  say("   the Clubs page, or paste a name,cda_email sheet into the club importer.");
-  say("");
-  say(`2. Assessor emails are derived as first.last@${EMAIL_DOMAIN}.`);
+  say(`1. Assessor emails are derived as first.last@${EMAIL_DOMAIN}.`);
   say("   Correct any that are wrong before issuing sign-in links.");
+  if (firstNameOnly.length) {
+    say(`   ${firstNameOnly.join(", ")} appear on the Action Plan Matrix by first`);
+    say("   name only, so those accounts need a surname and a real address.");
+  }
+  say("");
+  say("2. The clubs' staff registers are in none of these workbooks, so Technical");
+  say("   Qualifications is zero for everyone and the computed percentages are");
+  say("   understated until the registers are entered.");
   say("");
   say("3. Nothing is locked or published. The portal computes each rating live");
   say("   from the imported scores — compare it against what FQ recorded before");
