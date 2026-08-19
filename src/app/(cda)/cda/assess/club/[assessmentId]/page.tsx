@@ -1,5 +1,6 @@
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
 import {
+  requireAmbassadorFor,
   requireAssessmentAccess,
   requireAssessor,
   visibleEvidenceFor,
@@ -29,6 +30,13 @@ export const metadata = { title: "Club evidence" };
  * Non-Negotiable declarations appear for nobody — an assessor never scores one,
  * they are the Unit's to verify.
  *
+ * Two gates, and they answer different questions. Holding a line item in the
+ * pool is what lets an assessor score this club — that follows the allocation,
+ * because one item scored across a whole pool is what keeps a single standard
+ * between the clubs in it. Reading the club's submission is narrower: names,
+ * Blue Card status, certificates and registration figures stay with the CDA who
+ * works with the club through the year.
+ *
  * Still no computed score of any kind: their job is to judge the evidence, and
  * showing them the Technical percentage the register already produces would
  * anchor how they score everything else.
@@ -41,6 +49,7 @@ export default async function ClubDataPage({
   const { assessmentId: id } = await params;
   const assessor = await requireAssessor();
   const assessment = await requireAssessmentAccess(assessor, id);
+  await requireAmbassadorFor(assessor, assessment.clubId);
 
   const visible = await visibleEvidenceFor(assessor.id, assessment.poolId);
   const canSeeStaff = visible.has("STAFF");

@@ -48,9 +48,9 @@ export function ClubRow({
             Club Development Ambassadors
           </h3>
           <p className="mb-2 text-xs text-ink-600">
-            Who looks after {club.name} through the year. It also decides what they can see: an
-            assessor reaches this club only if they are its CDA <em>and</em> hold a line item in
-            its pool.
+            Who looks after {club.name} through the year. It also decides who may open what the
+            club submits — the staff register, certificates and participation figures. Scoring is
+            separate: that follows the line items allocated across the club&apos;s pool.
           </p>
           <AmbassadorsForm
             clubId={club.id}

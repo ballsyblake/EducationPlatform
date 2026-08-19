@@ -14,12 +14,12 @@ export const metadata = { title: "Progress" };
  *
  * The Cycle board answers "how is each club doing"; this answers the questions
  * that cut across clubs and are otherwise spread over five screens: is every
- * line item allocated, is every allocation reachable, who is behind, and what
- * is stopping the whole thing from finishing.
+ * line item allocated, who is behind, and what is stopping the whole thing from
+ * finishing.
  *
- * Everything is counted against what each club is actually assessed on — its
- * tier — and every allocation against the clubs its assessor is CDA for, so a
- * number here can be reached rather than being an ideal nobody can hit.
+ * Every count is against what each club is actually assessed on — its tier —
+ * rather than the full catalogue, so a number here can be reached rather than
+ * being an ideal nobody can hit.
  */
 export default async function ProgressPage() {
   await requireCdu();
@@ -144,11 +144,14 @@ export default async function ProgressPage() {
       const who = held[0].assessor;
       const mine = looksAfter.get(id) ?? new Set<string>();
 
+      // A line item is scored for every club in its pool that is assessed on it.
+      // The portfolio doesn't narrow this — it governs whose submitted evidence
+      // this assessor may read, not which clubs they score.
       let due = 0;
       let done = 0;
       for (const h of held) {
         const reachable = assessments.filter(
-          (a) => a.poolId === h.poolId && mine.has(a.club.id) && applies(h.criterionId, a.id),
+          (a) => a.poolId === h.poolId && applies(h.criterionId, a.id),
         ).length;
         due += reachable;
         done += Math.min(scored.get(`${id}:${h.criterionId}`) ?? 0, reachable);
@@ -172,35 +175,6 @@ export default async function ProgressPage() {
   const noPool = clubRows.filter((c) => !c.pool);
   const noCda = clubRows.filter((c) => c.pool && !c.hasCda);
   const unallocated = pools.reduce((n, p) => n + (p.applicable - p.allocated), 0);
-  const unreachable = assignments.filter((h) => {
-    const mine = looksAfter.get(h.assessorId) ?? new Set<string>();
-    const reachable = assessments.filter(
-      (a) => a.poolId === h.poolId && mine.has(a.club.id) && applies(h.criterionId, a.id),
-    ).length;
-    return reachable === 0;
-  }).length;
-
-  // The number that actually decides whether a season can finish: for every
-  // club and every line item it is assessed on, is there anybody who both holds
-  // that item in its pool and looks after that club?
-  //
-  // It is its own measure because the two halves each look fine alone. Every
-  // line item can be allocated and every club can have a CDA while most pairs
-  // still have nobody: a line item allocated to two assessors covers only the
-  // clubs those two are ambassadors for, and a pool of twelve clubs spread over
-  // six CDAs leaves the other four uncovered on that item.
-  let pairs = 0;
-  let coveredPairs = 0;
-  for (const a of assessments) {
-    if (!a.poolId) continue;
-    for (const c of criteria) {
-      if (!applies(c.id, a.id)) continue;
-      pairs += 1;
-      const holders = assignments.filter((x) => x.poolId === a.poolId && x.criterionId === c.id);
-      if (holders.some((x) => looksAfter.get(x.assessorId)?.has(a.club.id))) coveredPairs += 1;
-    }
-  }
-  const uncovered = pairs - coveredPairs;
 
   const nn = Object.fromEntries(nnRows.map((r) => [r.verdict, r._count._all]));
   const pendingNn = nn.PENDING ?? 0;
@@ -215,28 +189,15 @@ export default async function ProgressPage() {
       href: "/cda/cdu",
     },
     noCda.length && {
-      tone: "bad" as const,
+      tone: "warn" as const,
       what: `${noCda.length} club${noCda.length === 1 ? "" : "s"} with no CDA`,
-      why: "An assessor reaches a club only if they look after it.",
+      why: "Nobody can open what they submitted, and nobody is supporting them through the year.",
       href: "/cda/cdu/clubs",
     },
     unallocated && {
-      tone: "warn" as const,
+      tone: "bad" as const,
       what: `${unallocated} line item${unallocated === 1 ? "" : "s"} unallocated`,
       why: "Nobody is scoring them.",
-      href: "/cda/cdu",
-    },
-    uncovered && {
-      tone: "bad" as const,
-      what: `${uncovered} of ${pairs} scores have nobody to give them`,
-      why:
-        "For these club and line-item pairs, no assessor both holds the item in that pool and looks after that club.",
-      href: "/cda/cdu",
-    },
-    unreachable && {
-      tone: "warn" as const,
-      what: `${unreachable} allocation${unreachable === 1 ? "" : "s"} reach no clubs`,
-      why: "The assessor holds the item but is CDA for none of the clubs it covers.",
       href: "/cda/cdu",
     },
     pendingNn && {
@@ -275,10 +236,10 @@ export default async function ProgressPage() {
           hint="Reconciled across all clubs"
         />
         <StatTile
-          label="Scores reachable"
-          value={pairs ? `${Math.round((coveredPairs / pairs) * 100)}%` : "—"}
-          tone={pairs === 0 ? "muted" : coveredPairs === pairs ? "good" : "warn"}
-          hint="Somebody holds the item and looks after the club"
+          label="Assessors working"
+          value={assessors.length}
+          tone={assessors.length > 0 ? "good" : "muted"}
+          hint={`${assessors.reduce((n, a) => n + a.items, 0)} line items held`}
         />
         <StatTile
           label="Locked"
@@ -367,10 +328,10 @@ export default async function ProgressPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium text-ink-900">{a.name}</span>
                       {!a.active && <Badge tone="bad">Deactivated</Badge>}
-                      {a.clubs === 0 && <Badge tone="bad">No clubs</Badge>}
+                      {a.clubs === 0 && <Badge tone="muted">No portfolio</Badge>}
                     </div>
                     <span className="text-xs text-ink-500">
-                      {a.items} item{a.items === 1 ? "" : "s"} · {a.submitted} submitted ·{" "}
+                      {a.items} item{a.items === 1 ? "" : "s"} · {a.submitted} submitted · CDA for{" "}
                       {a.clubs} club{a.clubs === 1 ? "" : "s"}
                     </span>
                   </div>

@@ -21,6 +21,11 @@ export type ClubScoreData = {
   comment: string;
   /** False when the club's assessment has moved past scoring. */
   open: boolean;
+  /**
+   * Whether this assessor is one of the club's CDAs. Every club in the pool is
+   * scored here, but only a club's own CDA may read what it submitted.
+   */
+  canReadEvidence: boolean;
 };
 
 export function ClubScoreCard({
@@ -94,12 +99,14 @@ export function ClubScoreCard({
               </span>
             )}
           </p>
-          <Link
-            href={`/cda/assess/club/${club.assessmentId}`}
-            className="mt-1 inline-block text-xs font-medium text-maroon-700 hover:text-maroon-800"
-          >
-            Club&apos;s submitted evidence →
-          </Link>
+          {club.canReadEvidence && (
+            <Link
+              href={`/cda/assess/club/${club.assessmentId}`}
+              className="mt-1 inline-block text-xs font-medium text-maroon-700 hover:text-maroon-800"
+            >
+              Club&apos;s submitted evidence →
+            </Link>
+          )}
         </div>
 
         <div className="text-right">
