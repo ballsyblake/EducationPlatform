@@ -15,6 +15,7 @@ FILES = {
     "planning_b": f"{UP}/0a0dc8c6-Pool_B_Planning_Assessment_2026.xlsx",
     "delivery": f"{UP}/e255aec7-Pool_A_B__C_Delivery_Assessment_2026_6.xlsx",
     "outcomes": f"{UP}/208ef8a2-Pool_A_B__C_Outcomes_Assessment_2026.xlsx",
+    "matrix": f"{UP}/84b3a4a3-Action_Plan_Matrix_2026_1.xlsx",
 }
 
 # FQ's sheets abbreviate assessors inconsistently — a first name here, two
@@ -33,6 +34,12 @@ CANONICAL = {
     "dale": "Dale Hill",
     "scott": "Scott Grimshaw",
 }
+
+# Regional ambassadors appear only as first names on the Action Plan Matrix and
+# nowhere else, so there is no surname to resolve them to. Kept as given and
+# reported, rather than dropped: the assignment is real even when the account
+# behind it still needs a full name and a working address.
+FIRST_NAME_ONLY = {"mike", "ken", "riley", "daegal", "rodrigo"}
 
 def canonical_assessor(name):
     n = re.sub(r"\s*\+\s*CDA$", "", (name or "").strip(), flags=re.I).strip()
@@ -157,6 +164,30 @@ def allocations():
                     out.append({"pool": pool, "code": code, "slot": slot, "assessor": name})
     return out
 
+# ------------------------------------------------------------ ambassadors ---
+def ambassadors():
+    """Which CDA looks after which club, from the Action Plan Matrix.
+
+    The assessment workbooks name an assessor per line item but never say whose
+    club is whose; this sheet is the only place that mapping exists. A cell can
+    hold two people ("Tom & Davide"), which the portal supports directly — a
+    club can have more than one ambassador.
+    """
+    rows = load(FILES["matrix"])["Action Plan Tracking"]
+    out = []
+    for r in rows[1:]:
+        if not r or not (r[0] or "").strip():
+            continue
+        club = clean_club(r[0])
+        cell = (r[1] if len(r) > 1 else "").strip()
+        if not cell:
+            continue
+        for part in re.split(r"\s*[&/+]\s*|\s+and\s+", cell):
+            name = canonical_assessor(part)
+            if name and not PLACEHOLDER.match(name):
+                out.append({"club": club, "assessor": name})
+    return out
+
 # ---------------------------------------------------------------- scores ----
 def item_scores():
     """Per club, per assessor: which evidence points were met, and the score."""
@@ -264,6 +295,7 @@ data = {
     "allocations": allocations(),
     "scores": item_scores(),
     "agreed": master_scores(),
+    "ambassadors": ambassadors(),
 }
 
 dest = os.path.join(os.path.dirname(__file__), "out", "fq-2026.json")
@@ -278,4 +310,10 @@ print(f"assessors    {len(names)}: {', '.join(names)}")
 print(f"pools        {sorted({c['pool'] for c in data['clubs'] if c['pool']})}")
 print(f"tier 2       {[c['name'] for c in data['clubs'] if c['tier']=='T2']}")
 print(f"agreed       {len(data['agreed'])}")
+amb = sorted({a["assessor"] for a in data["ambassadors"]})
+print(f"ambassadors  {len(data['ambassadors'])} assignments over {len({a['club'] for a in data['ambassadors']})} clubs")
+print(f"             {', '.join(amb)}")
+partial = [n for n in amb if " " not in n]
+if partial:
+    print(f"first-name only (need a surname and address): {', '.join(partial)}")
 print(f"written      {dest}")
