@@ -25,13 +25,9 @@
 import "dotenv/config";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { PrismaClient } from "../generated/prisma/client.ts";
 import { createAdapter } from "../src/lib/adapter.ts";
-
-const prisma = new PrismaClient({ adapter: createAdapter() });
-
-const DRY = process.argv.includes("--dry-run");
-const CONFIRMED = process.argv.includes("--yes");
 
 /**
  * Assessor addresses are derived, because the workbooks carry names only.
@@ -84,14 +80,14 @@ type Data = {
   ambassadors: { club: string; assessor: string }[];
 };
 
-async function main() {
+/**
+ * Loads the season. Exported so `scripts/boot.ts` can run it on a host that
+ * offers no shell — see FQ_IMPORT_2026 there.
+ */
+export async function importFq2026(prisma: PrismaClient, { dry = false } = {}) {
+  const DRY = dry;
   const file = path.join(process.cwd(), "prisma", "data", "fq-2026.json");
   const data: Data = JSON.parse(readFileSync(file, "utf8"));
-
-  if (!DRY && !CONFIRMED) {
-    console.log("[import] pass --dry-run to preview, or --yes to write.");
-    return;
-  }
 
   const say = (s: string) => console.log(`[import] ${s}`);
   say(DRY ? "DRY RUN — nothing will be written" : "writing");
@@ -390,9 +386,18 @@ async function main() {
   say("   freezing anything.");
 }
 
-main()
-  .catch((e) => {
-    console.error("[import] failed:", e);
-    process.exitCode = 1;
-  })
-  .finally(() => prisma.$disconnect());
+// Only when run directly; scripts/boot.ts owns the client and the error path.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const dry = process.argv.includes("--dry-run");
+  if (!dry && !process.argv.includes("--yes")) {
+    console.log("[import] pass --dry-run to preview, or --yes to write.");
+  } else {
+    const prisma = new PrismaClient({ adapter: createAdapter() });
+    importFq2026(prisma, { dry })
+      .catch((e) => {
+        console.error("[import] failed:", e);
+        process.exitCode = 1;
+      })
+      .finally(() => prisma.$disconnect());
+  }
+}
