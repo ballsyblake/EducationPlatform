@@ -43,5 +43,21 @@ esac
 echo "[boot] preparing the database…"
 ./node_modules/.bin/tsx scripts/boot.ts
 
+# Football Queensland's season, when FQ_IMPORT_2026 is set — in the background,
+# because it must not hold up the port opening.
+#
+# It ran inside boot once. Against the hosted database the import took over
+# fourteen minutes, the host stopped scanning for an open port after five, and
+# the deploy was killed with the season half-loaded. Nothing about the import is
+# a prerequisite for serving, so it no longer behaves like one: started here,
+# left running as a child of the server process below, and writing its own
+# progress to the same logs.
+#
+# `&` before `exec`: the exec replaces this shell with the server, and the
+# already-started child carries on regardless.
+if [ -n "${FQ_IMPORT_2026}" ]; then
+  ./node_modules/.bin/tsx scripts/import-season.ts &
+fi
+
 echo "[boot] starting server on port ${PORT:-3000}"
 exec ./node_modules/.bin/next start --port "${PORT:-3000}" --hostname 0.0.0.0
