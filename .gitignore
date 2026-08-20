@@ -22,3 +22,6 @@ prisma/*.db-wal
 *.tsbuildinfo
 next-env.d.ts
 .DS_Store
+
+# Python bytecode from scripts/extract-fq-2026.py
+__pycache__/

@@ -6,7 +6,11 @@ record of one season that can be reviewed, diffed and re-imported without
 Excel in the loop.
 """
 import json, os, re, sys
-from xlsx import load
+
+# The reader sits beside this file, so run it from anywhere:
+#   python3 scripts/extract-fq-2026.py
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from xlsx_reader import load
 
 UP = "/root/.claude/uploads/462c962d-5565-5b97-b1cd-6f5be56e9973"
 FILES = {
@@ -16,6 +20,7 @@ FILES = {
     "delivery": f"{UP}/e255aec7-Pool_A_B__C_Delivery_Assessment_2026_6.xlsx",
     "outcomes": f"{UP}/208ef8a2-Pool_A_B__C_Outcomes_Assessment_2026.xlsx",
     "matrix": f"{UP}/84b3a4a3-Action_Plan_Matrix_2026_1.xlsx",
+    "shield": f"{UP}/b131b124-Shield_Based_Threshold_Assessment_2026.xlsx",
 }
 
 # FQ's sheets abbreviate assessors inconsistently — a first name here, two
@@ -288,6 +293,55 @@ def master_scores():
                             "tier2": is_tier2(first)})
     return out
 
+def thresholds():
+    """FQ's own verdict on the three Shield Based Threshold Non-Negotiables.
+
+    The "2026 Master" sheet of the Shield Based Threshold workbook is where the
+    Unit records, per club, the highest shield each threshold was met at. It is
+    the only place in any of the workbooks that carries a Non-Negotiable verdict
+    at all — the six gate checks (fee transparency, coaches' registration, Blue
+    Cards and the rest) are collected elsewhere and are not in this data.
+
+    Three values appear. A shield name is a verdict. "On Notice" is FQ's third
+    state, which the portal has no equivalent for and deliberately does not
+    invent one for. A bare 0 means the Unit has not filled it in — every club
+    for Training Program Standards, and every Tier 2 club for all three.
+    """
+    rows = load(FILES["shield"])["2026 Master"]
+
+    header, cols = None, {}
+    for r in rows:
+        cells = [(c or "").strip() for c in r]
+        if "Club Structure" in cells and "Coaching Standards" in cells:
+            header = r
+            for key, label in (
+                ("structure", "Club Structure"),
+                ("coaching", "Coaching Standards"),
+                ("training", "Training Program Standards"),
+            ):
+                for j, c in enumerate(cells):
+                    if c.startswith(label):
+                        cols[key] = j
+                        break
+            continue
+        if header is None:
+            continue
+
+        # The club name sits in the first non-empty cell to the left of the
+        # verdict columns; the sheet indents it by one.
+        name = next((c for c in cells[: min(cols.values())] if c), "")
+        if not name:
+            continue
+
+        out_row = {"club": clean_club(name)}
+        for key, j in cols.items():
+            v = (cells[j] if j < len(cells) else "").strip()
+            # 0 and None both mean "not recorded". Kept out of the JSON entirely
+            # rather than carried as a falsy value the importer has to re-guess.
+            out_row[key] = v if v and v != "0" else None
+        yield out_row
+
+
 data = {
     "cycle": {"year": 2026, "name": "2026 Club Rating"},
     "clubs": clubs_and_shields(),
@@ -296,9 +350,16 @@ data = {
     "scores": item_scores(),
     "agreed": master_scores(),
     "ambassadors": ambassadors(),
+    "thresholds": list(thresholds()),
 }
 
-dest = os.path.join(os.path.dirname(__file__), "out", "fq-2026.json")
+# Straight to where the importer reads it. It used to land in scripts/out/ and
+# be copied across by hand, which is one step too many between "re-extract" and
+# "re-import" for anybody to remember reliably.
+dest = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), os.pardir, "prisma", "data", "fq-2026.json"
+)
+os.makedirs(os.path.dirname(dest), exist_ok=True)
 with open(dest, "w") as f:
     json.dump(data, f, indent=1)
 
