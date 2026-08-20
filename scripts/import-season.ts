@@ -32,7 +32,22 @@ import { createAdapter } from "../src/lib/adapter.ts";
 import { FQ_IMPORT_MARKER, importFq2026 } from "./import-fq-2026.ts";
 
 const ASKED = (process.env.FQ_IMPORT_2026 ?? "").trim().toLowerCase();
-const WANTED = ASKED === "1" || ASKED === "yes" || ASKED === "true";
+const WANTED = ASKED === "1" || ASKED === "yes" || ASKED === "true" || ASKED === "force";
+
+/**
+ * "force" re-runs even though the marker says the season is already loaded.
+ *
+ * There is a difference between "has this been imported" and "is what it
+ * imported still right", and only the first is what the marker records. When a
+ * fix to the importer needs applying to a database that already ran it — as one
+ * did, for the clubs left unscoreable in NOT_STARTED — there has to be a way to
+ * ask for it again without deleting the marker by hand on a host with no shell.
+ *
+ * Safe to reach for: the import is idempotent and, on a database that already
+ * has the season, costs a few hundred statements because it writes only what
+ * differs.
+ */
+const FORCED = ASKED === "force";
 
 async function main() {
   if (!WANTED) return;
@@ -40,17 +55,26 @@ async function main() {
   const prisma = new PrismaClient({ adapter: createAdapter() });
   try {
     const done = await prisma.meta.findUnique({ where: { key: FQ_IMPORT_MARKER } });
-    if (done) {
+    if (done && !FORCED) {
       console.log(`[season] already imported on ${done.value} — nothing to do.`);
       console.log("[season] FQ_IMPORT_2026 can be removed from the environment.");
+      console.log("[season] Set it to \"force\" to re-run anyway after an importer fix.");
       return;
+    }
+    if (done) {
+      console.log(`[season] FQ_IMPORT_2026=force — re-running over the ${done.value} import.`);
     }
 
     console.log("[season] FQ_IMPORT_2026 set — loading the 2026 season in the background…");
     const started = Date.now();
     await importFq2026(prisma);
-    await prisma.meta.create({
-      data: { key: FQ_IMPORT_MARKER, value: new Date().toISOString() },
+    // Upsert, not create: a forced re-run already has a marker, and failing on
+    // it after the work is done would leave the season imported and the record
+    // of it saying otherwise.
+    await prisma.meta.upsert({
+      where: { key: FQ_IMPORT_MARKER },
+      update: { value: new Date().toISOString() },
+      create: { key: FQ_IMPORT_MARKER, value: new Date().toISOString() },
     });
     console.log(`[season] imported in ${Math.round((Date.now() - started) / 1000)}s.`);
     console.log("[season] Remove FQ_IMPORT_2026 from the environment now.");

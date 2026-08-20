@@ -53,6 +53,22 @@ const EMAIL_DOMAIN = process.env.FQ_ASSESSOR_DOMAIN ?? "footballqueensland.com.a
 export const FQ_IMPORT_MARKER = "fq-2026-imported";
 
 /**
+ * Statuses the import must never move a club out of.
+ *
+ * Everything else is pre-result bookkeeping and the import is entitled to
+ * advance it. These five mean the club has been given a rating — dragging one
+ * back into reconciliation would unpublish a result somebody has already been
+ * told about.
+ */
+const FROZEN_STATUSES: string[] = [
+  "LOCKED",
+  "PUBLISHED",
+  "IN_REVIEW",
+  "UNDER_APPEAL",
+  "CONFIRMED",
+];
+
+/**
  * Assessors the Action Plan Matrix names by first name only.
  *
  * Kept here rather than corrected in the extracted JSON so that file stays a
@@ -282,6 +298,19 @@ export async function importFq2026(prisma: PrismaClient, { dry = false } = {}) {
   const assessmentId = new Map<string, string>();
   let newClubs = 0;
 
+  // Every existing assessment's status, in one query rather than one per club,
+  // so the loop below can tell a frozen result from a live one without paying a
+  // round trip each time to find out.
+  const statusBefore = new Map(
+    (
+      await prisma.clubAssessment.findMany({
+        where: { cycleId: cycle.id },
+        select: { clubId: true, status: true },
+      })
+    ).map((a) => [a.clubId, a.status as string]),
+  );
+  let advanced = 0;
+
   for (const c of data.clubs) {
     const slugBase = c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
     let club = await prisma.club.findFirst({ where: { name: c.name } });
@@ -303,11 +332,33 @@ export async function importFq2026(prisma: PrismaClient, { dry = false } = {}) {
     clubId.set(c.name, club.id);
 
     if (DRY) continue;
+
+    // The status has to move on an update too, not only on create.
+    //
+    // It didn't, and the consequence stayed invisible until the data was in
+    // front of somebody: production already held 44 of these clubs from an
+    // earlier bulk upload, so their assessments were updated rather than
+    // created and kept NOT_STARTED. The board then read "Not started" beside a
+    // club with 43 of 54 line items reconciled, and — worse than the
+    // contradiction — clubCanEdit() is true for NOT_STARTED, so a club could
+    // still open and overwrite the evidence behind a season that is finished.
+    //
+    // RECONCILING is the honest resting state for an imported season: FQ has
+    // scored it, the agreed scores are loaded, and what remains is the Unit's
+    // to settle. It also stops assessors writing, which is correct here and is
+    // the same in both statuses — that is not what this fixes.
+    //
+    // Only ever forwards. A club whose rating is already locked or released has
+    // been given a result, and dragging it back into reconciliation would
+    // unpublish a rating a club has already been told about.
+    const frozen = FROZEN_STATUSES.includes(statusBefore.get(club.id) ?? "");
+
     const a = await prisma.clubAssessment.upsert({
       where: { clubId_cycleId: { clubId: club.id, cycleId: cycle.id } },
       update: {
         poolId: c.pool ? (poolId.get(c.pool) ?? null) : null,
         tierId: tiers.get(c.tier) ?? null,
+        ...(frozen ? {} : { status: "RECONCILING" as const }),
       },
       create: {
         clubId: club.id,
@@ -323,8 +374,16 @@ export async function importFq2026(prisma: PrismaClient, { dry = false } = {}) {
       },
     });
     assessmentId.set(c.name, a.id);
+    const was = statusBefore.get(club.id);
+    if (was && was !== "RECONCILING" && !frozen) advanced += 1;
   }
   say(`clubs: ${data.clubs.length} (${newClubs} new)`);
+  if (advanced) {
+    say(`  ${advanced} moved into reconciliation — they were stuck in a pre-assessment`);
+    say("  status, which let clubs overwrite evidence behind a finished season");
+  }
+  const frozenCount = [...statusBefore.values()].filter((s) => FROZEN_STATUSES.includes(s)).length;
+  if (frozenCount) say(`  ${frozenCount} left as they were — already locked or released`);
 
   /* ------------------------------ allocations ----------------------------- */
 
