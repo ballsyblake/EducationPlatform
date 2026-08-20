@@ -58,7 +58,11 @@ services:
       #
       # Here because the free plan has no shell, so there is no other way to run
       # a one-off script against the database. Add it, save (which redeploys),
-      # watch the logs for "FQ 2026 season imported", then remove it.
+      # watch the logs for "[season] imported in Ns", then remove it.
+      #
+      # The import runs in the background alongside the web server, so the
+      # deploy goes live immediately and the season lands a minute or so later.
+      # Until it does, the portal shows whatever has arrived so far.
       #
       # Safe to leave set by accident: the import records that it ran and skips
       # itself on every boot afterwards. It locks and publishes nothing.
