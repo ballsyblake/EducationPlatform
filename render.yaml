@@ -51,6 +51,20 @@ services:
       - key: MAX_UPLOAD_MB
         value: "10"
 
+      # Set to "1" to load Football Queensland's 2026 season on the next boot:
+      # 48 clubs, three pools, 243 allocations, 2,948 assessor scores, 1,360
+      # agreed scores and 52 ambassador portfolios, from the workbooks FQ
+      # supplied.
+      #
+      # Here because the free plan has no shell, so there is no other way to run
+      # a one-off script against the database. Add it, save (which redeploys),
+      # watch the logs for "FQ 2026 season imported", then remove it.
+      #
+      # Safe to leave set by accident: the import records that it ran and skips
+      # itself on every boot afterwards. It locks and publishes nothing.
+      - key: FQ_IMPORT_2026
+        sync: false
+
 # Deliberately not listed here, so Render only prompts for what's required:
 #
 #   APP_URL   Only needed for a custom domain. Otherwise the app falls back to
