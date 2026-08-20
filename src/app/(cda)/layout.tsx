@@ -17,7 +17,17 @@ const CLUB_LINKS: NavLink[] = [
   { href: "/cda/club/review", label: "Review" },
 ];
 
-const ASSESSOR_LINKS: NavLink[] = [{ href: "/cda/assess", label: "My line items" }];
+// An assessor's three screens, and deliberately only these three. Running the
+// cycle — opening it, allocating line items, managing the assessor pool, editing
+// the rubric — is the Club Development Unit's, and every one of those pages
+// turns a non-admin away server-side rather than merely staying out of this
+// list. What an assessor gets is their own work: the items they hold, their own
+// progress through them, and the clubs they look after.
+const ASSESSOR_LINKS: NavLink[] = [
+  { href: "/cda/assess", label: "My line items" },
+  { href: "/cda/progress", label: "My progress" },
+  { href: "/cda/clubs", label: "My clubs" },
+];
 
 const CDU_LINKS: NavLink[] = [
   { href: "/cda/cdu", label: "Cycle" },
