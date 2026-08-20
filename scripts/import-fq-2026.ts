@@ -158,6 +158,25 @@ type Data = {
   }[];
   agreed: { club: string; code: string; stars: number }[];
   ambassadors: { club: string; assessor: string }[];
+  thresholds?: {
+    club: string;
+    structure: string | null;
+    coaching: string | null;
+    training: string | null;
+  }[];
+};
+
+/** The Shield Based Threshold Non-Negotiable each workbook column answers. */
+const THRESHOLD_CODES = {
+  structure: "NN7",
+  coaching: "NN8",
+  training: "NN9",
+} as const;
+
+const SHIELD_WORDS: Record<string, "GOLD" | "SILVER" | "BRONZE"> = {
+  gold: "GOLD",
+  silver: "SILVER",
+  bronze: "BRONZE",
 };
 
 /**
@@ -647,6 +666,97 @@ export async function importFq2026(prisma: PrismaClient, { dry = false } = {}) {
   const portfolios = links.length;
   say(`ambassador portfolios: ${portfolios} over ${new Set(data.ambassadors.map((a) => a.club)).size} clubs`);
   if (missingClub.size) say(`  no such club: ${[...missingClub].join(", ")}`);
+
+  /* --------------------- the Shield Based Thresholds ---------------------- */
+
+  // The only Non-Negotiable verdicts that exist anywhere in these workbooks.
+  //
+  // FQ records, per club, the highest shield each of the three threshold checks
+  // was met at. Those are its own findings, so they are imported as findings:
+  // verdict PASS with the level FQ recorded.
+  //
+  // Nothing else is. The six gate checks — fee transparency, scholarship
+  // positions, coaches' registration, squad numbers, the Technical Director's
+  // qualification, and Blue Card safeguarding — are collected outside these
+  // spreadsheets and are not here to import. They stay PENDING, which is the
+  // truth about them, and a pending gate blocks a shield exactly as a failed
+  // one does. Marking them passed would be inventing a compliance record for
+  // forty-eight real clubs, and one of them is child safeguarding.
+  const thresholdRows = data.thresholds ?? [];
+  const nnByCode = new Map(
+    (await prisma.nonNegotiable.findMany({ select: { id: true, code: true } })).map((n) => [
+      n.code,
+      n.id,
+    ]),
+  );
+
+  type NnWrite = { aid: string; nnId: string; data: Record<string, unknown> };
+  const nnWrites: NnWrite[] = [];
+  let verdicts = 0;
+  let onNotice = 0;
+  const unknownVerdict = new Set<string>();
+
+  for (const row of thresholdRows) {
+    const aid = assessmentId.get(row.club);
+    if (!aid) continue;
+
+    for (const [key, code] of Object.entries(THRESHOLD_CODES)) {
+      const raw = row[key as keyof typeof THRESHOLD_CODES];
+      const nnId = nnByCode.get(code);
+      if (!raw || !nnId) continue;
+
+      const shield = SHIELD_WORDS[raw.trim().toLowerCase()];
+      if (!shield) {
+        // "On Notice" is FQ's third state and the portal has only PASS, FAIL
+        // and PENDING. Rather than pick one and lose what FQ actually decided,
+        // the finding is left unverified and its wording written into the note,
+        // so the Unit sees it and rules on it.
+        onNotice += 1;
+        unknownVerdict.add(raw.trim());
+        nnWrites.push({
+          aid,
+          nnId,
+          data: {
+            adminNote: `Football Queensland recorded this as "${raw.trim()}" for 2026. The portal has no equivalent verdict, so it needs a decision here.`,
+          },
+        });
+        continue;
+      }
+
+      verdicts += 1;
+      nnWrites.push({
+        aid,
+        nnId,
+        data: {
+          verdict: "PASS",
+          shieldMet: shield,
+          adminNote: "Imported from Football Queensland's 2026 Shield Based Threshold assessment.",
+        },
+      });
+    }
+  }
+
+  if (!DRY) {
+    await inBatches(nnWrites, (chunk) =>
+      prisma.$transaction(
+        chunk.map((w) =>
+          prisma.nonNegotiableResult.updateMany({
+            where: { assessmentId: w.aid, nonNegotiableId: w.nnId },
+            data: w.data,
+          }),
+        ),
+      ),
+    );
+  }
+
+  const stillPending = 9 * data.clubs.length - verdicts;
+  say(`threshold verdicts: ${verdicts}`);
+  if (onNotice) {
+    say(`  ${onNotice} recorded as ${[...unknownVerdict].map((v) => `"${v}"`).join(", ")} — left`);
+    say("  unverified with a note, since the portal has no such verdict");
+  }
+  say(`  ${stillPending} Non-Negotiables still pending across ${data.clubs.length} clubs`);
+  say("  (the six gate checks aren't in these workbooks, and NN9 is blank in them)");
 
   // Anyone still carrying a workbook name with no surname. The five FQ has
   // since named are not listed: repeating them would send somebody looking for

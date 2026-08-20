@@ -34,7 +34,8 @@ export default async function ProgressPage() {
     );
   }
 
-  const [assessments, criteria, assignments, scoreRows, nnRows, portfolios] = await Promise.all([
+  const [assessments, criteria, assignments, scoreRows, nnRows, portfolios, finalScoreRows] =
+    await Promise.all([
     prisma.clubAssessment.findMany({
       where: { cycleId: cycle.id },
       include: {
@@ -72,7 +73,20 @@ export default async function ProgressPage() {
       where: { club: { assessments: { some: { cycleId: cycle.id } } } },
       select: { userId: true, clubId: true },
     }),
+    // Which line items are actually settled, per club. Needed to tell an item
+    // nobody is scoring from one already agreed without a named assessor.
+    prisma.finalScore.findMany({
+      where: { assessment: { cycleId: cycle.id } },
+      select: { assessmentId: true, criterionId: true },
+    }),
   ]);
+
+  const finalByAssessment = new Map<string, Set<string>>();
+  for (const f of finalScoreRows) {
+    const set = finalByAssessment.get(f.assessmentId) ?? new Set<string>();
+    set.add(f.criterionId);
+    finalByAssessment.set(f.assessmentId, set);
+  }
 
   const applies = await tierScope(assessments, criteria.map((c) => c.id));
   const scored = new Map(scoreRows.map((s) => [`${s.assessorId}:${s.criterionId}`, s._count._all]));
@@ -124,11 +138,46 @@ export default async function ProgressPage() {
       return on.length > 0 && on.every((h) => h.submittedAt);
     });
     const rows = mine.map((m) => criteria.filter((c) => applies(c.id, m.id)).length);
+
+    // An item with no assessor but an agreed score against every club it
+    // applies to is not waiting on anybody.
+    //
+    // Sixteen of FQ's fifty-four are like this — the observation items D8-D18
+    // and the outcome metrics O1-O12, which FQ settles centrally rather than
+    // allocating to a named assessor. Counting those as unallocated put a
+    // permanent red "48 line items unallocated" on this page for work already
+    // finished, which teaches people to ignore the one number here meant to
+    // stop a season.
+    const settled = new Set(
+      criteria
+        .filter((c) => {
+          const on = mine.filter((m) => applies(c.id, m.id));
+          return on.length > 0 && on.every((m) => finalByAssessment.get(m.id)?.has(c.id));
+        })
+        .map((c) => c.id),
+    );
+
     return {
       name: name as string,
       clubs: mine.length,
       applicable: applicable.length,
       allocated: applicable.filter((c) => covered.has(c.id)).length,
+      // Nobody holds it, and nothing has been agreed on it either.
+      orphaned: applicable.filter((c) => !covered.has(c.id) && !settled.has(c.id)).length,
+      // The club-and-item pairs behind that: what is actually outstanding, as
+      // opposed to how many items it is spread over. An item nobody holds that
+      // is nine-tenths agreed is not the same problem as one at zero, and a
+      // count of items alone cannot tell them apart.
+      orphanedPairs: applicable
+        .filter((c) => !covered.has(c.id) && !settled.has(c.id))
+        .reduce(
+          (n, c) =>
+            n +
+            mine.filter((m) => applies(c.id, m.id) && !finalByAssessment.get(m.id)?.has(c.id))
+              .length,
+          0,
+        ),
+      settledUnallocated: applicable.filter((c) => !covered.has(c.id) && settled.has(c.id)).length,
       submitted: submitted.length,
       resolved: mine.reduce((n, m) => n + Math.min(m._count.finalScores, 0 + (rows[mine.indexOf(m)] ?? 0)), 0),
       items: rows.reduce((n, x) => n + x, 0),
@@ -174,7 +223,9 @@ export default async function ProgressPage() {
 
   const noPool = clubRows.filter((c) => !c.pool);
   const noCda = clubRows.filter((c) => c.pool && !c.hasCda);
-  const unallocated = pools.reduce((n, p) => n + (p.applicable - p.allocated), 0);
+  const unallocated = pools.reduce((n, p) => n + p.orphaned, 0);
+  const settledWithoutAssessor = pools.reduce((n, p) => n + p.settledUnallocated, 0);
+  const orphanedPairs = pools.reduce((n, p) => n + p.orphanedPairs, 0);
 
   const nn = Object.fromEntries(nnRows.map((r) => [r.verdict, r._count._all]));
   const pendingNn = nn.PENDING ?? 0;
@@ -197,7 +248,13 @@ export default async function ProgressPage() {
     unallocated && {
       tone: "bad" as const,
       what: `${unallocated} line item${unallocated === 1 ? "" : "s"} unallocated`,
-      why: "Nobody is scoring them.",
+      why: `${orphanedPairs} club scores outstanding on them, with no assessor assigned to give any.`,
+      href: "/cda/cdu",
+    },
+    settledWithoutAssessor && {
+      tone: "good" as const,
+      what: `${settledWithoutAssessor} settled without a named assessor`,
+      why: "Agreed for every club they apply to — the observation and outcome items FQ settles centrally.",
       href: "/cda/cdu",
     },
     pendingNn && {
