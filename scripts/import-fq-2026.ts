@@ -42,6 +42,24 @@ const CONFIRMED = process.argv.includes("--yes");
  */
 const EMAIL_DOMAIN = process.env.FQ_ASSESSOR_DOMAIN ?? "footballqueensland.com.au";
 
+/**
+ * Assessors the Action Plan Matrix names by first name only.
+ *
+ * Kept here rather than corrected in the extracted JSON so that file stays a
+ * faithful reading of the workbooks — re-running the extractor must not quietly
+ * drop these. Football Queensland supplied the surnames; the workbook name on
+ * the left is still what every allocation, score and portfolio row refers to.
+ *
+ * Rodrigo is deliberately absent: no surname has been supplied, so that account
+ * keeps its first-name address and stays in the warning at the end of a run.
+ */
+const REAL_NAMES: Record<string, string> = {
+  Mike: "Michael Edwards",
+  Ken: "Kenneth Mitchell",
+  Riley: "Riley Pitchford",
+  Daegal: "Daegal Richardson",
+};
+
 function emailFor(name: string) {
   const slug = name
     .toLowerCase()
@@ -116,22 +134,47 @@ async function main() {
   ].sort();
   const assessorId = new Map<string, string>();
   let newAssessors = 0;
+  let renamed = 0;
 
   for (const name of names) {
-    const email = emailFor(name);
+    const real = REAL_NAMES[name] ?? name;
+    const email = emailFor(real);
+
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
       assessorId.set(name, existing.id);
       continue;
     }
+
+    // A surname arriving after an import already ran must move the existing
+    // account, not open a second one beside it. Creating a fresh user would
+    // leave every allocation, score and portfolio on the first-name account
+    // while the sign-in link went to the new one — the assessor would log in
+    // to an empty screen and nothing on any page would say why.
+    if (real !== name) {
+      const old = await prisma.user.findUnique({ where: { email: emailFor(name) } });
+      if (old) {
+        renamed += 1;
+        if (!DRY) {
+          await prisma.user.update({ where: { id: old.id }, data: { email, name: real } });
+        }
+        assessorId.set(name, old.id);
+        continue;
+      }
+    }
+
     newAssessors += 1;
     if (DRY) continue;
     const user = await prisma.user.create({
-      data: { email, name, title: "Club Development Ambassador", role: "ASSESSOR" },
+      data: { email, name: real, title: "Club Development Ambassador", role: "ASSESSOR" },
     });
     assessorId.set(name, user.id);
   }
-  say(`assessors: ${names.length} (${newAssessors} new)`);
+  say(
+    `assessors: ${names.length} (${newAssessors} new` +
+      (renamed ? `, ${renamed} given a full name and address` : "") +
+      ")",
+  );
 
   /* --------------------------------- pools -------------------------------- */
 
@@ -320,9 +363,10 @@ async function main() {
   say(`ambassador portfolios: ${portfolios} over ${new Set(data.ambassadors.map((a) => a.club)).size} clubs`);
   if (missingClub.size) say(`  no such club: ${[...missingClub].join(", ")}`);
 
-  const firstNameOnly = [...new Set(data.ambassadors.map((a) => a.assessor))].filter(
-    (n) => !n.includes(" "),
-  );
+  // Only the ones still without a surname — the corrected four now carry a real
+  // name and address, and repeating them here would send somebody looking for a
+  // problem that has been fixed.
+  const firstNameOnly = names.filter((n) => !(REAL_NAMES[n] ?? n).includes(" "));
 
   /* -------------------------------- what next ----------------------------- */
 
@@ -332,8 +376,9 @@ async function main() {
   say(`1. Assessor emails are derived as first.last@${EMAIL_DOMAIN}.`);
   say("   Correct any that are wrong before issuing sign-in links.");
   if (firstNameOnly.length) {
-    say(`   ${firstNameOnly.join(", ")} appear on the Action Plan Matrix by first`);
-    say("   name only, so those accounts need a surname and a real address.");
+    const one = firstNameOnly.length === 1;
+    say(`   ${firstNameOnly.join(", ")} ${one ? "appears" : "appear"} on the Action Plan Matrix by`);
+    say(`   first name only, so ${one ? "that account needs" : "those accounts need"} a surname and a real address.`);
   }
   say("");
   say("2. The clubs' staff registers are in none of these workbooks, so Technical");
