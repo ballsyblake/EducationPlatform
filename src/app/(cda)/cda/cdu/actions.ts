@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import QRCode from "qrcode";
 import { z } from "zod";
 import { createInviteLink, normalizeEmail } from "@/lib/auth";
-import { ASSESSOR_POOL_WHERE, RELEASED_STATUSES, requireCdu } from "@/lib/cda/access";
+import { ASSESSOR_POOL_WHERE, RELEASED_STATUSES, mayAssess, requireCdu } from "@/lib/cda/access";
 import { activeCycle, ensureAssessment, freezeResult, loadAssessment } from "@/lib/cda/assessment";
 import { MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
 import { STAGE_LABELS, reviewTimeline } from "@/lib/cda/review";
@@ -289,9 +289,19 @@ export async function issueSignInLink(
   if (!user || !user.active) {
     return { status: "error", message: "That account is inactive." };
   }
-  // Restricted to the two portal roles so this can't be used to mint a link for
-  // an ADMIN account from a page that only manages clubs and assessors.
-  if (user.role !== "CLUB" && user.role !== "ASSESSOR") {
+  // Clubs, assessors, and Club Development Unit accounts that are in the
+  // assessor pool — which is to say exactly the accounts the pages that offer
+  // this button actually list.
+  //
+  // It used to exclude every ADMIN, reasoning that they already have a way in.
+  // That is only true of an admin who is already signed in on the device in
+  // front of them: a CDU colleague added to the pool and never signed in had no
+  // way to be given a link from the one page that lists them.
+  //
+  // An ADMIN not in the pool still gets nothing, and nothing is granted that
+  // the caller lacks — issuing this needs requireCdu(), so an admin is minting
+  // a link for an admin.
+  if (user.role !== "CLUB" && !mayAssess(user)) {
     return { status: "error", message: "That account isn't a portal account." };
   }
 
