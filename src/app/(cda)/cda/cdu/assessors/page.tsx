@@ -98,14 +98,20 @@ export default async function AssessorsPage() {
                       </p>
                     </div>
 
-                    {/* A CDU account gets neither control. It already has a way
-                        in, so a sign-in link is pointless; and deactivating it
-                        would switch off how somebody runs the cycle, which the
-                        assessors page has no business doing. Removing them from
-                        the pool is the action that belongs here. */}
+                    {/* A CDU account keeps the sign-in link but not the
+                        Deactivate button. The link is wanted — a colleague added
+                        to the pool who has never signed in needs one, and it is
+                        only "unnecessary" for whoever is already signed in on
+                        this device. Deactivating is different: it would switch
+                        off how somebody runs the cycle, which the assessors page
+                        has no business doing, so removing them from the pool is
+                        the destructive action that belongs here. */}
                     <div className="flex flex-wrap items-start gap-2">
                       {a.role === "ADMIN" ? (
-                        <RemoveFromPool userId={a.id} name={displayName(a)} />
+                        <>
+                          <SignInLink userId={a.id} disabled={!a.active} />
+                          <RemoveFromPool userId={a.id} name={displayName(a)} />
+                        </>
                       ) : (
                         <>
                           <SignInLink userId={a.id} disabled={!a.active} />
