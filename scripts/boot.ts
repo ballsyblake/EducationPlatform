@@ -21,11 +21,8 @@ import { PrismaClient } from "../generated/prisma/client.ts";
 import { createAdapter } from "../src/lib/adapter.ts";
 import { applyMigrations } from "./migrate.ts";
 import { bootstrapAdmins } from "./bootstrap-admin.ts";
-import { importFq2026 } from "./import-fq-2026.ts";
+import { FQ_IMPORT_MARKER, importFq2026 } from "./import-fq-2026.ts";
 import { seedCatalog } from "../prisma/cda-seed.ts";
-
-/** Marks the FQ 2026 season as loaded, so it is imported at most once. */
-const FQ_IMPORT_MARKER = "fq-2026-imported";
 
 /**
  * Loads Football Queensland's 2026 season, once, when FQ_IMPORT_2026 is set.

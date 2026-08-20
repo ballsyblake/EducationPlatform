@@ -32,11 +32,25 @@ import { createAdapter } from "../src/lib/adapter.ts";
 /**
  * Assessor addresses are derived, because the workbooks carry names only.
  *
- * Stated loudly at the end of the run: these accounts cannot receive a working
- * sign-in link until the addresses are corrected, and correcting them is a
- * one-line edit per assessor on the Assessors page.
+ * Football Queensland's staff addresses are first name plus the initial of the
+ * surname — Alec Wilson is alecw@, not alec.wilson@. Derived rather than
+ * transcribed so a name correction produces the address with it, and checked
+ * for collisions at the end of a run, because this shape has far less room in
+ * it than a full name: two people whose first names match and whose surnames
+ * start with the same letter would land on one address, and one account serving
+ * two assessors would merge their scores with nothing on any screen saying so.
  */
 const EMAIL_DOMAIN = process.env.FQ_ASSESSOR_DOMAIN ?? "footballqueensland.com.au";
+
+/**
+ * Meta key recording that this season has been loaded.
+ *
+ * Lives with the import rather than with either caller: `scripts/boot.ts`
+ * writes it to import at most once, and `scripts/reset-cda.ts` clears it
+ * because a reset deletes the very data it attests to. Two files agreeing on a
+ * string by copying it is how they stop agreeing later.
+ */
+export const FQ_IMPORT_MARKER = "fq-2026-imported";
 
 /**
  * Assessors the Action Plan Matrix names by first name only.
@@ -45,27 +59,52 @@ const EMAIL_DOMAIN = process.env.FQ_ASSESSOR_DOMAIN ?? "footballqueensland.com.a
  * faithful reading of the workbooks — re-running the extractor must not quietly
  * drop these. Football Queensland supplied the surnames; the workbook name on
  * the left is still what every allocation, score and portfolio row refers to.
- *
- * Rodrigo is deliberately absent: no surname has been supplied, so that account
- * keeps its first-name address and stays in the warning at the end of a run.
  */
 const REAL_NAMES: Record<string, string> = {
   Mike: "Michael Edwards",
   Ken: "Kenneth Mitchell",
   Riley: "Riley Pitchford",
   Daegal: "Daegal Richardson",
+  // Two surnames. The last is taken as the family name, giving rodrigor@ —
+  // worth confirming against the real mailbox, since rodrigof@ is the other
+  // reading and nothing in the data settles it.
+  Rodrigo: "Rodrigo Ferrarez Rebeschini",
 };
 
-function emailFor(name: string) {
-  const slug = name
+/** Name tokens, lowercased and stripped of accents and punctuation. */
+function tokens(name: string) {
+  return name
     .toLowerCase()
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z\s]/g, "")
     .trim()
     .split(/\s+/)
-    .join(".");
-  return `${slug}@${EMAIL_DOMAIN}`;
+    .filter(Boolean);
+}
+
+/** first name + surname initial, which is how FQ issues staff addresses. */
+function emailFor(name: string) {
+  const parts = tokens(name);
+  if (parts.length === 0) return `unknown@${EMAIL_DOMAIN}`;
+  const first = parts[0];
+  const surname = parts[parts.length - 1];
+  return `${first}${parts.length > 1 ? surname[0] : ""}@${EMAIL_DOMAIN}`;
+}
+
+/**
+ * Addresses this person may be sitting under from an earlier import.
+ *
+ * An earlier version of this script derived first.last@, and before the
+ * surnames arrived it derived a bare first name for four of them. Both shapes
+ * are still in databases that have been imported once, so both have to be
+ * recognised — otherwise a re-run opens a second account and strands the first
+ * one's allocations, scores and portfolios.
+ */
+function legacyEmailsFor(workbookName: string, realName: string) {
+  const dotted = (n: string) => `${tokens(n).join(".")}@${EMAIL_DOMAIN}`;
+  const current = emailFor(realName);
+  return [...new Set([dotted(realName), dotted(workbookName)])].filter((e) => e !== current);
 }
 
 type Data = {
@@ -128,6 +167,28 @@ export async function importFq2026(prisma: PrismaClient, { dry = false } = {}) {
       ...data.ambassadors.map((a) => a.assessor),
     ]),
   ].sort();
+  // Before writing anything. first-name-plus-initial has little room in it, and
+  // two assessors sharing an address would quietly become one account holding
+  // both their allocations and both their scores — a mess to unpick after a
+  // season of scoring, and invisible until somebody noticed the totals.
+  const byEmail = new Map<string, string[]>();
+  for (const name of names) {
+    const real = REAL_NAMES[name] ?? name;
+    const list = byEmail.get(emailFor(real)) ?? [];
+    list.push(real);
+    byEmail.set(emailFor(real), list);
+  }
+  const clashes = [...byEmail].filter(([, who]) => who.length > 1);
+  if (clashes.length) {
+    for (const [email, who] of clashes) {
+      console.error(`[import] ADDRESS CLASH: ${who.join(" and ")} both derive ${email}`);
+    }
+    throw new Error(
+      "Two assessors derive the same address. Add the real addresses to REAL_NAMES " +
+        "before importing — one account cannot serve two assessors.",
+    );
+  }
+
   const assessorId = new Map<string, string>();
   let newAssessors = 0;
   let renamed = 0;
@@ -142,22 +203,24 @@ export async function importFq2026(prisma: PrismaClient, { dry = false } = {}) {
       continue;
     }
 
-    // A surname arriving after an import already ran must move the existing
+    // A corrected name or a corrected address format has to move the existing
     // account, not open a second one beside it. Creating a fresh user would
-    // leave every allocation, score and portfolio on the first-name account
-    // while the sign-in link went to the new one — the assessor would log in
-    // to an empty screen and nothing on any page would say why.
-    if (real !== name) {
-      const old = await prisma.user.findUnique({ where: { email: emailFor(name) } });
-      if (old) {
-        renamed += 1;
-        if (!DRY) {
-          await prisma.user.update({ where: { id: old.id }, data: { email, name: real } });
-        }
-        assessorId.set(name, old.id);
-        continue;
+    // leave every allocation, score and portfolio on the old account while the
+    // sign-in link went to the new one — the assessor would log in to an empty
+    // screen and nothing on any page would say why.
+    let moved = false;
+    for (const legacy of legacyEmailsFor(name, real)) {
+      const old = await prisma.user.findUnique({ where: { email: legacy } });
+      if (!old) continue;
+      renamed += 1;
+      if (!DRY) {
+        await prisma.user.update({ where: { id: old.id }, data: { email, name: real } });
       }
+      assessorId.set(name, old.id);
+      moved = true;
+      break;
     }
+    if (moved) continue;
 
     newAssessors += 1;
     if (DRY) continue;
@@ -359,9 +422,9 @@ export async function importFq2026(prisma: PrismaClient, { dry = false } = {}) {
   say(`ambassador portfolios: ${portfolios} over ${new Set(data.ambassadors.map((a) => a.club)).size} clubs`);
   if (missingClub.size) say(`  no such club: ${[...missingClub].join(", ")}`);
 
-  // Only the ones still without a surname — the corrected four now carry a real
-  // name and address, and repeating them here would send somebody looking for a
-  // problem that has been fixed.
+  // Anyone still carrying a workbook name with no surname. The five FQ has
+  // since named are not listed: repeating them would send somebody looking for
+  // a problem that has been fixed.
   const firstNameOnly = names.filter((n) => !(REAL_NAMES[n] ?? n).includes(" "));
 
   /* -------------------------------- what next ----------------------------- */
@@ -369,12 +432,14 @@ export async function importFq2026(prisma: PrismaClient, { dry = false } = {}) {
   console.log("");
   say("done. Three things to check:");
   say("");
-  say(`1. Assessor emails are derived as first.last@${EMAIL_DOMAIN}.`);
-  say("   Correct any that are wrong before issuing sign-in links.");
+  say(`1. Assessor emails are derived as firstname + surname initial @${EMAIL_DOMAIN},`);
+  say("   which is how Football Queensland issues staff addresses. Spot-check them");
+  say("   against the real mailboxes before issuing sign-in links — a derived");
+  say("   address that misses is a link nobody receives.");
   if (firstNameOnly.length) {
     const one = firstNameOnly.length === 1;
     say(`   ${firstNameOnly.join(", ")} ${one ? "appears" : "appear"} on the Action Plan Matrix by`);
-    say(`   first name only, so ${one ? "that account needs" : "those accounts need"} a surname and a real address.`);
+    say(`   first name only, so ${one ? "that account has" : "those accounts have"} no surname initial at all.`);
   }
   say("");
   say("2. The clubs' staff registers are in none of these workbooks, so Technical");
