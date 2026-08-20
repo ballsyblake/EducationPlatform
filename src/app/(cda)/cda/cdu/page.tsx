@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ShieldBadge } from "@/components/cda/shield";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { RELEASED_STATUSES, requireCdu } from "@/lib/cda/access";
-import { activeCycle } from "@/lib/cda/assessment";
+import { activeCycle, tierScope } from "@/lib/cda/assessment";
 import { SHIELD_LABELS } from "@/lib/cda/rubric";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
@@ -67,8 +67,9 @@ export default async function CduHomePage() {
     );
   }
 
-  const criteriaCount = await prisma.criterion.count({
+  const criteria = await prisma.criterion.findMany({
     where: { active: true, domain: { in: ["PLANNING", "DELIVERY", "OUTCOMES"] } },
+    select: { id: true },
   });
 
   const poolRows = await prisma.pool.findMany({
@@ -98,6 +99,17 @@ export default async function CduHomePage() {
     },
     orderBy: { club: { name: "asc" } },
   });
+
+  // How many line items each club is actually assessed on.
+  //
+  // Not a flat count of the catalogue: Tier 2 is assessed on 18 of the same
+  // coded items, so a fixed 54 gave every Tier 2 club a bar that could never
+  // fill and a figure that disagreed with the Progress page about the same
+  // club — Brighton Bulldogs read 15/54 here and 15/18 there. The tier is the
+  // honest denominator, and it is the one the rating itself computes against.
+  const applies = await tierScope(assessments, criteria.map((c) => c.id));
+  const expectedFor = (assessmentId: string) =>
+    criteria.filter((c) => applies(c.id, assessmentId)).length;
 
   // Aggregated across the whole cycle rather than per club. Drawing this board
   // by loading each assessment in full would be a handful of queries per club,
@@ -187,6 +199,13 @@ export default async function CduHomePage() {
                   const v = verdicts.get(a.id) ?? { PASS: 0, FAIL: 0, PENDING: 0 };
                   const frozen = a.lockedAt !== null;
 
+                  // Clamped, because a club moved between tiers can carry an
+                  // agreed score for an item its new tier isn't assessed on.
+                  // Those are ignored at rating time, so counting them here
+                  // would show 19/18 and imply work that doesn't exist.
+                  const expected = expectedFor(a.id);
+                  const resolved = Math.min(a._count.finalScores, expected);
+
                   return (
                     <tr key={a.id} className="hover:bg-ink-50">
                       <td className="px-4 py-3">
@@ -218,12 +237,12 @@ export default async function CduHomePage() {
                         <div className="flex items-center gap-2">
                           <div className="w-16">
                             <ProgressBar
-                              value={(a._count.finalScores / criteriaCount) * 100}
-                              tone={a._count.finalScores === criteriaCount ? "good" : "warn"}
+                              value={expected ? (resolved / expected) * 100 : 0}
+                              tone={expected > 0 && resolved === expected ? "good" : "warn"}
                             />
                           </div>
                           <span className="text-xs tabular-nums text-ink-500">
-                            {a._count.finalScores}/{criteriaCount}
+                            {resolved}/{expected}
                           </span>
                         </div>
                       </td>
