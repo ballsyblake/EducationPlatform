@@ -21,6 +21,7 @@ import "dotenv/config";
 import { PrismaClient } from "../generated/prisma/client.ts";
 import { createAdapter } from "../src/lib/adapter.ts";
 import { seedCatalog } from "../prisma/cda-seed.ts";
+import { FQ_IMPORT_MARKER } from "./import-fq-2026.ts";
 
 const prisma = new PrismaClient({ adapter: createAdapter() });
 
@@ -86,6 +87,13 @@ async function main() {
     // Structure standards hang off the cycle and go with it.
     await prisma.cycle.deleteMany();
   }
+
+  // The marker that says FQ's season has already been loaded. It is a statement
+  // about the data this reset just deleted, so it cannot outlive it — left
+  // behind, a reset instance with FQ_IMPORT_2026 still set would boot, decide
+  // the season was already imported and serve an empty portal, with the only
+  // clue a skipped line in a log nobody is reading.
+  await prisma.meta.deleteMany({ where: { key: FQ_IMPORT_MARKER } });
 
   // Re-run the catalogue so anything the reset cascaded away — the structure
   // standards on a deleted cycle, most obviously — comes straight back, and the
