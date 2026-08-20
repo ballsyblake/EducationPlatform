@@ -71,6 +71,31 @@ const REAL_NAMES: Record<string, string> = {
   Rodrigo: "Rodrigo Ferrarez Rebeschini",
 };
 
+/**
+ * Runs prepared writes in batched transactions rather than one at a time.
+ *
+ * Against a local SQLite file the difference is invisible, which is exactly how
+ * this got missed: a row at a time is a few microseconds each. Against a hosted
+ * database every statement is a network round trip, and the web server is not
+ * listening while boot runs — so a slow import is a failed health check and a
+ * rolled-back deploy, on the one host where this import has to run.
+ *
+ * Batching alone is not the fix, and it is worth being precise about why:
+ * Prisma still issues each statement in a batched transaction individually, so
+ * this buys perhaps 2.5x. The rest comes from the callers reading current state
+ * once and writing only the difference. Measured on the real 2026 data, the two
+ * together take a fresh import from 14,273 statements to 1,117, and a re-run
+ * that changes nothing to 608.
+ *
+ * 200 per batch, or 500 for plain createMany: comfortably inside libSQL's limit
+ * on a single request.
+ */
+async function inBatches<T>(items: T[], run: (chunk: T[]) => Promise<unknown>, size = 200) {
+  for (let i = 0; i < items.length; i += size) {
+    await run(items.slice(i, i + size));
+  }
+}
+
 /** Name tokens, lowercased and stripped of accents and punctuation. */
 function tokens(name: string) {
   return name
@@ -333,9 +358,23 @@ export async function importFq2026(prisma: PrismaClient, { dry = false } = {}) {
 
   /* --------------------------- the assessors' work ------------------------ */
 
-  let scored = 0;
   const skippedScores = new Map<string, number>();
   const note = (why: string) => skippedScores.set(why, (skippedScores.get(why) ?? 0) + 1);
+
+  // Worked out in full before anything is written, so the writes can go in
+  // batches. Nothing here depends on the database.
+  type Pending = {
+    aid: string; uid: string; cid: string; stars: number; comment: string | null; want: string[];
+  };
+
+  // Keyed, because FQ's sheets can carry the same assessor scoring the same
+  // club on the same line item twice. Writing a row at a time used to hide
+  // that — the second pass simply overwrote the first — but a batch cannot, so
+  // the last entry wins here instead, and a duplicate that *disagrees* with
+  // what it replaces is reported rather than quietly resolved.
+  const pending = new Map<string, Pending>();
+  let duplicates = 0;
+  const conflicts: string[] = [];
 
   for (const s of data.scores) {
     const aid = assessmentId.get(s.club);
@@ -346,79 +385,207 @@ export async function importFq2026(prisma: PrismaClient, { dry = false } = {}) {
     if (!uid) { note("assessor unknown"); continue; }
     if (s.stars === null) { note("no score recorded"); continue; }
 
-    const stars = Math.max(0, Math.min(crit.maxScore, Math.round(s.stars)));
-    scored += 1;
-    if (DRY) continue;
-
-    const row = await prisma.assessorScore.upsert({
-      where: {
-        assessmentId_assessorId_criterionId: {
-          assessmentId: aid, assessorId: uid, criterionId: crit.id,
-        },
-      },
-      update: { stars, comment: s.comment || null },
-      create: { assessmentId: aid, assessorId: uid, criterionId: crit.id, stars, comment: s.comment || null },
-    });
-
     // Which evidence points the assessor ticked, mapped by position. FQ's
     // sheets and the seeded catalogue can disagree on how many points an item
     // has, so anything past the end is dropped rather than guessed at.
     const subs = crit.subCriteria;
-    const want = s.met.map((n) => subs[n - 1]?.id).filter((x): x is string => Boolean(x));
-    await prisma.scoreEvidence.deleteMany({ where: { scoreId: row.id } });
-    if (want.length > 0) {
-      await prisma.scoreEvidence.createMany({
-        data: want.map((subCriterionId) => ({ scoreId: row.id, subCriterionId })),
-      });
+    const row: Pending = {
+      aid,
+      uid,
+      cid: crit.id,
+      stars: Math.max(0, Math.min(crit.maxScore, Math.round(s.stars))),
+      comment: s.comment || null,
+      want: s.met.map((n) => subs[n - 1]?.id).filter((x): x is string => Boolean(x)),
+    };
+
+    const key = `${aid}:${uid}:${crit.id}`;
+    const already = pending.get(key);
+    if (already) {
+      duplicates += 1;
+      const same =
+        already.stars === row.stars &&
+        already.comment === row.comment &&
+        already.want.join(",") === row.want.join(",");
+      if (!same) conflicts.push(`${s.assessor} on ${s.code} for ${s.club}`);
     }
+    pending.set(key, row);
   }
+
+  const writes = [...pending.values()];
+  const scored = writes.length;
+
+  if (!DRY && writes.length) {
+    // Read first, then write only what differs.
+    //
+    // An upsert per score is the obvious shape and the wrong one here: it costs
+    // a round trip per row whether or not the row needs changing, so re-running
+    // an import that changes nothing costs exactly as much as the first one.
+    // Reading the cycle's scores in a single query and then writing only the
+    // difference makes a no-op re-run almost free, which is what a boot with
+    // FQ_IMPORT_2026 still set, or a second attempt after a half-finished run,
+    // actually is.
+    const rows = await prisma.assessorScore.findMany({
+      where: { assessment: { cycleId: cycle.id } },
+      select: {
+        id: true, assessmentId: true, assessorId: true, criterionId: true,
+        stars: true, comment: true,
+        evidence: { select: { subCriterionId: true } },
+      },
+    });
+    const have = new Map(
+      rows.map((r) => [`${r.assessmentId}:${r.assessorId}:${r.criterionId}`, r]),
+    );
+
+    const toCreate: Pending[] = [];
+    const toUpdate: { id: string; w: Pending }[] = [];
+    for (const [key, w] of pending) {
+      const cur = have.get(key);
+      if (!cur) toCreate.push(w);
+      else if (cur.stars !== w.stars || cur.comment !== w.comment) toUpdate.push({ id: cur.id, w });
+    }
+
+    await inBatches(
+      toCreate,
+      (chunk) =>
+        prisma.assessorScore.createMany({
+          data: chunk.map((w) => ({
+            assessmentId: w.aid, assessorId: w.uid, criterionId: w.cid,
+            stars: w.stars, comment: w.comment,
+          })),
+        }),
+      500,
+    );
+    await inBatches(toUpdate, (chunk) =>
+      prisma.$transaction(
+        chunk.map((u) =>
+          prisma.assessorScore.update({
+            where: { id: u.id },
+            data: { stars: u.w.stars, comment: u.w.comment },
+          }),
+        ),
+      ),
+    );
+
+    // Ids for anything just created; the rest are already known.
+    if (toCreate.length) {
+      const fresh = await prisma.assessorScore.findMany({
+        where: { assessment: { cycleId: cycle.id } },
+        select: {
+          id: true, assessmentId: true, assessorId: true, criterionId: true,
+          stars: true, comment: true,
+          evidence: { select: { subCriterionId: true } },
+        },
+      });
+      have.clear();
+      for (const r of fresh) have.set(`${r.assessmentId}:${r.assessorId}:${r.criterionId}`, r);
+    }
+
+    // The ticks are stated in full by the import, so a score whose set differs
+    // has its evidence replaced — but only that score's. Comparing first keeps
+    // an unchanged re-run from rewriting three thousand sets of ticks.
+    const stale: string[] = [];
+    const evidence: { scoreId: string; subCriterionId: string }[] = [];
+    for (const [key, w] of pending) {
+      const cur = have.get(key);
+      if (!cur) continue;
+      const before = [...cur.evidence.map((e) => e.subCriterionId)].sort().join(",");
+      if (before === [...w.want].sort().join(",")) continue;
+      stale.push(cur.id);
+      for (const subCriterionId of w.want) evidence.push({ scoreId: cur.id, subCriterionId });
+    }
+
+    await inBatches(stale, (chunk) =>
+      prisma.scoreEvidence.deleteMany({ where: { scoreId: { in: chunk } } }),
+    );
+    await inBatches(evidence, (chunk) => prisma.scoreEvidence.createMany({ data: chunk }), 500);
+  }
+
   say(`assessor scores: ${scored}`);
   for (const [why, n] of skippedScores) say(`  skipped ${n}: ${why}`);
+  if (duplicates) {
+    say(`  ${duplicates} duplicate row${duplicates === 1 ? "" : "s"} in the workbooks, last kept`);
+    for (const c of conflicts) say(`  DISAGREEING DUPLICATE: ${c} — scored twice, differently`);
+  }
 
   /* ---------------------------- the agreed score -------------------------- */
 
-  let finals = 0;
+  const agreed: { aid: string; cid: string; stars: number }[] = [];
   for (const g of data.agreed) {
     const aid = assessmentId.get(g.club);
     const crit = byCode.get(g.code);
     if (!aid || !crit) continue;
-    const stars = Math.max(0, Math.min(crit.maxScore, Math.round(g.stars)));
-    finals += 1;
-    if (DRY) continue;
-    await prisma.finalScore.upsert({
-      where: { assessmentId_criterionId: { assessmentId: aid, criterionId: crit.id } },
-      update: { stars },
-      create: {
-        assessmentId: aid,
-        criterionId: crit.id,
-        stars,
-        rationale: "Imported from Football Queensland's 2026 assessment workbooks.",
-      },
-    });
+    agreed.push({ aid, cid: crit.id, stars: Math.max(0, Math.min(crit.maxScore, Math.round(g.stars))) });
   }
-  say(`agreed scores: ${finals}`);
+  if (!DRY && agreed.length) {
+    // Same read-then-write-the-difference as the assessor scores above.
+    const current = await prisma.finalScore.findMany({
+      where: { assessment: { cycleId: cycle.id } },
+      select: { id: true, assessmentId: true, criterionId: true, stars: true },
+    });
+    const held = new Map(current.map((f) => [`${f.assessmentId}:${f.criterionId}`, f]));
+
+    const newFinals = agreed.filter((g) => !held.has(`${g.aid}:${g.cid}`));
+    const changed = agreed
+      .map((g) => ({ cur: held.get(`${g.aid}:${g.cid}`), g }))
+      .filter((x) => x.cur && x.cur.stars !== x.g.stars);
+
+    await inBatches(
+      newFinals,
+      (chunk) =>
+        prisma.finalScore.createMany({
+          data: chunk.map((g) => ({
+            assessmentId: g.aid,
+            criterionId: g.cid,
+            stars: g.stars,
+            rationale: "Imported from Football Queensland's 2026 assessment workbooks.",
+          })),
+        }),
+      500,
+    );
+    await inBatches(changed, (chunk) =>
+      prisma.$transaction(
+        chunk.map((x) =>
+          prisma.finalScore.update({ where: { id: x.cur!.id }, data: { stars: x.g.stars } }),
+        ),
+      ),
+    );
+  }
+  say(`agreed scores: ${agreed.length}`);
 
   /* ------------------------------- portfolios ----------------------------- */
 
-  // Which CDA looks after which club, from the Action Plan Matrix. This is the
-  // visibility boundary — an assessor reaches a club only where their portfolio
-  // and their line-item allocation overlap — so it is the difference between
-  // twelve assessors who can see nothing and twelve who can work.
-  let portfolios = 0;
+  // Which CDA looks after which club, from the Action Plan Matrix. Scoring
+  // follows the pool, not this — but the portfolio is what lets an assessor
+  // open a club's submitted evidence, and it is the year-round support
+  // relationship the Unit actually manages people by.
+  const links: { cid: string; uid: string }[] = [];
   const missingClub = new Set<string>();
   for (const a of data.ambassadors) {
     const cid = clubId.get(a.club);
     const uid = assessorId.get(a.assessor);
     if (!cid) { missingClub.add(a.club); continue; }
     if (!uid) continue;
-    portfolios += 1;
-    if (DRY) continue;
-    await prisma.clubAmbassador.upsert({
-      where: { clubId_userId: { clubId: cid, userId: uid } },
-      update: {},
-      create: { clubId: cid, userId: uid },
-    });
+    links.push({ cid, uid });
   }
+  if (!DRY && links.length) {
+    // Nothing to update — a portfolio link either exists or doesn't — so the
+    // ones already there are simply left alone.
+    const already = new Set(
+      (await prisma.clubAmbassador.findMany({ select: { clubId: true, userId: true } })).map(
+        (r) => `${r.clubId}:${r.userId}`,
+      ),
+    );
+    const fresh = links.filter((l) => !already.has(`${l.cid}:${l.uid}`));
+    await inBatches(
+      fresh,
+      (chunk) =>
+        prisma.clubAmbassador.createMany({
+          data: chunk.map((l) => ({ clubId: l.cid, userId: l.uid })),
+        }),
+      500,
+    );
+  }
+  const portfolios = links.length;
   say(`ambassador portfolios: ${portfolios} over ${new Set(data.ambassadors.map((a) => a.club)).size} clubs`);
   if (missingClub.size) say(`  no such club: ${[...missingClub].join(", ")}`);
 
