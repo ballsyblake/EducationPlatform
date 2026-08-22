@@ -80,16 +80,6 @@ export default async function CduHomePage() {
       assignments: { select: { criterionId: true } },
     },
   });
-  const pools: PoolSummary[] = poolRows.map((p) => ({
-    id: p.id,
-    name: p.name,
-    clubs: p._count.assessments,
-    // Line items with at least one assessor, not raw allocations: two slots on
-    // one item is one item covered, and reporting it as two overstates how far
-    // the pool has actually been staffed.
-    items: new Set(p.assignments.map((x) => x.criterionId)).size,
-  }));
-
   const assessments = await prisma.clubAssessment.findMany({
     where: { cycleId: cycle.id },
     include: {
@@ -110,6 +100,28 @@ export default async function CduHomePage() {
   const applies = await tierScope(assessments, criteria.map((c) => c.id));
   const expectedFor = (assessmentId: string) =>
     criteria.filter((c) => applies(c.id, assessmentId)).length;
+
+  const pools: PoolSummary[] = poolRows.map((p) => ({
+    id: p.id,
+    name: p.name,
+    clubs: p._count.assessments,
+    // What this pool's clubs are actually assessed on, and how much of it has
+    // nobody. Tier-aware for the same reason everything else here is: a pool of
+    // Tier 2 clubs is scored on 18 items, not 54.
+    applicable: criteria.filter((c) =>
+      assessments.some((a) => a.poolId === p.id && applies(c.id, a.id)),
+    ).length,
+    missing: criteria.filter(
+      (c) =>
+        assessments.some((a) => a.poolId === p.id && applies(c.id, a.id)) &&
+        !p.assignments.some((x) => x.criterionId === c.id),
+    ).length,
+    // Line items with at least one assessor, not raw allocations: two slots on
+    // one item is one item covered, and reporting it as two overstates how far
+    // the pool has actually been staffed.
+    items: new Set(p.assignments.map((x) => x.criterionId)).size,
+  }));
+
 
   // Aggregated across the whole cycle rather than per club. Drawing this board
   // by loading each assessment in full would be a handful of queries per club,

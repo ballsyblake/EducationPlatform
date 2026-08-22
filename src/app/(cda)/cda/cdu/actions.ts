@@ -511,18 +511,14 @@ const SLOTS_WANTED = 2;
  * Unit can see every assignment on this page and take any of them back; this
  * fills the gaps so there is something to adjust rather than a blank sheet.
  */
-export async function allocateRemaining(
-  _prev: CduFormState,
-  formData: FormData,
-): Promise<CduFormState> {
-  await requireCdu();
-  const poolId = String(formData.get("poolId") ?? "");
-
+async function fillPoolGaps(poolId: string): Promise<
+  { ok: true; filled: number; people: Set<string> } | { ok: false; message: string }
+> {
   const pool = await prisma.pool.findUnique({
     where: { id: poolId },
     include: { assessments: { select: { id: true, tierId: true } } },
   });
-  if (!pool) return { status: "error", message: "That pool no longer exists." };
+  if (!pool) return { ok: false, message: "That pool no longer exists." };
 
   const [criteria, assignments, assessors] = await Promise.all([
     prisma.criterion.findMany({
@@ -541,7 +537,7 @@ export async function allocateRemaining(
   ]);
 
   if (assessors.length === 0) {
-    return { status: "error", message: "There are no active assessors to allocate to." };
+    return { ok: false, message: "There are no active assessors to allocate to." };
   }
 
   // Only what this pool's clubs are actually assessed on. Allocating an item to
@@ -602,19 +598,79 @@ export async function allocateRemaining(
     }
   }
 
-  if (created.length === 0) {
+  if (created.length > 0) {
+    await prisma.criterionAssignment.createMany({
+      data: created.map((c) => ({ ...c, poolId })),
+    });
+  }
+
+  return { ok: true, filled, people: new Set(created.map((c) => c.assessorId)) };
+}
+
+/** Fills one pool, from that pool's page. */
+export async function allocateRemaining(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  await requireCdu();
+  const result = await fillPoolGaps(String(formData.get("poolId") ?? ""));
+  if (!result.ok) return { status: "error", message: result.message };
+
+  if (result.filled === 0) {
     return { status: "ok", message: "Every line item in this pool already has its assessors." };
   }
 
-  await prisma.criterionAssignment.createMany({
-    data: created.map((c) => ({ ...c, poolId })),
-  });
-
   refresh();
-  const people = new Set(created.map((c) => c.assessorId)).size;
+  const n = result.people.size;
   return {
     status: "ok",
-    message: `Filled ${filled} slot${filled === 1 ? "" : "s"} across ${people} assessor${people === 1 ? "" : "s"}. Adjust or remove any of them below.`,
+    message: `Filled ${result.filled} slot${result.filled === 1 ? "" : "s"} across ${n} assessor${n === 1 ? "" : "s"}. Adjust or remove any of them below.`,
+  };
+}
+
+/**
+ * Fills every pool in the open cycle, from the Cycle page.
+ *
+ * Pool by pool rather than in one pass, and reading the assignments fresh each
+ * time, so the load each pool adds is visible to the next one. Doing all five
+ * against a single snapshot would hand the same few least-loaded people the
+ * first slot in every pool and undo the balancing.
+ */
+export async function allocateEveryPool(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  await requireCdu();
+  const cycleId = String(formData.get("cycleId") ?? "");
+
+  const pools = await prisma.pool.findMany({
+    where: { cycleId },
+    orderBy: { position: "asc" },
+    select: { id: true, name: true },
+  });
+  if (pools.length === 0) return { status: "error", message: "This cycle has no pools yet." };
+
+  let filled = 0;
+  const people = new Set<string>();
+  const touched: string[] = [];
+
+  for (const pool of pools) {
+    const result = await fillPoolGaps(pool.id);
+    if (!result.ok) return { status: "error", message: result.message };
+    if (result.filled === 0) continue;
+    filled += result.filled;
+    for (const id of result.people) people.add(id);
+    touched.push(pool.name);
+  }
+
+  if (filled === 0) {
+    return { status: "ok", message: "Every line item in every pool already has its assessors." };
+  }
+
+  refresh();
+  return {
+    status: "ok",
+    message: `Filled ${filled} slot${filled === 1 ? "" : "s"} across ${people.size} assessor${people.size === 1 ? "" : "s"}, in pool${touched.length === 1 ? "" : "s"} ${touched.join(", ")}. Open a pool to adjust or remove any of them.`,
   };
 }
 
