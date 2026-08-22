@@ -5,8 +5,14 @@ import QRCode from "qrcode";
 import { z } from "zod";
 import { createInviteLink, normalizeEmail } from "@/lib/auth";
 import { ASSESSOR_POOL_WHERE, RELEASED_STATUSES, mayAssess, requireCdu } from "@/lib/cda/access";
-import { activeCycle, ensureAssessment, freezeResult, loadAssessment } from "@/lib/cda/assessment";
-import { MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
+import {
+  activeCycle,
+  ensureAssessment,
+  freezeResult,
+  loadAssessment,
+  tierScope,
+} from "@/lib/cda/assessment";
+import { ASSESSED_DOMAINS, MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
 import { STAGE_LABELS, reviewTimeline } from "@/lib/cda/review";
 import { THRESHOLD_LEVELS } from "@/lib/cda/scoring";
 import { ensureCycleStandards } from "@/lib/cda/assessment";
@@ -480,6 +486,136 @@ export async function assignCriterion(
 
   refresh();
   return { status: "ok", message: `${assessor.name ?? assessor.email} assigned to slot ${slot}.` };
+}
+
+/** How many independent assessors a line item wants before it is covered. */
+const SLOTS_WANTED = 2;
+
+/**
+ * Fills every unallocated line item in a pool, spreading the work evenly.
+ *
+ * FQ's own matrix names an assessor for 38 of the 54 items; the rest — the
+ * observation items and the outcome metrics — it settles centrally and never
+ * allocated. Importing that faithfully left those items with nobody holding
+ * them, and doing anything about it one dropdown at a time is a hundred-odd
+ * selections across three pools.
+ *
+ * Two slots per item, not three: slots 1 and 2 assess independently, and slot 3
+ * exists only to break a split between them. Offering a third up front invites
+ * an opinion nobody has asked for yet.
+ *
+ * Who gets what is decided by load — fewest items held in this pool first, then
+ * fewest overall, then by name so a re-run is not a lottery. That is what
+ * spreading a pool evenly means when nothing else distinguishes the candidates,
+ * and it is deliberately not a judgement about who is suited to an item. The
+ * Unit can see every assignment on this page and take any of them back; this
+ * fills the gaps so there is something to adjust rather than a blank sheet.
+ */
+export async function allocateRemaining(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  await requireCdu();
+  const poolId = String(formData.get("poolId") ?? "");
+
+  const pool = await prisma.pool.findUnique({
+    where: { id: poolId },
+    include: { assessments: { select: { id: true, tierId: true } } },
+  });
+  if (!pool) return { status: "error", message: "That pool no longer exists." };
+
+  const [criteria, assignments, assessors] = await Promise.all([
+    prisma.criterion.findMany({
+      where: { active: true, domain: { in: [...ASSESSED_DOMAINS] } },
+      select: { id: true, code: true },
+      orderBy: { position: "asc" },
+    }),
+    prisma.criterionAssignment.findMany({
+      where: { pool: { cycleId: pool.cycleId } },
+      select: { id: true, poolId: true, criterionId: true, assessorId: true, slot: true },
+    }),
+    prisma.user.findMany({
+      where: { ...ASSESSOR_POOL_WHERE, active: true },
+      select: { id: true, name: true, email: true },
+    }),
+  ]);
+
+  if (assessors.length === 0) {
+    return { status: "error", message: "There are no active assessors to allocate to." };
+  }
+
+  // Only what this pool's clubs are actually assessed on. Allocating an item to
+  // a pool of Tier 2 clubs that are never scored on it books somebody's time
+  // for work the rating would discard.
+  const applies = await tierScope(
+    pool.assessments,
+    criteria.map((c) => c.id),
+  );
+  const applicable = criteria.filter((c) => pool.assessments.some((a) => applies(c.id, a.id)));
+
+  // Load is counted across the whole cycle, not just this pool: an assessor
+  // carrying thirty items in Pool A is not a free pair of hands for Pool B.
+  const loadAll = new Map<string, number>();
+  const loadHere = new Map<string, number>();
+  for (const a of assignments) {
+    loadAll.set(a.assessorId, (loadAll.get(a.assessorId) ?? 0) + 1);
+    if (a.poolId === poolId) loadHere.set(a.assessorId, (loadHere.get(a.assessorId) ?? 0) + 1);
+  }
+
+  const created: { criterionId: string; assessorId: string; slot: number }[] = [];
+  let filled = 0;
+
+  for (const c of applicable) {
+    const held = assignments.filter((a) => a.poolId === poolId && a.criterionId === c.id);
+
+    // Only items nobody holds. An item already down to one assessor has no
+    // independent second opinion and arguably wants a partner, but that is a
+    // change to an allocation somebody made on purpose — a different act from
+    // filling a blank, and not what a button labelled "allocate the rest"
+    // should quietly do. The row's own dropdown adds a second assessor.
+    if (held.length > 0) continue;
+
+    const taken = new Set<string>();
+    const usedSlots = new Set<number>();
+
+    for (let slot = 1; slot <= SLOTS_WANTED; slot += 1) {
+      if (usedSlots.has(slot)) continue;
+
+      const next = assessors
+        .filter((a) => !taken.has(a.id))
+        .sort(
+          (x, y) =>
+            (loadHere.get(x.id) ?? 0) - (loadHere.get(y.id) ?? 0) ||
+            (loadAll.get(x.id) ?? 0) - (loadAll.get(y.id) ?? 0) ||
+            (x.name ?? x.email).localeCompare(y.name ?? y.email),
+        )[0];
+      // Fewer assessors than slots is a real state, not an error: one person
+      // covering an item alone is worse than two, and better than nobody.
+      if (!next) break;
+
+      created.push({ criterionId: c.id, assessorId: next.id, slot });
+      taken.add(next.id);
+      usedSlots.add(slot);
+      loadHere.set(next.id, (loadHere.get(next.id) ?? 0) + 1);
+      loadAll.set(next.id, (loadAll.get(next.id) ?? 0) + 1);
+      filled += 1;
+    }
+  }
+
+  if (created.length === 0) {
+    return { status: "ok", message: "Every line item in this pool already has its assessors." };
+  }
+
+  await prisma.criterionAssignment.createMany({
+    data: created.map((c) => ({ ...c, poolId })),
+  });
+
+  refresh();
+  const people = new Set(created.map((c) => c.assessorId)).size;
+  return {
+    status: "ok",
+    message: `Filled ${filled} slot${filled === 1 ? "" : "s"} across ${people} assessor${people === 1 ? "" : "s"}. Adjust or remove any of them below.`,
+  };
 }
 
 /**

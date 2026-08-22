@@ -7,6 +7,7 @@ import { ASSESSED_DOMAINS, DOMAIN_LABELS } from "@/lib/cda/rubric";
 import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
 import { AllocateRow, type AllocationRow } from "./allocate-row";
+import { FillGaps } from "./fill-gaps";
 import type { Domain } from "@prisma-client";
 
 export const metadata = { title: "Allocate a pool" };
@@ -132,10 +133,17 @@ export default async function PoolPage({
       };
     });
 
-  const allocated = criteria.filter((c) =>
+  // What this pool's clubs are actually assessed on. A pool of Tier 2 clubs is
+  // scored on 18 of the coded items, so measuring it against all 54 reports it
+  // permanently two-thirds short of an allocation it never needed.
+  const applicableCriteria = criteria.filter((c) =>
+    pool.assessments.some((a) => applies(c.id, a.id)),
+  );
+
+  const allocated = applicableCriteria.filter((c) =>
     assignments.some((a) => a.criterionId === c.id),
   ).length;
-  const submitted = criteria.filter((c) => {
+  const submitted = applicableCriteria.filter((c) => {
     const held = assignments.filter((a) => a.criterionId === c.id);
     return held.length > 0 && held.every((h) => h.submittedAt);
   }).length;
@@ -152,19 +160,21 @@ export default async function PoolPage({
         <StatTile label="Clubs" value={clubCount} />
         <StatTile
           label="Line items allocated"
-          value={`${allocated}/${criteria.length}`}
-          tone={allocated === criteria.length ? "good" : "warn"}
+          value={`${allocated}/${applicableCriteria.length}`}
+          tone={allocated === applicableCriteria.length ? "good" : "warn"}
         />
         <StatTile
           label="Submitted"
-          value={`${submitted}/${criteria.length}`}
-          tone={submitted === criteria.length ? "good" : "muted"}
+          value={`${submitted}/${applicableCriteria.length}`}
+          tone={submitted === applicableCriteria.length ? "good" : "muted"}
         />
         <StatTile
           label="Assessors involved"
           value={new Set(assignments.map((a) => a.assessorId)).size}
         />
       </div>
+
+      <FillGaps poolId={pool.id} missing={applicableCriteria.length - allocated} />
 
       {mixedTiers && (
         <div className="mb-6 card card-pad">
