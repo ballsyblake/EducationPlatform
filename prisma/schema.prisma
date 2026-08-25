@@ -61,7 +61,7 @@ model User {
   /// them allocatable to a line item. The overlap it creates is recorded
   /// rather than prevented: see the assessment's audit trail, which flags a
   /// line item whose reconciled score was settled by one of its own assessors.
-  assesses  Boolean  @default(false)
+  assesses Boolean @default(false)
 
   sessions     Session[]
   loginTokens  LoginToken[]
@@ -72,6 +72,13 @@ model User {
   gradedSubmissions Submission[]  @relation("SubmissionGrader")
   gradedAttempts    QuizAttempt[] @relation("AttemptGrader")
   authoredCourses   Course[]      @relation("CourseAuthor")
+
+  // Post-course support. A coach holds cases; an educator is named on the ones
+  // they run and on every attempt they have written up.
+  supportCases     SupportCase[]    @relation("SupportCoach")
+  supportCaseload  SupportCase[]    @relation("SupportEducator")
+  supportReferrals SupportCase[]    @relation("SupportReferrer")
+  supportReviews   SupportAttempt[] @relation("SupportReviewer")
 
   // Club Development & Assessment
   clubMemberships        ClubMembership[]
@@ -125,10 +132,18 @@ model Course {
   authorId    String?
   author      User?    @relation("CourseAuthor", fields: [authorId], references: [id], onDelete: SetNull)
 
-  enrollments Enrollment[]
-  materials   Material[]
-  assignments Assignment[]
-  quizzes     Quiz[]
+  /// Percentage of the course's graded points a coach has to reach to pass.
+  ///
+  /// Null means the course doesn't rank: it is complete-it-and-you're-done, and
+  /// nobody can fail it. Where a mark is set, a coach who finishes every item
+  /// below it has not passed, and is a candidate for post-course support.
+  passMark Int?
+
+  enrollments  Enrollment[]
+  materials    Material[]
+  assignments  Assignment[]
+  quizzes      Quiz[]
+  supportCases SupportCase[]
 }
 
 model Enrollment {
@@ -193,9 +208,16 @@ model Upload {
   nonNegotiableProofOf  NonNegotiableResult? @relation("NonNegotiableEvidence", fields: [nonNegotiableResultId], references: [id], onDelete: Cascade)
   nonNegotiableResultId String?
 
+  // Post-course support: the session plan and any supporting paperwork a coach
+  // attaches to a delivery they are being reassessed on. The footage itself is
+  // a link, never an upload.
+  supportAttemptOf SupportAttempt? @relation("SupportAttemptFiles", fields: [supportAttemptId], references: [id], onDelete: Cascade)
+  supportAttemptId String?
+
   @@index([submissionId])
   @@index([staffMemberId])
   @@index([nonNegotiableResultId])
+  @@index([supportAttemptId])
 }
 
 model Assignment {
@@ -354,6 +376,202 @@ model Answer {
 
 /**
  * ==========================================================================
+ * Post-course support
+ * --------------------------------------------------------------------------
+ * Coursework tells you whether a coach knows the material. It does not tell
+ * you whether they can run a session, and a coach who finishes a course below
+ * its pass mark has not been shown to be unable to coach — only that the
+ * written work did not demonstrate it.
+ * So finishing below the mark opens a support case rather than closing the
+ * course. The coach is reassessed on an actual session delivery, by one of two
+ * routes:
+ * LIVE_ASSESSMENT — an educator attends a session and observes it.
+ * VIDEO_REVIEW    — the coach films a session and submits the link.
+ * Both end in the same place: an educator rates the delivery against one
+ * rubric and records an outcome. The route is a matter of geography and
+ * diaries, not of standard — a coach five hours from Brisbane submits film,
+ * and is held to exactly what a coach observed in person is held to.
+ * Shape of the data:
+ * SupportCase ──< SupportAttempt ──< SupportRating
+ * A case is one coach's route back on one course. Each attempt is one
+ * observation or one piece of film, carrying its own pathway — a coach whose
+ * first attempt was filmed can be observed live the second time without
+ * anything being rewritten. Ratings are the reviewer's marks against the
+ * rubric in src/lib/support.ts, one row per criterion.
+ * ==========================================================================
+ */
+
+enum SupportPathway {
+  /// An educator attends a session and observes it in person.
+  LIVE_ASSESSMENT
+
+  /// The coach films a session they deliver and submits the link.
+  VIDEO_REVIEW
+}
+
+enum SupportCaseStatus {
+  /// Referred, and still working through it.
+  IN_PROGRESS
+
+  /// A delivery was assessed as successful. The course is passed.
+  SUCCESSFUL
+
+  /// Closed without success — attempts used up, or the CDU called it.
+  UNSUCCESSFUL
+
+  /// Closed without an outcome: the coach left the program, moved clubs, or
+  /// was referred in error. Distinct from UNSUCCESSFUL, which is a judgement.
+  WITHDRAWN
+}
+
+enum SupportAttemptStatus {
+  /// Live pathway: a date and venue are set and the educator is expected.
+  SCHEDULED
+
+  /// Video pathway: waiting on the coach to submit their footage.
+  AWAITING_VIDEO
+
+  /// Waiting on the educator — film is in, or the observation has happened.
+  SUBMITTED
+
+  /// Rated and decided.
+  REVIEWED
+}
+
+enum SupportOutcome {
+  SUCCESSFUL
+
+  /// Not a fail. The delivery didn't yet demonstrate the standard, and the
+  /// case stays open for another attempt if the coach has one left.
+  NOT_YET_SUCCESSFUL
+}
+
+/// One reviewer's mark against one rubric criterion.
+enum DeliveryRating {
+  NOT_YET
+  DEVELOPING
+  COMPETENT
+}
+
+/// One coach's route back onto one course.
+model SupportCase {
+  id       String @id @default(cuid())
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation("SupportCoach", fields: [userId], references: [id], onDelete: Cascade)
+
+  status SupportCaseStatus @default(IN_PROGRESS)
+
+  /// Why the coach was referred, in the referrer's words. Shown to the coach:
+  /// being told you need support without being told what for is the thing this
+  /// process exists to avoid.
+  reason String?
+
+  /// The course result at the moment of referral, frozen.
+  ///
+  /// A coach can turn in outstanding work after being referred, and a regrade
+  /// can move a mark. Neither should quietly rewrite the reason a case was
+  /// opened, so the percentage that triggered it is kept as it stood.
+  referredPct Int?
+
+  /// How many deliveries the coach may be assessed on. FQ's default is two —
+  /// the reassessment, and one further opportunity — but an educator can raise
+  /// it on a case where circumstances warrant it.
+  attemptsAllowed Int @default(2)
+
+  /// The educator running the case. Any admin can act on any case; this is who
+  /// is expected to, and it is what the coach sees as their contact.
+  educatorId String?
+  educator   User?   @relation("SupportEducator", fields: [educatorId], references: [id], onDelete: SetNull)
+
+  referredById String?
+  referredBy   User?   @relation("SupportReferrer", fields: [referredById], references: [id], onDelete: SetNull)
+
+  openedAt DateTime  @default(now())
+  closedAt DateTime?
+
+  /// The educator's closing note, written when the case ends either way.
+  closingNote String?
+
+  attempts SupportAttempt[]
+
+  /// One case per coach per course. A course here is already a single season's
+  /// offering, so a second run of the same course is a second course row.
+  @@unique([courseId, userId])
+  @@index([status])
+  @@index([userId])
+  @@index([educatorId])
+}
+
+/// One observation or one piece of film, and the review of it.
+model SupportAttempt {
+  id        String      @id @default(cuid())
+  caseId    String
+  case      SupportCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  attemptNo Int         @default(1)
+
+  pathway SupportPathway
+  status  SupportAttemptStatus
+
+  /// When the delivery is expected: the observation slot on the live pathway,
+  /// the date footage is due on the video pathway.
+  dueAt DateTime?
+
+  /// Live pathway only — where the educator is going.
+  venue String?
+
+  /// Video pathway only. A link to YouTube or Vimeo, never an upload: session
+  /// footage is hundreds of megabytes and this app keeps its files in the
+  /// database.
+  videoUrl String?
+
+  /// What the coach wants the reviewer to know — the age group, the theme, the
+  /// numbers they had on the night.
+  coachNotes String?
+
+  submittedAt DateTime?
+
+  outcome      SupportOutcome?
+  /// The reviewer's written feedback to the coach.
+  feedback     String?
+  reviewedAt   DateTime?
+  reviewedById String?
+  reviewedBy   User?           @relation("SupportReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  ratings SupportRating[]
+  /// The session plan and any supporting paperwork.
+  files   Upload[]        @relation("SupportAttemptFiles")
+
+  @@unique([caseId, attemptNo])
+  @@index([status])
+  @@index([caseId])
+}
+
+/// A reviewer's mark against one criterion of the delivery rubric.
+///
+/// The criterion is referenced by code rather than by foreign key: unlike the
+/// CDA rubric, which the Unit rewords between cycles, this one is eight fixed
+/// competencies that live in code. Storing the code keeps a completed review
+/// readable even if a criterion is retired later.
+model SupportRating {
+  id        String         @id @default(cuid())
+  attemptId String
+  attempt   SupportAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  /// Matches a `code` in SUPPORT_CRITERIA (src/lib/support.ts).
+  code    String
+  level   DeliveryRating
+  comment String?
+
+  @@unique([attemptId, code])
+  @@index([attemptId])
+}
+
+/**
+ * ==========================================================================
  * Club Development & Assessment (CDA) Portal
  * --------------------------------------------------------------------------
  * Football Queensland rates each affiliated club once a year across four
@@ -395,8 +613,8 @@ model Club {
   /// at import had nowhere to live until an assessment was opened and was
   /// silently discarded. Each assessment still carries its own tier, so moving a
   /// club between tiers never rewrites a season already scored.
-  tierId       String?
-  defaultTier  Tier?    @relation(fields: [tierId], references: [id], onDelete: SetNull)
+  tierId      String?
+  defaultTier Tier?   @relation(fields: [tierId], references: [id], onDelete: SetNull)
 
   members     ClubMembership[]
   assessments ClubAssessment[]
@@ -589,7 +807,7 @@ model ClubAssessment {
   /// Only consulted below the Bronze threshold.
   licenceCompliant Boolean?
   /// CDU's summary paragraph on the published report.
-  summary      String?
+  summary          String?
 
   /// Which pool this club is assessed in. Nullable because a club can be added
   /// to a cycle before the CDU has drawn the pools up.
@@ -932,21 +1150,21 @@ enum NonNegotiableKind {
 }
 
 model NonNegotiable {
-  id           String            @id @default(cuid())
-  code         String            @unique
-  title        String
-  description  String
+  id             String            @id @default(cuid())
+  code           String            @unique
+  title          String
+  description    String
   /// What the club has to produce to satisfy it.
-  evidenceHint String?
-  kind         NonNegotiableKind @default(GATE)
+  evidenceHint   String?
+  kind           NonNegotiableKind @default(GATE)
   /// How FQ collects it, e.g. "Electronic submission & CDA check".
-  format       String?
+  format         String?
   /// For SHIELD_THRESHOLD checks: what each shield level requires, in prose.
   /// Free text because FQ restates these each year in the Info Pack and the
   /// wording is doing the work, not a machine-readable rule.
   shieldGuidance String?
-  position     Int               @default(0)
-  active       Boolean           @default(true)
+  position       Int               @default(0)
+  active         Boolean           @default(true)
 
   results NonNegotiableResult[]
 }
@@ -964,20 +1182,20 @@ enum NonNegotiableVerdict {
 /// a club claiming compliance is evidence, not a decision, and the gap between
 /// the two is exactly what the CDU is checking.
 model NonNegotiableResult {
-  id              String               @id @default(cuid())
-  assessmentId    String
-  assessment      ClubAssessment       @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  nonNegotiableId String
-  nonNegotiable   NonNegotiable        @relation(fields: [nonNegotiableId], references: [id], onDelete: Cascade)
+  id               String               @id @default(cuid())
+  assessmentId     String
+  assessment       ClubAssessment       @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  nonNegotiableId  String
+  nonNegotiable    NonNegotiable        @relation(fields: [nonNegotiableId], references: [id], onDelete: Cascade)
   /// The club's own answer. Null until they answer it.
-  clubDeclared    Boolean?
-  clubNote        String?
-  verdict         NonNegotiableVerdict @default(PENDING)
+  clubDeclared     Boolean?
+  clubNote         String?
+  verdict          NonNegotiableVerdict @default(PENDING)
   /// For SHIELD_THRESHOLD checks: the highest shield whose bar this club met.
   /// Null on a GATE check, and null on a threshold check the CDU hasn't looked
   /// at yet. NONE means "looked at, met nobody's bar". This is the effective
   /// level — the one that caps the shield.
-  shieldMet       Shield?
+  shieldMet        Shield?
   /// What the recorded structure actually computes to, for the checks that can
   /// be computed. Stored alongside rather than instead of `shieldMet` so a
   /// departure is visible as a departure: FQ's own workbook records a level
@@ -987,11 +1205,11 @@ model NonNegotiableResult {
   shieldMetDerived Shield?
   /// Required whenever `shieldMet` departs from `shieldMetDerived`.
   overrideReason   String?
-  adminNote       String?
-  verifiedById    String?
-  verifiedBy      User?                @relation("NonNegotiableVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
-  verifiedAt      DateTime?
-  updatedAt       DateTime             @updatedAt
+  adminNote        String?
+  verifiedById     String?
+  verifiedBy       User?                @relation("NonNegotiableVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verifiedAt       DateTime?
+  updatedAt        DateTime             @updatedAt
 
   evidence Upload[] @relation("NonNegotiableEvidence")
 
@@ -1149,7 +1367,6 @@ model ReviewItem {
 
 /**
  * ------------------------- Club Structure Standards -------------------------
- *
  * NN7's level is computed, not judged. Football Queensland maintains it in a
  * workbook today: eleven named functions, each recorded from a fixed
  * vocabulary, against a per-shield bar that ratchets year by year. Recomputing
@@ -1216,12 +1433,12 @@ model StructureRole {
 /// Per cycle because FQ phases it in: 8 of 11 functions for Gold in 2026, 9 in
 /// 2027, all 11 in 2028. A new year is a data change here, not a code change.
 model StructureStandard {
-  id      String @id @default(cuid())
-  cycleId String
-  cycle   Cycle  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  shield  Shield
+  id                String @id @default(cuid())
+  cycleId           String
+  cycle             Cycle  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  shield            Shield
   /// How many of the counting functions must be filled.
-  functionsRequired Int @default(0)
+  functionsRequired Int    @default(0)
 
   roles StructureRoleRequirement[]
 
@@ -1230,19 +1447,19 @@ model StructureStandard {
 
 /// What one shield demands of one function, over and above being counted.
 model StructureRoleRequirement {
-  id         String            @id @default(cuid())
-  standardId String
-  standard   StructureStandard @relation(fields: [standardId], references: [id], onDelete: Cascade)
-  roleId     String
-  role       StructureRole     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  id              String            @id @default(cuid())
+  standardId      String
+  standard        StructureStandard @relation(fields: [standardId], references: [id], onDelete: Cascade)
+  roleId          String
+  role            StructureRole     @relation(fields: [roleId], references: [id], onDelete: Cascade)
   /// Mandatory at this shield regardless of the coverage count.
-  required   Boolean           @default(false)
+  required        Boolean           @default(false)
   /// 0 = no qualification requirement. 1 = C Diploma. 2 = B Diploma or
   /// enrolled. Stored as a level rather than a RoleStatus because the test is
   /// "at least", and two different statuses satisfy level 2.
-  minQualLevel Int             @default(0)
+  minQualLevel    Int               @default(0)
   /// EMPLOYMENT roles only: part-time doesn't satisfy this shield.
-  requireFullTime Boolean      @default(false)
+  requireFullTime Boolean           @default(false)
 
   @@unique([standardId, roleId])
 }

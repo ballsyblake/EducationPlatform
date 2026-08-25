@@ -45,6 +45,25 @@ export function CreateCourseForm() {
         />
       </div>
 
+      <div>
+        <label className="label" htmlFor="course-pass-mark">
+          Pass mark
+        </label>
+        <input
+          id="course-pass-mark"
+          name="passMark"
+          type="number"
+          min={1}
+          max={100}
+          placeholder="e.g. 70"
+          className="input"
+        />
+        <p className="hint">
+          Leave blank if the course can&apos;t be failed. With a mark set, a coach who finishes
+          every item below it is flagged for post-course support.
+        </p>
+      </div>
+
       <label className="flex items-center gap-2 text-sm text-ink-700">
         <input type="checkbox" name="published" className="accent-maroon-600" />
         Publish immediately

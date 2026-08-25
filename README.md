@@ -30,13 +30,15 @@ across in the header.
 - Course pages with a library of session plans, resources and video (uploaded files or YouTube/Vimeo links)
 - Assignments accepting a written response, file attachments, or both — with drafts you can save and come back to
 - Quizzes with multiple-choice, true/false, and written questions
-- A Grades & Feedback page collecting every score and written comment in one place
+- A Grades & Feedback page collecting every score and written comment in one place, and where each course stands against its pass mark
+- Post-course support if a course is finished below the mark: an educator watches you deliver a session, live or on film
 
 **For admins (coach educators / technical staff)**
 
 - Create courses, enroll staff, and publish or hide coursework
 - Author assignments and build quizzes question by question
 - A grading queue: score submissions, review written quiz answers, add feedback, or send work back for revision
+- A post-course support desk: who finished below the pass mark, who is booked in, whose film is waiting to be reviewed
 - A staff progress dashboard — completion, overdue counts, and averages per coach, filterable by course
 - Staff management: add coaches by email, hand out sign-in links, promote to admin, deactivate
 
@@ -44,6 +46,55 @@ across in the header.
 coach submits. Written answers can't be auto-graded, so an attempt containing
 one lands in the grading queue as `AWAITING_REVIEW` until an educator reads it
 and awards points. Assignment submissions are always graded by a human.
+
+## Post-course support
+
+A course can carry a **pass mark**: the percentage of its graded points a coach
+has to reach. Leave it blank and the course can't be failed. Set it, and a coach
+who finishes every item below it appears on `/admin/support` under *Finished
+below the pass mark*.
+
+Coming up short doesn't fail anyone. Coursework shows what a coach knows; it
+doesn't show whether they can run a session. So a shortfall opens a **support
+case**, and the coach is reassessed on a delivery by one of two routes:
+
+- **Live assessment** — an educator attends one of their sessions and observes it.
+- **Video review** — the coach films a session and submits the link.
+
+Which route is a matter of geography and diaries, not of standard. A coach five
+hours from Brisbane sends film because of the drive, and is held to exactly what
+a coach observed in person is held to: the same eight competencies, across
+preparation, delivery and review.
+
+**How a delivery is marked.** Each competency is marked *Not yet*, *Developing*
+or *Competent*. Every one has to carry a mark — a blank is not a pass — and a
+single *Not yet* rules out a successful outcome entirely. An educator who means
+to pass a coach on seven of eight has to move the eighth mark and own it, rather
+than averaging it away. The form offers only the outcomes the marks leave open,
+and the server checks the same rule again on save.
+
+**The flow.** An educator refers the coach and books the first assessment in one
+step → the coach either has an educator come out, or submits film → the educator
+marks the eight and records an outcome. *Successful* closes the case and passes
+the course. *Not yet successful* leaves it open for the next attempt. A case
+allows two assessments by default — the reassessment and one further
+opportunity — which an educator can raise on a case where circumstances warrant
+it.
+
+Nobody is referred automatically. A coach two points short after a bereavement
+and a coach who never engaged both land in the same list, and the educator
+decides which conversation each of them needs — but neither is quietly lost,
+which is what happens when "who didn't pass?" is a question somebody has to
+assemble by hand.
+
+Film is a **link**, never an upload: session footage is hundreds of megabytes
+and this app keeps its files in the database. YouTube and Vimeo play inline on
+the educator's page — unlisted, not private. The session plan and anything else
+on paper can be attached as normal.
+
+A coach only sees a **Support** tab once they have a case. Most coaches never
+will, and a permanent tab reads as an accusation to everyone who doesn't need
+one.
 
 ---
 
@@ -181,12 +232,15 @@ npm run dev
 Open http://localhost:3000/login and enter any seeded address. In development
 the sign-in link appears on the page, so you can click straight through:
 
-| Email                       | Role                            |
-| --------------------------- | ------------------------------- |
-| `head.coach@example.com`    | Admin — courses and grading     |
-| `marcus.webb@example.com`   | Coach — Technical Director      |
-| `tj.rollins@example.com`    | Coach — Senior Men's Head Coach |
-| `dana.pryor@example.com`    | Coach — U15 Girls Head Coach    |
+| Email                     | Role                                            |
+| ------------------------- | ----------------------------------------------- |
+| `head.coach@example.com`  | Admin — courses, grading and support            |
+| `marcus.webb@example.com` | Coach — Technical Director                      |
+| `tj.rollins@example.com`  | Coach — passed on his second support assessment |
+| `dana.pryor@example.com`  | Coach — U15 Girls Head Coach                    |
+| `elliot.snow@example.com` | Coach — film submitted, waiting on a review     |
+| `sam.okafor@example.com`  | Coach — live assessment booked                  |
+| `priya.raman@example.com` | Coach — below the pass mark, no case opened yet |
 
 ## Signing in
 

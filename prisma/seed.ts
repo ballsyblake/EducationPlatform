@@ -16,6 +16,9 @@ const days = (n: number) => new Date(Date.now() + n * 86_400_000);
 async function main() {
   console.log("Clearing existing data…");
   // Order matters: children before parents, since SQLite enforces the FKs.
+  await prisma.supportRating.deleteMany();
+  await prisma.supportAttempt.deleteMany();
+  await prisma.supportCase.deleteMany();
   await prisma.answer.deleteMany();
   await prisma.quizAttempt.deleteMany();
   await prisma.choice.deleteMany();
@@ -58,6 +61,7 @@ async function main() {
       { email: "dana.pryor@example.com", name: "Dana Pryor", title: "U15 Girls Head Coach" },
       { email: "elliot.snow@example.com", name: "Elliot Snow", title: "Goalkeeping Coach" },
       { email: "sam.okafor@example.com", name: "Sam Okafor", title: "MiniRoos Coordinator" },
+      { email: "priya.raman@example.com", name: "Priya Raman", title: "U13 Boys Head Coach" },
     ].map((data) => prisma.user.create({ data: { ...data, role: "COACH" } })),
   );
 
@@ -69,6 +73,7 @@ async function main() {
       season: "2026 Pre-Season",
       description:
         "Attacking and defending principles, pressing triggers, and building from the back — so every age group is coached in the same language.",
+      passMark: 75,
       published: true,
       authorId: headCoach.id,
     },
@@ -80,6 +85,9 @@ async function main() {
       season: "2026 Season",
       description:
         "Heat policy, concussion protocols and the safeguarding standards every coach signs off before the season starts.",
+      // Below this and the coach is reassessed on a session they actually
+      // deliver, rather than being failed on paperwork alone.
+      passMark: 70,
       published: true,
       authorId: headCoach.id,
     },
@@ -221,7 +229,7 @@ async function main() {
     },
   });
 
-  await prisma.quiz.create({
+  const safetyQuiz = await prisma.quiz.create({
     data: {
       courseId: safety.id,
       title: "Player safety certification",
@@ -357,9 +365,240 @@ async function main() {
     ],
   });
 
+  /* --------------------- Post-course support ------------------------------ */
+
+  // Four coaches finish Player Safety & Club Standards below its 70% pass mark.
+  // Coursework alone hasn't shown they can run a safe session, so each is a
+  // candidate for reassessment on a delivery — live, or on film.
+
+  const safetyQuestions = await prisma.question.findMany({
+    where: { quizId: safetyQuiz.id },
+    include: { choices: true },
+    orderBy: { position: "asc" },
+  });
+  const safetyMax = safetyQuestions.reduce((sum, q) => sum + q.points, 0);
+
+  /** Finishes the safety course for one coach at a given assignment score. */
+  async function finishSafetyCourse(userId: string, assignmentScore: number, response: string) {
+    await prisma.submission.create({
+      data: {
+        assignmentId: safetyPlan.id,
+        userId,
+        text: response,
+        status: "GRADED",
+        submittedAt: days(-9),
+        score: assignmentScore,
+        feedback:
+          "The thresholds are right, but I can't see what you'd actually change on the session " +
+          "itself. That's the part I want to watch you do.",
+        gradedAt: days(-7),
+        gradedById: headCoach.id,
+      },
+    });
+
+    const certification = await prisma.quizAttempt.create({
+      data: {
+        quizId: safetyQuiz.id,
+        userId,
+        attemptNo: 1,
+        status: "GRADED",
+        submittedAt: days(-9),
+        score: 2,
+        maxScore: safetyMax,
+        gradedAt: days(-9),
+        gradedById: headCoach.id,
+      },
+    });
+
+    await prisma.answer.createMany({
+      data: safetyQuestions.map((question, index) => {
+        const correct = question.choices.find((c) => c.isCorrect)!;
+        // Right on the concussion question, wrong on the heat policy.
+        const chosen = index === 0 ? correct : question.choices.find((c) => !c.isCorrect)!;
+        return {
+          attemptId: certification.id,
+          questionId: question.id,
+          choiceId: chosen.id,
+          isCorrect: chosen.isCorrect,
+          pointsAwarded: chosen.isCorrect ? question.points : 0,
+        };
+      }),
+    });
+  }
+
+  const [, tom, , elliot, sam, priya] = coaches;
+
+  await finishSafetyCourse(
+    elliot.id,
+    28,
+    "Drinks every 20 minutes, and we stop if anyone looks like they're struggling.",
+  );
+  await finishSafetyCourse(
+    sam.id,
+    30,
+    "Two breaks a session in summer, and parents are told to send a full bottle.",
+  );
+  await finishSafetyCourse(
+    tom.id,
+    33,
+    "Breaks on the quarter, session shortened above 32, and nobody goes back on after a head knock.",
+  );
+  await finishSafetyCourse(
+    priya.id,
+    31,
+    "Water breaks every 15 minutes and we move to the shaded pitch when it's over 30.",
+  );
+
+  const ALL_CRITERIA = [
+    "PLAN",
+    "DESIGN",
+    "SAFETY",
+    "TECHNICAL",
+    "INTERVENE",
+    "COMMS",
+    "ENGAGE",
+    "REFLECT",
+  ] as const;
+
+  /** Marks every criterion COMPETENT, then applies the exceptions given. */
+  function marks(exceptions: Partial<Record<(typeof ALL_CRITERIA)[number], string>> = {}) {
+    return ALL_CRITERIA.map((code) => ({
+      code,
+      level: (exceptions[code] ?? "COMPETENT") as "NOT_YET" | "DEVELOPING" | "COMPETENT",
+    }));
+  }
+
+  // Elliot filmed a session and it's sitting in the educator's queue.
+  await prisma.supportCase.create({
+    data: {
+      courseId: safety.id,
+      userId: elliot.id,
+      reason:
+        "Strong on the protocols in writing, but the heat question went the wrong way and none of " +
+        "it showed up in the plan. I want to see how you actually run a session in the heat.",
+      referredPct: 57,
+      educatorId: headCoach.id,
+      referredById: headCoach.id,
+      openedAt: days(-6),
+      attempts: {
+        create: {
+          attemptNo: 1,
+          pathway: "VIDEO_REVIEW",
+          status: "SUBMITTED",
+          dueAt: days(-1),
+          submittedAt: days(-2),
+          videoUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          coachNotes:
+            "U14 boys, 16 players, 31 degrees at kick-off. Theme is pressing from the front. " +
+            "Breaks at 15 and 35 minutes — you'll see me pull the session in at the second one.",
+        },
+      },
+    },
+  });
+
+  // Sam has an educator coming out next week.
+  await prisma.supportCase.create({
+    data: {
+      courseId: safety.id,
+      userId: sam.id,
+      reason:
+        "MiniRoos numbers make ratios the thing to get right, and the written plan doesn't say " +
+        "how you'd split the group. Easier to watch than to write about.",
+      referredPct: 60,
+      educatorId: headCoach.id,
+      referredById: headCoach.id,
+      openedAt: days(-4),
+      attempts: {
+        create: {
+          attemptNo: 1,
+          pathway: "LIVE_ASSESSMENT",
+          status: "SCHEDULED",
+          dueAt: days(5),
+          venue: "Wolter Park, field 3",
+        },
+      },
+    },
+  });
+
+  // Tom went round twice: film that fell short, then an observation that didn't.
+  const tomCase = await prisma.supportCase.create({
+    data: {
+      courseId: safety.id,
+      userId: tom.id,
+      status: "SUCCESSFUL",
+      reason:
+        "Sixty-six per cent, and the gap is all in the practical. Let's see a session rather than " +
+        "re-sit the paper.",
+      referredPct: 66,
+      educatorId: headCoach.id,
+      referredById: headCoach.id,
+      openedAt: days(-40),
+      closedAt: days(-8),
+    },
+  });
+
+  await prisma.supportAttempt.create({
+    data: {
+      caseId: tomCase.id,
+      attemptNo: 1,
+      pathway: "VIDEO_REVIEW",
+      status: "REVIEWED",
+      dueAt: days(-30),
+      submittedAt: days(-31),
+      videoUrl: "https://vimeo.com/76979871",
+      coachNotes: "Senior men, 18 players, full pitch. Theme is rest defence.",
+      outcome: "NOT_YET_SUCCESSFUL",
+      feedback:
+        "The content is right and the players are with you. Two things stopped this: the session " +
+        "ran for 22 minutes before the first drinks break on a 33-degree evening, and you stopped " +
+        "play nine times in the middle practice — by the sixth the players had stopped listening. " +
+        "Fix the breaks, pick two coaching points and let the rest go.",
+      reviewedAt: days(-28),
+      reviewedById: headCoach.id,
+      ratings: {
+        create: marks({ SAFETY: "NOT_YET", INTERVENE: "NOT_YET", PLAN: "DEVELOPING" }).map((m) => ({
+          ...m,
+          comment:
+            m.code === "SAFETY"
+              ? "22 minutes to the first break at 33 degrees."
+              : m.code === "INTERVENE"
+                ? "Nine stoppages in one practice."
+                : null,
+        })),
+      },
+    },
+  });
+
+  await prisma.supportAttempt.create({
+    data: {
+      caseId: tomCase.id,
+      attemptNo: 2,
+      pathway: "LIVE_ASSESSMENT",
+      status: "REVIEWED",
+      dueAt: days(-10),
+      submittedAt: days(-10),
+      venue: "Meakin Park, field 1",
+      outcome: "SUCCESSFUL",
+      feedback:
+        "Different session. Breaks on the quarter without being asked, three stoppages across the " +
+        "whole hour, and the one on the far-side cover was exactly the right moment. That's the " +
+        "standard — well done.",
+      reviewedAt: days(-8),
+      reviewedById: headCoach.id,
+      ratings: { create: marks({ REFLECT: "DEVELOPING" }) },
+    },
+  });
+
   console.log("\nSeed complete.\n");
   console.log(`  Admin:   ${adminEmails.join(", ")}`);
   console.log(`  Coaches: ${coaches.map((c) => c.email).join(", ")}`);
+  console.log(
+    "\n  Post-course support: Elliot Snow's video is waiting on review, Sam Okafor has a live",
+  );
+  console.log(
+    "  assessment booked, Tom Rollins passed on his second attempt, and Priya Raman finished",
+  );
+  console.log("  below the pass mark with no case open yet.");
   console.log("\nSign in at http://localhost:3000/login with any of those addresses.");
   console.log("Without SMTP configured, the link is printed to the server console");
   console.log("and shown right on the login page in development.\n");

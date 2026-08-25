@@ -32,6 +32,7 @@ export async function canAccessUpload(user: User, uploadId: string) {
     include: {
       material: { select: { courseId: true } },
       submissionFileOf: { select: { userId: true, assignment: { select: { courseId: true } } } },
+      supportAttemptOf: { select: { case: { select: { userId: true } } } },
       staffCertificateOf: { select: { assessmentId: true } },
       nonNegotiableProofOf: { select: { assessmentId: true } },
     },
@@ -50,6 +51,13 @@ export async function canAccessUpload(user: User, uploadId: string) {
   // Submission attachment: readable by its author only.
   if (upload.submissionFileOf) {
     return upload.submissionFileOf.userId === user.id ? upload : null;
+  }
+
+  // Post-course support: the session plan a coach attached to a delivery being
+  // reassessed. Theirs and their educator's — and every educator is an admin,
+  // who returned above.
+  if (upload.supportAttemptOf) {
+    return upload.supportAttemptOf.case.userId === user.id ? upload : null;
   }
 
   // CDA evidence — a staff qualification certificate or a Non-Negotiable

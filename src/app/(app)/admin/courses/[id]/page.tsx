@@ -98,6 +98,31 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                 className="input"
               />
             </div>
+            <div className="sm:w-1/2">
+              <label className="label" htmlFor="passMark">
+                Pass mark
+              </label>
+              <input
+                id="passMark"
+                name="passMark"
+                type="number"
+                min={1}
+                max={100}
+                defaultValue={course.passMark ?? ""}
+                placeholder="No pass mark"
+                className="input"
+              />
+              <p className="hint">
+                The percentage of this course&apos;s graded points a coach has to reach. Leave it
+                blank and the course can&apos;t be failed; set it and anyone who finishes below it
+                shows up on{" "}
+                <Link href="/admin/support" className="font-medium text-maroon-700 hover:underline">
+                  post-course support
+                </Link>
+                .
+              </p>
+            </div>
+
             <label className="flex items-center gap-2 text-sm text-ink-700">
               <input
                 type="checkbox"

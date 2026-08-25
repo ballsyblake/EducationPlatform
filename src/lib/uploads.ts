@@ -49,7 +49,10 @@ function safeName(name: string) {
   return base.replace(/[^\w.\- ]+/g, "_").slice(0, 180) || "upload";
 }
 
-export async function storeUpload(file: File, opts: { submissionId?: string } = {}) {
+export async function storeUpload(
+  file: File,
+  opts: { submissionId?: string; supportAttemptId?: string } = {},
+) {
   assertAllowed(file);
 
   const bytes = Buffer.from(await file.arrayBuffer());
@@ -68,6 +71,7 @@ export async function storeUpload(file: File, opts: { submissionId?: string } = 
       size: bytes.byteLength,
       data: bytes,
       submissionId: opts.submissionId,
+      supportAttemptId: opts.supportAttemptId,
     },
   });
 }
