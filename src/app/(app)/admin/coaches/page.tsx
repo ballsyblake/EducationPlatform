@@ -9,6 +9,18 @@ import { VERDICT_LABEL } from "@/lib/support-rubric";
 
 export const metadata = { title: "Coaches" };
 
+/**
+ * Outcomes the rubric has no verdict for.
+ *
+ * `courseResult` answers "did they meet the standard", which is not a question
+ * about somebody who left or moved. Those two speak for themselves and must
+ * not be read as a judgement.
+ */
+const OUTCOME_OVERRIDE: Record<string, { label: string; tone: Tone } | undefined> = {
+  WITHDRAWN: { label: "Withdrawn", tone: "muted" },
+  TRANSFERRED: { label: "Transferred", tone: "ok" },
+};
+
 const CASE_TONE: Record<string, Tone> = {
   IN_PROGRESS: "ok",
   SUCCESSFUL: "good",
@@ -208,6 +220,29 @@ export default async function CoachesPage({
                               Catching up{e.catchUpNote ? ` · ${e.catchUpNote}` : ""}
                             </span>
                           )}
+                          {/* Where the hours went, and where they came from —
+                              the two halves of a coach who moved intakes. */}
+                          {e.transferredTo && (
+                            <Link
+                              href={`/admin/courses/${e.transferredTo.courseId}/register`}
+                              className="mt-0.5 block text-xs text-maroon-700 hover:underline"
+                            >
+                              → moved to {shortCourseTitle(e.transferredTo.courseTitle)}
+                            </Link>
+                          )}
+                          {e.transferredFrom && (
+                            <Link
+                              href={`/admin/courses/${e.transferredFrom.courseId}/register`}
+                              className="mt-0.5 block text-xs text-maroon-700 hover:underline"
+                            >
+                              ← from {shortCourseTitle(e.transferredFrom.courseTitle)}
+                            </Link>
+                          )}
+                          {(e.joinedAt || e.leftAt) && !e.transferredTo && (
+                            <span className="mt-0.5 block text-xs text-ink-400">
+                              Part intake
+                            </span>
+                          )}
                         </>
                       ) : (
                         <span className="text-ink-400">Not enrolled</span>
@@ -272,8 +307,8 @@ export default async function CoachesPage({
                     <td className="px-3 py-3">
                       {e && verdict ? (
                         <>
-                          <Badge tone={e.outcome === "WITHDRAWN" ? "muted" : verdict.tone}>
-                            {e.outcome === "WITHDRAWN" ? "Withdrawn" : verdict.label}
+                          <Badge tone={OUTCOME_OVERRIDE[e.outcome]?.tone ?? verdict.tone}>
+                            {OUTCOME_OVERRIDE[e.outcome]?.label ?? verdict.label}
                           </Badge>
                           {e.supportCase && (
                             <span className="mt-1 block">

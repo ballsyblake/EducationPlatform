@@ -33,6 +33,12 @@ export type CoachRow = {
     clubName: string | null;
     catchUpNote: string | null;
     outcome: CourseOutcome;
+    /// The days they were actually on this course, when that wasn't all of it.
+    joinedAt: Date | null;
+    leftAt: Date | null;
+    /// Both ends of a move, so a coach's hours can be followed either way.
+    transferredTo: { courseId: string; courseTitle: string } | null;
+    transferredFrom: { courseId: string; courseTitle: string } | null;
     attendanceMet: boolean | null;
     journalComplete: boolean | null;
     readiness: string | null;
@@ -71,6 +77,7 @@ export const ROSTER_OUTCOMES = [
   { value: "PASSED", label: "Passed" },
   { value: "POST_COURSE_SUPPORT", label: "Post-course support" },
   { value: "WITHDRAWN", label: "Withdrawn" },
+  { value: "TRANSFERRED", label: "Transferred" },
   { value: "SHORT", label: "Hours unaccounted" },
 ] as const;
 
@@ -106,6 +113,8 @@ export async function getCoachRoster(filters: CoachFilters = {}): Promise<CoachR
             days: true,
           },
         },
+        transferredTo: { select: { courseId: true, course: { select: { title: true } } } },
+        transferredFrom: { select: { courseId: true, course: { select: { title: true } } } },
         _count: { select: { deliveries: true } },
       },
     }),
@@ -135,6 +144,14 @@ export async function getCoachRoster(filters: CoachFilters = {}): Promise<CoachR
       clubName: e.clubName,
       catchUpNote: e.catchUpNote,
       outcome: e.outcome,
+      joinedAt: e.joinedAt,
+      leftAt: e.leftAt,
+      transferredTo: e.transferredTo
+        ? { courseId: e.transferredTo.courseId, courseTitle: e.transferredTo.course.title }
+        : null,
+      transferredFrom: e.transferredFrom
+        ? { courseId: e.transferredFrom.courseId, courseTitle: e.transferredFrom.course.title }
+        : null,
       attendanceMet: e.attendanceMet,
       journalComplete: e.journalComplete,
       readiness: e.readiness,
@@ -144,6 +161,8 @@ export async function getCoachRoster(filters: CoachFilters = {}): Promise<CoachR
         attendance: e.attendance,
         makeUps: e.makeUps,
         track: e.track,
+        joinedAt: e.joinedAt,
+        leftAt: e.leftAt,
       }),
       result: courseResult({
         courseId: e.courseId,

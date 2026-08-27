@@ -197,8 +197,37 @@ model Enrollment {
 
   /// FALC's enrolment state — "Enrolled", "Initiated Enrolment".
   enrolmentStatus String?
+
+  // ---- The window on the course ------------------------------------------
+  //
+  // Not everybody does all nine days of the course they are listed on. Coaches
+  // join at Block 2 and pick up Block 1 elsewhere; coaches do Block 1 here and
+  // move to another intake. Without a window, both look like somebody who
+  // simply didn't turn up, and the register puts them twenty-four hours short
+  // of a standard nobody was holding them to.
+  //
+  // Null at both ends is the ordinary case: the coach is on the course for all
+  // of it.
+
+  /// The first day this coach was on this course, if not the first day of it.
+  joinedAt DateTime?
+
+  /// The last day they were on it, if they didn't see it out.
+  leftAt DateTime?
+
+  /// The enrolment that continues this one when a coach moves courses.
+  ///
+  /// A one-to-one link rather than a status, so "transferred" can never be
+  /// recorded without saying where to — which is the only fact that makes the
+  /// hours findable afterwards.
+  transferredToId String?     @unique
+  transferredTo   Enrollment? @relation("EnrollmentTransfer", fields: [transferredToId], references: [id], onDelete: SetNull)
+  transferredFrom Enrollment? @relation("EnrollmentTransfer")
+
+  /// Why they moved, in the educator's words.
+  transferNote String?
   /// FALC's identifier for this coach, so a re-import matches on more than a name.
-  externalRef     String?
+  externalRef  String?
 
   // The result block.
   /// Whether the coach met the course's attendance requirement.
@@ -482,6 +511,11 @@ enum CourseOutcome {
 
   /// Left the course. Distinct from being rated short of the standard.
   WITHDRAWN
+
+  /// Moved to another course. Distinct from withdrawing: the coach is still
+  /// on the pathway, and their enrolment continues elsewhere — see
+  /// `Enrollment.transferredTo`.
+  TRANSFERRED
 }
 
 /// One delivery day of a course.

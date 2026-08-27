@@ -64,6 +64,8 @@ export default async function MakeUpsPage({
         attendance: e.attendance,
         makeUps: e.makeUps,
         track: e.track,
+        joinedAt: e.joinedAt,
+        leftAt: e.leftAt,
       }),
     }))
     .filter(({ summary }) => summary.unaccountedMinutes > 0)

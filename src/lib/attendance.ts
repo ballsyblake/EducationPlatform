@@ -125,9 +125,36 @@ export type AttendanceSummary = {
   unaccountedMinutes: number;
   daysMarked: number;
   daysTaken: number;
+  /** Days the register took that fall outside this coach's window. */
+  daysOutsideWindow: number;
   /** Effective hours as a share of required, or null before any day is taken. */
   percent: number | null;
 };
+
+/**
+ * Whether a course day falls inside the window a coach was on the course for.
+ *
+ * The bounds are inclusive: a coach who left after Day 3 sat Day 3, and one who
+ * joined on Day 4 sat Day 4. Both are compared by day, not by instant, because
+ * a course day is a date and a window bound is a date — an hours-level
+ * comparison would turn on what time of day somebody happened to type.
+ */
+export function withinWindow(
+  day: { date: Date },
+  joinedAt: Date | null | undefined,
+  leftAt: Date | null | undefined,
+): boolean {
+  const at = Date.UTC(day.date.getUTCFullYear(), day.date.getUTCMonth(), day.date.getUTCDate());
+  if (joinedAt) {
+    const from = Date.UTC(joinedAt.getUTCFullYear(), joinedAt.getUTCMonth(), joinedAt.getUTCDate());
+    if (at < from) return false;
+  }
+  if (leftAt) {
+    const to = Date.UTC(leftAt.getUTCFullYear(), leftAt.getUTCMonth(), leftAt.getUTCDate());
+    if (at > to) return false;
+  }
+  return true;
+}
 
 /**
  * Rolls one enrolment's hours up.
@@ -137,24 +164,37 @@ export type AttendanceSummary = {
  * everybody, and counting them would put the entire roster forty-eight hours
  * short of a standard nobody has been measured against yet.
  *
+ * The same argument applies to one coach rather than the whole roster, which is
+ * what `joinedAt` and `leftAt` are for. A coach who did Block 1 here and moved
+ * to another intake is not six days short: they were not on this course for
+ * those days. A coach who joined at Block 2 is not three days short either.
+ * Days outside the window drop out of the requirement — and out of the hours
+ * sat, so a stray mark on a day they had already left can't flatter the total.
+ *
  * A catch-up enrolment has no requirement of its own. It exists to host hours
  * owed on another course, and measuring it against a full nine days would show
  * every visiting coach as barely attending.
  */
 export function summariseAttendance(input: {
-  days: { id: string; startTime: string | null; endTime: string | null }[];
+  days: { id: string; date: Date; startTime: string | null; endTime: string | null }[];
   attendance: { courseDayId: string; minutes: number }[];
   makeUps: MakeUpLike[];
   track?: EnrollmentTrack;
+  joinedAt?: Date | null;
+  leftAt?: Date | null;
 }): AttendanceSummary {
-  const { days, attendance, makeUps, track = "MAIN" } = input;
+  const { days, attendance, makeUps, track = "MAIN", joinedAt, leftAt } = input;
 
   const marked = new Map(attendance.map((a) => [a.courseDayId, a.minutes]));
-  const takenDays = days.filter((d) => marked.has(d.id));
+  const inWindow = days.filter((d) => withinWindow(d, joinedAt, leftAt));
+  const takenDays = inWindow.filter((d) => marked.has(d.id));
+  const countable = new Set(takenDays.map((d) => d.id));
 
   const requiredMinutes =
     track === "CATCH_UP" ? 0 : takenDays.reduce((sum, d) => sum + dayMinutes(d), 0);
-  const attendedMinutes = attendance.reduce((sum, a) => sum + a.minutes, 0);
+  const attendedMinutes = attendance
+    .filter((a) => countable.has(a.courseDayId))
+    .reduce((sum, a) => sum + a.minutes, 0);
   const creditedMinutes = makeUps.reduce((sum, m) => sum + m.minutesCredited, 0);
   const outstandingMinutes = makeUps.reduce((sum, m) => sum + makeUpBalance(m), 0);
 
@@ -174,8 +214,9 @@ export function summariseAttendance(input: {
     effectiveMinutes,
     outstandingMinutes,
     unaccountedMinutes,
-    daysMarked: attendance.filter((a) => a.minutes > 0).length,
+    daysMarked: attendance.filter((a) => a.minutes > 0 && countable.has(a.courseDayId)).length,
     daysTaken: takenDays.length,
+    daysOutsideWindow: days.filter((d) => marked.has(d.id) && !countable.has(d.id)).length,
     percent:
       requiredMinutes > 0
         ? Math.min(100, Math.round((effectiveMinutes / requiredMinutes) * 100))

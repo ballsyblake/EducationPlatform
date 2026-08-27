@@ -99,6 +99,42 @@ so this is a second view of the register rather than a second opinion about it.
 completion, which is what the online courses are marked on and is no measure at
 all of a diploma.
 
+### Moves and part intakes
+
+Not everybody does all nine days of the course they are listed on. Coaches join
+at Block 2 and pick up Block 1 elsewhere; coaches do Block 1 at one venue and
+start again at the next intake. Without saying so, both read as somebody who
+didn't turn up, and the register puts them twenty-four hours short of a standard
+nobody was applying.
+
+An enrolment therefore has a **window**: `joinedAt` and `leftAt`, both null in
+the ordinary case. Days outside it drop out of the requirement *and* out of the
+hours sat, and show on the register as a dash rather than an empty box — an
+empty box means "didn't turn up", which is the wrong thing to say about somebody
+who had already moved to another intake. Marks recorded outside the window are
+kept, not deleted: the register is the record of what was written down on the
+day.
+
+A **move** is one operation, because its parts are only correct together —
+`/admin/courses/<id>/register` → *Moves and part intakes*:
+
+1. the origin closes at the coach's last day there,
+2. the destination opens at their first day (joining an enrolment that already
+   exists, rather than creating a second one),
+3. the two are linked one-to-one through `transferredToId`, so "transferred" can
+   never be recorded without saying where to,
+4. **hours still owed go with the coach**, off the register they have left,
+5. the origin's outcome becomes `TRANSFERRED` — but only if it was still
+   `IN_PROGRESS`. A coach who was rated and passed there passed there, and
+   moving them afterwards is not a reason to erase an educator's decision.
+
+Hours already sat are deliberately **not** added to the new course's total. A
+coach who did Block 1 at one venue and started again at another has sat those
+days twice, and quietly adding them would report a qualification as
+three-quarters done on the strength of the same three days counted twice. The
+link makes them visible from both ends; whether they are worth crediting is a
+judgement, and the make-up ledger is where a judgement gets written down.
+
 ### Hours and make-ups
 
 Attendance is **minutes, not a tick**. FQ's registers are full of half days —
@@ -131,6 +167,8 @@ Two numbers do most of the work, and the difference between them is the point:
 |---|---|
 | **Owed** | Raised on the ledger and not yet covered. Somebody is dealing with it. |
 | **Unaccounted** | Hours missing that nobody has raised anything for. These are the ones an educator needs to see. |
+
+Days outside a coach's window count towards neither.
 
 The hours desk at `/admin/make-ups` shows both, across every course: the open
 ledger, and everybody short with nothing raised — each with a form to raise the

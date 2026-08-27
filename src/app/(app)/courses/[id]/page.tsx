@@ -9,6 +9,7 @@ import {
   makeUpBalance,
   MAKE_UP_STATUS,
   summariseAttendance,
+  withinWindow,
 } from "@/lib/attendance";
 import { isAdmin, requireUser } from "@/lib/auth";
 import { getTasksForCoach, summarizeTasks } from "@/lib/coursework";
@@ -40,6 +41,8 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
     include: {
       attendance: true,
       makeUps: { orderBy: { openedAt: "asc" }, include: { courseDay: true } },
+      transferredTo: { select: { courseId: true, course: { select: { title: true } } } },
+      transferredFrom: { select: { courseId: true, course: { select: { title: true } } } },
       deliveries: { orderBy: { deliveryNo: "asc" }, include: { assessorUser: true } },
     },
   });
@@ -60,6 +63,8 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
         attendance: enrollment.attendance,
         makeUps: enrollment.makeUps,
         track: enrollment.track,
+        joinedAt: enrollment.joinedAt,
+        leftAt: enrollment.leftAt,
       })
     : null;
 
@@ -95,12 +100,43 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-ink-900">Your register</h2>
+              {/* Where a coach's hours went, in their own words rather than
+                  the register's. Somebody who moved intakes has usually been
+                  told once, months ago, and this is the page they check. */}
+              {enrollment.transferredTo && (
+                <p className="mb-1 text-sm text-maroon-700">
+                  You moved from this course to{" "}
+                  <Link
+                    href={`/courses/${enrollment.transferredTo.courseId}`}
+                    className="font-semibold underline"
+                  >
+                    {enrollment.transferredTo.course.title}
+                  </Link>
+                  . Your hours here are what you sat before you left.
+                </p>
+              )}
+              {enrollment.transferredFrom && (
+                <p className="mb-1 text-sm text-ink-600">
+                  You joined this course from{" "}
+                  <Link
+                    href={`/courses/${enrollment.transferredFrom.courseId}`}
+                    className="font-semibold underline"
+                  >
+                    {enrollment.transferredFrom.course.title}
+                  </Link>
+                  .
+                </p>
+              )}
               <p className="text-sm text-ink-500">
                 {hours && hours.requiredMinutes > 0
                   ? `${formatHours(hours.effectiveMinutes)} of ${formatHours(hours.requiredMinutes)} so far`
                   : `${hours?.daysTaken ?? 0} of ${course.days.length} days taken`}
                 {enrollment.track === "CATCH_UP" &&
                   ` · catching up${enrollment.catchUpNote ? ` ${enrollment.catchUpNote}` : ""}`}
+                {(enrollment.joinedAt || enrollment.leftAt) &&
+                  ` · counted ${enrollment.joinedAt ? `from ${formatDate(enrollment.joinedAt)}` : "from the start"} ${
+                    enrollment.leftAt ? `to ${formatDate(enrollment.leftAt)}` : "to the end"
+                  }`}
               </p>
             </div>
             {result && (
@@ -118,7 +154,10 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
 
           <ul className="flex flex-wrap gap-2">
             {course.days.map((day) => {
-              const minutes = marks.get(day.id);
+              // A day before the coach joined or after they left is not an
+              // absence — they were somewhere else, with FQ's blessing.
+              const mine = withinWindow(day, enrollment.joinedAt, enrollment.leftAt);
+              const minutes = mine ? marks.get(day.id) : undefined;
               const scheduled = dayMinutes(day);
               // Three states, not two: a day nobody has marked yet is not the
               // same as a day the coach missed, and a part day is neither.
@@ -137,14 +176,18 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
                           : "border-ink-200 bg-white text-ink-400"
                   }`}
                   title={
-                    minutes === undefined
-                      ? "Not yet marked"
-                      : minutes === 0
+                    !mine
+                      ? "Not part of your time on this course"
+                      : minutes === undefined
+                        ? "Not yet marked"
+                        : minutes === 0
                         ? "Absent"
                         : `${formatHours(minutes)} of ${formatHours(scheduled)}`
                   }
                 >
-                  <span className="font-semibold">Day {day.dayNo}</span>
+                  <span className={`font-semibold ${mine ? "" : "line-through"}`}>
+                    Day {day.dayNo}
+                  </span>
                   <span className="ml-2">{formatDate(day.date)}</span>
                   {partial && <span className="ml-2 font-semibold">{formatHours(minutes)}</span>}
                 </li>

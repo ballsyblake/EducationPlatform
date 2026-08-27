@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
+import { shortCourseTitle } from "@/lib/coaches";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate } from "@/lib/format";
 import { DEFAULT_RATING_THRESHOLD } from "@/lib/support-rubric";
@@ -11,7 +12,16 @@ import {
   formatHours,
   makeUpBalance,
   summariseAttendance,
+  withinWindow,
 } from "@/lib/attendance";
+import {
+  MoveCard,
+  MoveForm,
+  PartIntakeForm,
+  type CourseOption,
+  type DayOption,
+  type MoveRow,
+} from "./transfer-forms";
 import {
   CoachAttendanceGrid,
   ResultsTable,
@@ -42,6 +52,8 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
           user: true,
           attendance: true,
           makeUps: { orderBy: { openedAt: "asc" }, include: { courseDay: true } },
+          transferredTo: { select: { courseId: true, course: { select: { title: true } } } },
+          transferredFrom: { select: { courseId: true, course: { select: { title: true } } } },
           _count: { select: { deliveries: true } },
         },
       },
@@ -90,6 +102,8 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
         attendance: e.attendance,
         makeUps: e.makeUps,
         track: e.track,
+        joinedAt: e.joinedAt,
+        leftAt: e.leftAt,
       }),
     ]),
   );
@@ -102,6 +116,9 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
     creditedMinutes: summaries.get(e.id)?.creditedMinutes ?? 0,
     outstandingMinutes: summaries.get(e.id)?.outstandingMinutes ?? 0,
     raisedMinutes: summaries.get(e.id)?.raisedMinutes ?? 0,
+    outsideDayIds: course.days
+      .filter((d) => !withinWindow(d, e.joinedAt, e.leftAt))
+      .map((d) => d.id),
   });
 
   const main = course.enrollments.filter((e) => e.track === "MAIN");
@@ -113,6 +130,65 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
     subtitle: s.role,
     marks: Object.fromEntries(s.attendance.map((a) => [a.courseDayId, a.present])),
   }));
+
+  // Course days as a picker: an educator knows a move as "he did Block 1 with
+  // us", and a day list can't produce the wrong year the way a date field can.
+  const isoDay = (date: Date) => date.toISOString().slice(0, 10);
+  const dayPicker: DayOption[] = course.days.map((day) => ({
+    id: day.id,
+    dayNo: day.dayNo,
+    date: isoDay(day.date),
+    label: `Day ${day.dayNo} · ${formatDate(day.date)}`,
+  }));
+
+  const otherCourses: CourseOption[] = (
+    await prisma.course.findMany({
+      where: { id: { not: course.id } },
+      orderBy: { title: "asc" },
+      select: { id: true, title: true, days: { orderBy: { dayNo: "asc" } } },
+    })
+  ).map((c) => ({
+    id: c.id,
+    title: shortCourseTitle(c.title),
+    days: c.days.map((day) => ({
+      id: day.id,
+      dayNo: day.dayNo,
+      date: isoDay(day.date),
+      label: `Day ${day.dayNo} · ${formatDate(day.date)}`,
+    })),
+  }));
+
+  const moveRow = (e: (typeof course.enrollments)[number]): MoveRow => ({
+    enrollmentId: e.id,
+    name: displayName(e.user),
+    subtitle: e.track === "CATCH_UP" ? "Catch-up" : e.clubName,
+    joinedAt: e.joinedAt ? isoDay(e.joinedAt) : null,
+    leftAt: e.leftAt ? isoDay(e.leftAt) : null,
+    // The short title, because the card is a sentence: "Moved to AFC /
+    // Football Australia B Diploma — Regional @ Gold Coast" buries the only
+    // part of it the reader needs.
+    transferredTo: e.transferredTo
+      ? {
+          courseId: e.transferredTo.courseId,
+          courseTitle: shortCourseTitle(e.transferredTo.course.title),
+          note: e.transferNote,
+        }
+      : null,
+    transferredFrom: e.transferredFrom
+      ? {
+          courseId: e.transferredFrom.courseId,
+          courseTitle: shortCourseTitle(e.transferredFrom.course.title),
+        }
+      : null,
+    daysOutsideWindow: summaries.get(e.id)?.daysOutsideWindow ?? 0,
+  });
+
+  const moveRows = course.enrollments.map(moveRow);
+  // Anybody whose time here wasn't the whole of it — a window set, or a move
+  // recorded at either end.
+  const moves = moveRows.filter(
+    (r) => r.joinedAt || r.leftAt || r.transferredTo || r.transferredFrom,
+  );
 
   const dayOptions = course.days.map((day) => ({
     id: day.id,
@@ -166,8 +242,13 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
   const marks = course.enrollments.flatMap((e) => e.attendance);
   // Across the whole roster, hours sat as a share of hours run — not marks
   // ticked as a share of marks made, which counted a half day as a full one.
-  const courseRequired = [...summaries.values()].reduce((s, x) => s + x.requiredMinutes, 0);
-  const courseEffective = [...summaries.values()].reduce((s, x) => s + x.effectiveMinutes, 0);
+  //
+  // Only enrolments with a requirement count. A catch-up sitting one day here
+  // has hours but no denominator of its own, and adding those hours to the
+  // roster's total produced a course attending 103% of itself.
+  const measured = [...summaries.values()].filter((x) => x.requiredMinutes > 0);
+  const courseRequired = measured.reduce((s, x) => s + x.requiredMinutes, 0);
+  const courseEffective = measured.reduce((s, x) => s + x.effectiveMinutes, 0);
   const attendancePct =
     courseRequired > 0 ? Math.min(100, Math.round((courseEffective / courseRequired) * 100)) : null;
   const outstandingMinutes = course.enrollments
@@ -258,6 +339,37 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
         <h2 className="mb-1 text-lg font-semibold text-ink-900">Course team</h2>
         <p className="mb-3 text-sm text-ink-500">Who was on the grass, and on which days.</p>
         <StaffAttendanceGrid courseId={course.id} days={days} rows={staffRows} />
+      </section>
+
+      <section className="mb-10">
+        <h2 className="mb-1 text-lg font-semibold text-ink-900">Moves and part intakes</h2>
+        <p className="mb-3 text-sm text-ink-500">
+          Not everybody does all nine days of the course they are listed on. Say which days a coach
+          was actually here, and they stop being measured against the ones they weren&apos;t —
+          rather than reading as somebody who didn&apos;t turn up.
+        </p>
+
+        <div className="card divide-y divide-ink-200">
+          {moves.map((row) => (
+            <MoveCard key={row.enrollmentId} row={row} days={dayPicker} />
+          ))}
+          <div className="px-5 py-4">
+            <p className="mb-1 text-sm font-medium text-ink-900">Set a part intake</p>
+            <p className="mb-3 text-xs text-ink-500">
+              For a coach who joined late or stopped early without moving to another course.
+            </p>
+            <PartIntakeForm rows={moveRows} days={dayPicker} />
+          </div>
+
+          <div className="px-5 py-4">
+            <p className="mb-1 text-sm font-medium text-ink-900">Record a move</p>
+            <p className="mb-3 text-xs text-ink-500">
+              Closes their time here, opens it on the other course, and takes any hours they still
+              owe with them.
+            </p>
+            <MoveForm rows={moveRows} days={dayPicker} otherCourses={otherCourses} />
+          </div>
+        </div>
       </section>
 
       <section className="mb-10">

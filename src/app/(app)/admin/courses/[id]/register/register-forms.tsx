@@ -37,6 +37,9 @@ export type RegisterRow = {
   /// Everything raised on the ledger, settled or not. What the row is short by
   /// beyond this is what nobody has looked at.
   raisedMinutes: number;
+  /// Days this coach wasn't on the course for — they joined late, left early,
+  /// or moved to another intake. Not absences, and not theirs to answer for.
+  outsideDayIds: string[];
 };
 
 export type StaffRow = {
@@ -135,9 +138,16 @@ export function CoachAttendanceGrid({
     set(key, day && day.minutes > 0 ? Math.min(minutes, day.minutes) : minutes);
   }
 
-  const attended = (dayId: string) => rows.filter((r) => (marks[`${dayId}:${r.id}`] ?? 0) > 0).length;
+  const outside = new Map(rows.map((r) => [r.id, new Set(r.outsideDayIds)]));
+  const isOutside = (dayId: string, rowId: string) => outside.get(rowId)?.has(dayId) ?? false;
+
+  const attended = (dayId: string) =>
+    rows.filter((r) => !isOutside(dayId, r.id) && (marks[`${dayId}:${r.id}`] ?? 0) > 0).length;
   const rowMinutes = (rowId: string) =>
-    days.reduce((sum, d) => sum + (marks[`${d.id}:${rowId}`] ?? 0), 0);
+    days.reduce(
+      (sum, d) => sum + (isOutside(d.id, rowId) ? 0 : (marks[`${d.id}:${rowId}`] ?? 0)),
+      0,
+    );
   /**
    * Only days the register has actually taken count towards the denominator.
    *
@@ -148,6 +158,12 @@ export function CoachAttendanceGrid({
   const taken = new Set(
     days.filter((d) => rows.some((r) => marks[`${d.id}:${r.id}`] !== undefined)).map((d) => d.id),
   );
+  /** The denominator for one coach: taken days, less the ones they missed the
+   *  course for entirely. */
+  const requiredFor = (rowId: string) =>
+    days
+      .filter((d) => taken.has(d.id) && !isOutside(d.id, rowId))
+      .reduce((sum, d) => sum + d.minutes, 0);
   const requiredMinutes = days
     .filter((d) => taken.has(d.id))
     .reduce((sum, d) => sum + d.minutes, 0);
@@ -190,7 +206,7 @@ export function CoachAttendanceGrid({
           <tbody className="divide-y divide-ink-200">
             {rows.map((row) => {
               const sat = rowMinutes(row.id);
-              const short = Math.max(0, requiredMinutes - sat);
+              const short = Math.max(0, requiredFor(row.id) - sat);
               const unaccounted = Math.max(0, short - row.raisedMinutes);
               return (
                 <tr key={row.id} className="hover:bg-ink-50">
@@ -205,6 +221,24 @@ export function CoachAttendanceGrid({
                     const marked = marks[key];
                     const minutes = marked ?? 0;
                     const full = day.minutes > 0 && minutes >= day.minutes;
+                    const notTheirs = isOutside(day.id, row.id);
+
+                    // A day the coach wasn't on the course for is shown as a
+                    // dash, not an empty box. An empty box on a register means
+                    // "didn't turn up", and that is the wrong thing to say
+                    // about somebody who had already moved to another intake.
+                    if (notTheirs) {
+                      return (
+                        <td
+                          key={day.id}
+                          title="Not on the course for this day"
+                          className="px-2 py-2 text-center align-middle text-ink-300"
+                        >
+                          —
+                        </td>
+                      );
+                    }
+
                     return (
                       <td key={day.id} className="group px-2 py-2 text-center align-middle">
                         {/* A day nobody has been marked on posts nothing, so it
@@ -270,6 +304,11 @@ export function CoachAttendanceGrid({
                     <span className={short > 0 ? "font-semibold text-maroon-700" : "text-ink-700"}>
                       {formatHours(sat)}
                     </span>
+                    {requiredFor(row.id) !== requiredMinutes && (
+                      <span className="block text-[10px] text-ink-400">
+                        of {formatHours(requiredFor(row.id))}
+                      </span>
+                    )}
                     {row.creditedMinutes > 0 && (
                       <span className="block text-[10px] text-ink-500">
                         +{formatHours(row.creditedMinutes)} made up
