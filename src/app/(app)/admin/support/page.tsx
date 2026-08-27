@@ -157,10 +157,11 @@ export default async function SupportPage({
 
       {/* --------------------- Who hasn't passed -------------------------- */}
       <section className="mb-10">
-        <h2 className="mb-1 text-lg font-semibold text-ink-900">Finished below the pass mark</h2>
+        <h2 className="mb-1 text-lg font-semibold text-ink-900">Rated below the pass mark</h2>
         <p className="mb-3 text-sm text-ink-500">
-          Every item graded, and the total came in under the course&apos;s pass mark. Nobody is
-          referred automatically — open a case when you&apos;ve had the conversation.
+          Rated on the register under their course&apos;s pass mark — what the rubric itself calls
+          post-course support. Nobody is referred automatically; open a case when you&apos;ve had
+          the conversation.
         </p>
         {candidates.length ? (
           <div className="space-y-3">
@@ -179,7 +180,8 @@ export default async function SupportPage({
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge tone="bad">
-                      {candidate.result.pct}% · pass mark {candidate.result.passMark}%
+                      {candidate.result.rating?.toFixed(1) ?? "—"} · pass mark{" "}
+                      {candidate.result.threshold}
                     </Badge>
                     <span className="text-sm font-medium text-maroon-700">Refer →</span>
                   </div>
@@ -202,7 +204,7 @@ export default async function SupportPage({
         ) : (
           <EmptyState
             title="Nobody outstanding"
-            description="Every coach who has finished a ranked course is either above the pass mark or already has a case."
+            description="Every rated coach is either above their course's pass mark or already has a case open."
           />
         )}
       </section>

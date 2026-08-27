@@ -73,6 +73,11 @@ model User {
   gradedAttempts    QuizAttempt[] @relation("AttemptGrader")
   authoredCourses   Course[]      @relation("CourseAuthor")
 
+  // Course delivery. An educator is rostered onto a course as CET, and named
+  // on every practical delivery they assessed.
+  courseStaffRoles   CourseStaff[]       @relation("CourseStaffUser")
+  assessedDeliveries PracticalDelivery[] @relation("DeliveryAssessor")
+
   // Post-course support. A coach holds cases; an educator is named on the ones
   // they run and on every attempt they have written up.
   supportCases     SupportCase[]    @relation("SupportCoach")
@@ -132,20 +137,39 @@ model Course {
   authorId    String?
   author      User?    @relation("CourseAuthor", fields: [authorId], references: [id], onDelete: SetNull)
 
-  /// Percentage of the course's graded points a coach has to reach to pass.
+  /// The FQ rating a coach has to reach to pass, on the 1-5 scale in
+  /// src/lib/support-rubric.ts. 2.5 on every AFC/FA diploma.
   ///
-  /// Null means the course doesn't rank: it is complete-it-and-you're-done, and
-  /// nobody can fail it. Where a mark is set, a coach who finishes every item
-  /// below it has not passed, and is a candidate for post-course support.
-  passMark Int?
+  /// Null means the course isn't rated: it is complete-it-and-you're-done, and
+  /// nobody can fail it. Where a threshold is set, a coach rated below it has
+  /// not passed, and the rubric's own name for what happens next is
+  /// post-course support.
+  ratingThreshold Float?
+
+  /// What the course is an accreditation in — "B Diploma", "C Licence".
+  qualification String?
+  /// The register's course name: "Metro", "Regional".
+  stream        String?
+  /// Where it is delivered, and the ground.
+  location      String?
+  venue         String?
 
   enrollments  Enrollment[]
   materials    Material[]
   assignments  Assignment[]
   quizzes      Quiz[]
   supportCases SupportCase[]
+  days         CourseDay[]
+  staff        CourseStaff[]
 }
 
+/// An enrolment, and the row the coach occupies on the course's register.
+///
+/// Everything below the relations comes off Football Queensland's attendance
+/// register: the roster block on the left, the result block on the right. It
+/// hangs here rather than on User because all of it is as-at-this-course — a
+/// coach's age, club and age group are true of the intake they sat, and a coach
+/// who returns two years later is a second row, not an edit to the first.
 model Enrollment {
   id        String   @id @default(cuid())
   userId    String
@@ -154,8 +178,45 @@ model Enrollment {
   course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
+  /// The register's # column, so a roster reads back in the order it was kept.
+  position Int             @default(0)
+  track    EnrollmentTrack @default(MAIN)
+
+  /// What a catch-up is catching up: "Day 6 & Block 3".
+  ///
+  /// The register keeps this in the Club column of its catch-ups block, which
+  /// is why a catch-up never carries a club — the column is doing another job.
+  catchUpNote String?
+
+  // The roster block.
+  ageAtCourse      Int?
+  gender           String?
+  clubName         String?
+  coachingAgeGroup String?
+
+  /// FALC's enrolment state — "Enrolled", "Initiated Enrolment".
+  enrolmentStatus String?
+  /// FALC's identifier for this coach, so a re-import matches on more than a name.
+  externalRef     String?
+
+  // The result block.
+  /// Whether the coach met the course's attendance requirement.
+  attendanceMet    Boolean?
+  journalComplete  Boolean?
+  /// FQ rating, 1-5 in half steps. Null until somebody rates them.
+  rating           Float?
+  outcome          CourseOutcome @default(IN_PROGRESS)
+  /// How ready they are for the next licence: "Now", "1-3 Years", "Never".
+  readiness        String?
+  /// The register's own Comments column, kept as written.
+  registerComments String?
+
+  attendance Attendance[]
+  deliveries PracticalDelivery[]
+
   @@unique([userId, courseId])
   @@index([courseId])
+  @@index([outcome])
 }
 
 enum MaterialKind {
@@ -376,6 +437,173 @@ model Answer {
 
 /**
  * ==========================================================================
+ * The attendance register
+ * --------------------------------------------------------------------------
+ * Football Queensland runs its AFC/FA diplomas off one spreadsheet per course:
+ * nine delivery days across three blocks, a roster, a catch-ups block for
+ * coaches making up time on another course, the CET team's own attendance, and
+ * a grid of Yes/No between them. Beside it sits an assessment sheet holding
+ * each coach's practical deliveries, and a rating out of five.
+ * These tables are that register. Shape of the data:
+ * Course ──< CourseDay  ──< Attendance      >── Enrollment
+ * ──< CourseStaff ──< StaffAttendance
+ * Enrollment ──< PracticalDelivery
+ * The register is the source of truth for whether a coach passed, and it does
+ * not work in percentages: a coach is rated 1-5 against the rubric in
+ * src/lib/support-rubric.ts, and anything below the course's threshold is the
+ * rubric's own "post-course support".
+ * ==========================================================================
+ */
+
+/// Which block of the register a coach's row sits in.
+enum EnrollmentTrack {
+  /// The roster proper.
+  MAIN
+
+  /// Catching up hours missed, or deferred in from an earlier intake. They
+  /// attend the same days and are assessed the same way; they are tracked
+  /// separately because the register does, and because their attendance is
+  /// partial by definition and would drag a course's totals down.
+  CATCH_UP
+}
+
+/// The register's Outcome column.
+enum CourseOutcome {
+  IN_PROGRESS
+
+  /// "Pass on course" — rated at or above the course's threshold.
+  PASSED
+
+  /// Rated below the threshold. Not a fail: the rubric's own next step, and
+  /// what opens a SupportCase.
+  POST_COURSE_SUPPORT
+
+  /// Left the course. Distinct from being rated short of the standard.
+  WITHDRAWN
+}
+
+/// One delivery day of a course.
+model CourseDay {
+  id       String @id @default(cuid())
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  dayNo   Int
+  /// As the register writes it. Kept rather than derived from the date: a day
+  /// that moves is often corrected in one column and not the other, and the
+  /// register is the record of what was actually run.
+  weekday String?
+  date    DateTime
+
+  /// Wall-clock labels — "08:30", "16:30" — not instants.
+  ///
+  /// A course day starts at half past eight where it is being held, and storing
+  /// that as a timestamp would make it depend on the server's zone. Queensland
+  /// keeps no daylight saving, so this never needs arithmetic anyway.
+  startTime String?
+  endTime   String?
+
+  attendance      Attendance[]
+  staffAttendance StaffAttendance[]
+
+  @@unique([courseId, dayNo])
+  @@index([courseId])
+}
+
+/// Whether one coach was there on one day.
+///
+/// A missing row means nobody marked it, which is not the same as absent: on a
+/// course still in its first block, days 4 to 9 are unmarked for everybody.
+model Attendance {
+  id           String     @id @default(cuid())
+  courseDayId  String
+  courseDay    CourseDay  @relation(fields: [courseDayId], references: [id], onDelete: Cascade)
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  present      Boolean
+
+  @@unique([courseDayId, enrollmentId])
+  @@index([enrollmentId])
+}
+
+/// A member of the course team — CET1 to CET5, and course experience support.
+model CourseStaff {
+  id       String @id @default(cuid())
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  /// The register's own label for the seat: "CET1", "CX Support".
+  role String
+  name String
+
+  /// The account behind the name, where there is one.
+  ///
+  /// Nullable because a register names people before they have an account here,
+  /// and a course team that only half exists in this system is still worth
+  /// recording — the roster is what an educator checks, not the join.
+  userId String?
+  user   User?   @relation("CourseStaffUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  position   Int               @default(0)
+  attendance StaffAttendance[]
+
+  @@unique([courseId, role])
+  @@index([courseId])
+  @@index([userId])
+}
+
+model StaffAttendance {
+  id          String      @id @default(cuid())
+  courseDayId String
+  courseDay   CourseDay   @relation(fields: [courseDayId], references: [id], onDelete: Cascade)
+  staffId     String
+  staff       CourseStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  present     Boolean
+
+  @@unique([courseDayId, staffId])
+  @@index([staffId])
+}
+
+/// One assessed practical delivery — the coach in front of a group, watched.
+///
+/// The register keeps this as a small form typed into one spreadsheet cell.
+/// The parsed fields are what the app reads; `raw` is the cell as it was
+/// written, because the form is free text and a parser that gets it wrong
+/// should lose formatting, never content.
+model PracticalDelivery {
+  id           String     @id @default(cuid())
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  deliveryNo   Int
+
+  /// The educator who watched it, as the register names them.
+  assessor     String?
+  /// Their account, where the name resolved to one.
+  assessorId   String?
+  assessorUser User?   @relation("DeliveryAssessor", fields: [assessorId], references: [id], onDelete: SetNull)
+
+  /// Which block of the course it happened in.
+  block     String?
+  /// "Play" or "Practice" — which half of the session was assessed.
+  component String?
+  topic     String?
+
+  comment    String?
+  actionPlan String?
+  /// The session's own rating, 1-5. The coach's course rating is a judgement
+  /// across all of them, not an average of them.
+  rating     Float?
+
+  raw       String?
+  createdAt DateTime @default(now())
+
+  @@unique([enrollmentId, deliveryNo])
+  @@index([enrollmentId])
+  @@index([assessorId])
+}
+
+/**
+ * ==========================================================================
  * Post-course support
  * --------------------------------------------------------------------------
  * Coursework tells you whether a coach knows the material. It does not tell
@@ -446,13 +674,6 @@ enum SupportOutcome {
   NOT_YET_SUCCESSFUL
 }
 
-/// One reviewer's mark against one rubric criterion.
-enum DeliveryRating {
-  NOT_YET
-  DEVELOPING
-  COMPETENT
-}
-
 /// One coach's route back onto one course.
 model SupportCase {
   id       String @id @default(cuid())
@@ -468,12 +689,12 @@ model SupportCase {
   /// process exists to avoid.
   reason String?
 
-  /// The course result at the moment of referral, frozen.
+  /// The coach's course rating at the moment of referral, frozen.
   ///
-  /// A coach can turn in outstanding work after being referred, and a regrade
-  /// can move a mark. Neither should quietly rewrite the reason a case was
-  /// opened, so the percentage that triggered it is kept as it stood.
-  referredPct Int?
+  /// An educator can revise a rating after a referral, and a late practical
+  /// delivery can move it. Neither should quietly rewrite the reason a case was
+  /// opened, so the figure that triggered it is kept as it stood.
+  referredRating Float?
 
   /// How many deliveries the coach may be assessed on. FQ's default is two —
   /// the reassessment, and one further opportunity — but an educator can raise
@@ -533,6 +754,12 @@ model SupportAttempt {
   submittedAt DateTime?
 
   outcome      SupportOutcome?
+  /// The delivery's overall FQ rating, 1-5.
+  ///
+  /// Computed from the criterion marks on save and never read from the form,
+  /// the same way a CDA star band is. What the reviewer chooses is the
+  /// outcome; the rubric decides which outcomes that rating leaves open.
+  rating       Float?
   /// The reviewer's written feedback to the coach.
   feedback     String?
   reviewedAt   DateTime?
@@ -553,17 +780,18 @@ model SupportAttempt {
 /// A reviewer's mark against one criterion of the delivery rubric.
 ///
 /// The criterion is referenced by code rather than by foreign key: unlike the
-/// CDA rubric, which the Unit rewords between cycles, this one is eight fixed
-/// competencies that live in code. Storing the code keeps a completed review
-/// readable even if a criterion is retired later.
+/// CDA rubric, which the Unit rewords between cycles, this one is Football
+/// Australia's and is not FQ's to reword mid-intake. Storing the code keeps a
+/// completed review readable even if a criterion is retired later.
 model SupportRating {
   id        String         @id @default(cuid())
   attemptId String
   attempt   SupportAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
 
-  /// Matches a `code` in SUPPORT_CRITERIA (src/lib/support.ts).
+  /// Matches a `code` in SUPPORT_CRITERIA (src/lib/support-rubric.ts).
   code    String
-  level   DeliveryRating
+  /// 1-5 in half steps, per Football Australia's rubric.
+  rating  Float
   comment String?
 
   @@unique([attemptId, code])

@@ -51,16 +51,17 @@ export function CreateCourseForm() {
         </label>
         <input
           id="course-pass-mark"
-          name="passMark"
+          name="ratingThreshold"
           type="number"
           min={1}
-          max={100}
-          placeholder="e.g. 70"
+          max={5}
+          step={0.5}
+          placeholder="2.5"
           className="input"
         />
         <p className="hint">
-          Leave blank if the course can&apos;t be failed. With a mark set, a coach who finishes
-          every item below it is flagged for post-course support.
+          The FQ rating a coach has to reach, out of 5. 2.5 on every AFC/FA diploma. Leave it
+          blank if the course isn&apos;t rated.
         </p>
       </div>
 

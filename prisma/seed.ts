@@ -73,7 +73,7 @@ async function main() {
       season: "2026 Pre-Season",
       description:
         "Attacking and defending principles, pressing triggers, and building from the back — so every age group is coached in the same language.",
-      passMark: 75,
+      ratingThreshold: 2.5,
       published: true,
       authorId: headCoach.id,
     },
@@ -85,9 +85,9 @@ async function main() {
       season: "2026 Season",
       description:
         "Heat policy, concussion protocols and the safeguarding standards every coach signs off before the season starts.",
-      // Below this and the coach is reassessed on a session they actually
-      // deliver, rather than being failed on paperwork alone.
-      passMark: 70,
+      // Football Australia's line: 2.5 and up is a pass, below it is what the
+      // rubric itself calls post-course support.
+      ratingThreshold: 2.5,
       published: true,
       authorId: headCoach.id,
     },
@@ -378,8 +378,26 @@ async function main() {
   });
   const safetyMax = safetyQuestions.reduce((sum, q) => sum + q.points, 0);
 
-  /** Finishes the safety course for one coach at a given assignment score. */
-  async function finishSafetyCourse(userId: string, assignmentScore: number, response: string) {
+  /**
+   * Finishes the safety course for one coach: coursework graded, and the
+   * register's own rating recorded against their enrolment.
+   */
+  async function finishSafetyCourse(
+    userId: string,
+    assignmentScore: number,
+    rating: number,
+    response: string,
+  ) {
+    await prisma.enrollment.update({
+      where: { userId_courseId: { userId, courseId: safety.id } },
+      data: {
+        rating,
+        outcome: rating >= 2.5 ? "PASSED" : "POST_COURSE_SUPPORT",
+        attendanceMet: true,
+        journalComplete: true,
+      },
+    });
+
     await prisma.submission.create({
       data: {
         assignmentId: safetyPlan.id,
@@ -431,41 +449,47 @@ async function main() {
   await finishSafetyCourse(
     elliot.id,
     28,
+    1.5,
     "Drinks every 20 minutes, and we stop if anyone looks like they're struggling.",
   );
   await finishSafetyCourse(
     sam.id,
     30,
+    2,
     "Two breaks a session in summer, and parents are told to send a full bottle.",
   );
   await finishSafetyCourse(
     tom.id,
     33,
+    2,
     "Breaks on the quarter, session shortened above 32, and nobody goes back on after a head knock.",
   );
   await finishSafetyCourse(
     priya.id,
     31,
+    2,
     "Water breaks every 15 minutes and we move to the shaded pitch when it's over 30.",
   );
 
   const ALL_CRITERIA = [
-    "PLAN",
-    "DESIGN",
-    "SAFETY",
-    "TECHNICAL",
-    "INTERVENE",
-    "COMMS",
-    "ENGAGE",
-    "REFLECT",
+    "ENGAGEMENT",
+    "OBJECTIVE",
+    "CONTENT",
+    "ORGANISATION",
+    "PRESENTING",
+    "COACHING",
+    "ENVIRONMENT",
   ] as const;
 
-  /** Marks every criterion COMPETENT, then applies the exceptions given. */
-  function marks(exceptions: Partial<Record<(typeof ALL_CRITERIA)[number], string>> = {}) {
-    return ALL_CRITERIA.map((code) => ({
-      code,
-      level: (exceptions[code] ?? "COMPETENT") as "NOT_YET" | "DEVELOPING" | "COMPETENT",
-    }));
+  /** Rates every criterion at `base`, then applies the exceptions given. */
+  function marks(base: number, exceptions: Partial<Record<(typeof ALL_CRITERIA)[number], number>> = {}) {
+    return ALL_CRITERIA.map((code) => ({ code, rating: exceptions[code] ?? base }));
+  }
+
+  /** The overall figure the app computes from a set of marks. */
+  function overall(rated: { rating: number }[]) {
+    const mean = rated.reduce((sum, r) => sum + r.rating, 0) / rated.length;
+    return Math.round(mean * 2) / 2;
   }
 
   // Elliot filmed a session and it's sitting in the educator's queue.
@@ -476,7 +500,7 @@ async function main() {
       reason:
         "Strong on the protocols in writing, but the heat question went the wrong way and none of " +
         "it showed up in the plan. I want to see how you actually run a session in the heat.",
-      referredPct: 57,
+      referredRating: 1.5,
       educatorId: headCoach.id,
       referredById: headCoach.id,
       openedAt: days(-6),
@@ -504,7 +528,7 @@ async function main() {
       reason:
         "MiniRoos numbers make ratios the thing to get right, and the written plan doesn't say " +
         "how you'd split the group. Easier to watch than to write about.",
-      referredPct: 60,
+      referredRating: 2,
       educatorId: headCoach.id,
       referredById: headCoach.id,
       openedAt: days(-4),
@@ -529,13 +553,16 @@ async function main() {
       reason:
         "Sixty-six per cent, and the gap is all in the practical. Let's see a session rather than " +
         "re-sit the paper.",
-      referredPct: 66,
+      referredRating: 2,
       educatorId: headCoach.id,
       referredById: headCoach.id,
       openedAt: days(-40),
       closedAt: days(-8),
     },
   });
+
+  const firstMarks = marks(2.5, { ENVIRONMENT: 1.5, COACHING: 1.5, ORGANISATION: 2 });
+  const secondMarks = marks(3, { ENGAGEMENT: 3.5, COACHING: 3.5 });
 
   await prisma.supportAttempt.create({
     data: {
@@ -555,13 +582,14 @@ async function main() {
         "Fix the breaks, pick two coaching points and let the rest go.",
       reviewedAt: days(-28),
       reviewedById: headCoach.id,
+      rating: overall(firstMarks),
       ratings: {
-        create: marks({ SAFETY: "NOT_YET", INTERVENE: "NOT_YET", PLAN: "DEVELOPING" }).map((m) => ({
+        create: firstMarks.map((m) => ({
           ...m,
           comment:
-            m.code === "SAFETY"
+            m.code === "ENVIRONMENT"
               ? "22 minutes to the first break at 33 degrees."
-              : m.code === "INTERVENE"
+              : m.code === "COACHING"
                 ? "Nine stoppages in one practice."
                 : null,
         })),
@@ -585,7 +613,8 @@ async function main() {
         "standard — well done.",
       reviewedAt: days(-8),
       reviewedById: headCoach.id,
-      ratings: { create: marks({ REFLECT: "DEVELOPING" }) },
+      rating: overall(secondMarks),
+      ratings: { create: secondMarks },
     },
   });
 

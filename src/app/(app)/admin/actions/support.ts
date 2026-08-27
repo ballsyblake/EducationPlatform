@@ -5,13 +5,18 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { courseResultsFor } from "@/lib/support";
-import { reviewGate, SUPPORT_CRITERIA } from "@/lib/support-rubric";
-import type { DeliveryRating, SupportPathway } from "@prisma-client";
+import {
+  DEFAULT_RATING_THRESHOLD,
+  RATING_SCALE,
+  reviewGate,
+  SUPPORT_CRITERIA,
+} from "@/lib/support-rubric";
+import type { SupportPathway } from "@prisma-client";
 
 export type SupportState = { status: "idle" | "ok" | "error"; message?: string };
 
 const PATHWAYS: SupportPathway[] = ["LIVE_ASSESSMENT", "VIDEO_REVIEW"];
-const LEVELS: DeliveryRating[] = ["NOT_YET", "DEVELOPING", "COMPETENT"];
+const MARKS = new Set<number>(RATING_SCALE);
 
 function text(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -111,7 +116,7 @@ export async function referToSupport(
       courseId,
       userId,
       reason: text(formData, "reason") || null,
-      referredPct: result?.pct ?? null,
+      referredRating: result?.rating ?? null,
       educatorId: text(formData, "educatorId") || admin.id,
       referredById: admin.id,
       attempts: {
@@ -285,24 +290,34 @@ export async function recordReview(
 
   const attempt = await prisma.supportAttempt.findUnique({
     where: { id: attemptId },
-    include: { case: { include: { attempts: { select: { id: true } } } } },
+    include: {
+      case: {
+        include: {
+          course: { select: { ratingThreshold: true } },
+          attempts: { select: { id: true } },
+        },
+      },
+    },
   });
   if (!attempt) return { status: "error", message: "Assessment not found." };
   if (attempt.status === "AWAITING_VIDEO") {
     return { status: "error", message: "The coach hasn't submitted their video yet." };
   }
 
-  const marks = new Map<string, DeliveryRating | null>();
+  const threshold =
+    attempt.case.course.ratingThreshold ?? DEFAULT_RATING_THRESHOLD;
+
+  const marks = new Map<string, number | null>();
   for (const criterion of SUPPORT_CRITERIA) {
-    const raw = text(formData, `level_${criterion.code}`) as DeliveryRating;
-    marks.set(criterion.code, LEVELS.includes(raw) ? raw : null);
+    const raw = Number(text(formData, `rating_${criterion.code}`));
+    marks.set(criterion.code, MARKS.has(raw) ? raw : null);
   }
 
-  const gate = reviewGate(marks);
+  const gate = reviewGate(marks, threshold);
   if (!gate.complete) {
     return {
       status: "error",
-      message: `Mark every criterion — ${gate.missing.length} still blank.`,
+      message: `Rate every criterion — ${gate.missing.length} still blank.`,
     };
   }
 
@@ -314,8 +329,8 @@ export async function recordReview(
     return {
       status: "error",
       message:
-        `${gate.notYet.length} criteri${gate.notYet.length === 1 ? "on is" : "a are"} marked ` +
-        "“Not yet”, so this delivery can't be recorded as successful. Change the mark or the outcome.",
+        `These marks average ${gate.overall}, and the rubric puts anything below ${threshold} in ` +
+        "post-course support. Move the marks or record it as not yet successful.",
     };
   }
 
@@ -331,12 +346,12 @@ export async function recordReview(
 
   await prisma.$transaction(async (tx) => {
     for (const criterion of SUPPORT_CRITERIA) {
-      const level = marks.get(criterion.code)!;
+      const rating = marks.get(criterion.code)!;
       const comment = text(formData, `comment_${criterion.code}`) || null;
       await tx.supportRating.upsert({
         where: { attemptId_code: { attemptId, code: criterion.code } },
-        create: { attemptId, code: criterion.code, level, comment },
-        update: { level, comment },
+        create: { attemptId, code: criterion.code, rating, comment },
+        update: { rating, comment },
       });
     }
 
@@ -345,6 +360,8 @@ export async function recordReview(
       data: {
         status: "REVIEWED",
         outcome,
+        // Computed from the marks, never read from the form.
+        rating: gate.overall,
         feedback,
         reviewedAt: now,
         reviewedById: admin.id,
@@ -358,6 +375,12 @@ export async function recordReview(
       await tx.supportCase.update({
         where: { id: attempt.caseId },
         data: { status: "SUCCESSFUL", closedAt: now },
+      });
+      // The register is where "did they pass?" is answered, so a successful
+      // reassessment writes back to it rather than living only on the case.
+      await tx.enrollment.updateMany({
+        where: { userId: attempt.case.userId, courseId: attempt.case.courseId },
+        data: { outcome: "PASSED", rating: gate.overall },
       });
     }
   });

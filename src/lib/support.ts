@@ -1,23 +1,23 @@
 import "server-only";
 
-import { getTasksForCoach } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
-import { rollUpCourse, type CourseResult } from "@/lib/support-rubric";
+import { courseResult, type CourseResult } from "@/lib/support-rubric";
 
-/** Every course a coach is enrolled in, rolled up to a result. */
+/** Where a coach stands on every course they're enrolled in. */
 export async function courseResultsFor(userId: string): Promise<CourseResult[]> {
-  const [tasks, enrollments] = await Promise.all([
-    getTasksForCoach(userId),
-    prisma.enrollment.findMany({
-      where: { userId, course: { published: true } },
-      select: { course: { select: { id: true, title: true, passMark: true } } },
-      orderBy: { course: { title: "asc" } },
-    }),
-  ]);
+  const enrollments = await prisma.enrollment.findMany({
+    where: { userId, course: { published: true } },
+    select: {
+      courseId: true,
+      rating: true,
+      outcome: true,
+      course: { select: { title: true, ratingThreshold: true } },
+    },
+    orderBy: { course: { title: "asc" } },
+  });
 
-  return enrollments.map(({ course }) => rollUpCourse(course, tasks));
+  return enrollments.map(courseResult);
 }
-
 
 /* ------------------------------- Cases ------------------------------------ */
 
@@ -99,55 +99,41 @@ export type ReferralCandidate = {
 };
 
 /**
- * Coaches who finished a ranked course below its pass mark and have no support
- * case on it yet.
+ * Coaches rated below their course's threshold with no support case open yet.
  *
- * Nobody is referred automatically. A coach who came up two points short after
- * a bereavement and a coach who never engaged both land in this list, and the
+ * Nobody is referred automatically. A coach two points short after a
+ * bereavement and a coach who never engaged both land in this list, and the
  * educator decides which conversation each of them needs — but neither of them
- * gets quietly lost, which is what happens when "who failed?" is a question you
- * have to go and assemble by hand.
+ * gets quietly lost, which is what happens when "who didn't pass?" is a
+ * question you have to go and assemble by hand.
  */
 export async function getReferralCandidates(): Promise<ReferralCandidate[]> {
-  const rankedCourses = await prisma.course.findMany({
-    where: { published: true, passMark: { not: null } },
-    select: { id: true, title: true, passMark: true },
-  });
-  if (rankedCourses.length === 0) return [];
-
-  const coaches = await prisma.user.findMany({
+  const enrollments = await prisma.enrollment.findMany({
     where: {
-      role: "COACH",
-      active: true,
-      enrollments: { some: { courseId: { in: rankedCourses.map((c) => c.id) } } },
+      course: { published: true, ratingThreshold: { not: null } },
+      user: { role: "COACH", active: true },
+      // The register can say so outright; otherwise the rating decides, and an
+      // unrated coach is nobody's shortfall yet.
+      OR: [{ outcome: "POST_COURSE_SUPPORT" }, { rating: { not: null } }],
     },
     select: {
-      id: true,
-      name: true,
-      email: true,
-      title: true,
-      enrollments: { select: { courseId: true } },
-      supportCases: { select: { courseId: true } },
+      courseId: true,
+      rating: true,
+      outcome: true,
+      course: { select: { title: true, ratingThreshold: true } },
+      user: { select: { id: true, name: true, email: true, title: true } },
     },
-    orderBy: [{ name: "asc" }, { email: "asc" }],
+    orderBy: [{ user: { name: "asc" } }, { user: { email: "asc" } }],
   });
 
-  const candidates: ReferralCandidate[] = [];
+  const withCase = new Set(
+    (await prisma.supportCase.findMany({ select: { userId: true, courseId: true } })).map(
+      (c) => `${c.userId}:${c.courseId}`,
+    ),
+  );
 
-  for (const coach of coaches) {
-    const tasks = await getTasksForCoach(coach.id);
-    const enrolled = new Set(coach.enrollments.map((e) => e.courseId));
-    const withCase = new Set(coach.supportCases.map((c) => c.courseId));
-
-    for (const course of rankedCourses) {
-      if (!enrolled.has(course.id) || withCase.has(course.id)) continue;
-      const result = rollUpCourse(course, tasks);
-      if (result.verdict === "not_passed") {
-        const { enrollments: _e, supportCases: _s, ...user } = coach;
-        candidates.push({ user, result });
-      }
-    }
-  }
-
-  return candidates;
+  return enrollments
+    .filter((e) => !withCase.has(`${e.user.id}:${e.courseId}`))
+    .map((e) => ({ user: e.user, result: courseResult(e) }))
+    .filter((c) => c.result.verdict === "needs_support");
 }

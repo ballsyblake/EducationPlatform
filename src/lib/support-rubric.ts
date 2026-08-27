@@ -1,87 +1,79 @@
 /**
- * The delivery rubric, and the pure rules that read it.
+ * Football Australia's B Diploma rubric, and the pure rules that read it.
  *
  * Kept clear of `server-only` and of any database import on purpose: the review
- * form is a client component, and it renders the same eight criteria, the same
- * three marks and the same gate the server enforces on save. One definition,
- * read from both sides — see src/lib/support.ts for everything that touches the
+ * form is a client component, and it renders the same criteria, the same scale
+ * and the same gate the server enforces on save. One definition, read from both
+ * sides — see src/lib/support.ts for everything that touches the database.
+ *
+ * The criteria, the bands and the 2.5 pass mark are transcribed from the
+ * `B - Rubric` sheet that ships inside every FQ attendance register. They are
+ * Football Australia's, not Football Queensland's to reword mid-intake, which
+ * is why they can sit in code at all — unlike the CDA rubric, which the Club
+ * Development Unit does rewrite between cycles and which therefore lives in the
  * database.
  */
-import type { DeliveryRating, SupportPathway } from "@prisma-client";
-import type { TaskItem } from "@/lib/coursework";
+import type { SupportPathway } from "@prisma-client";
 
 /* ------------------------------ The rubric -------------------------------- */
 
 /**
- * What an educator watches for when they assess a coach delivering a session.
+ * What an educator rates a coach on.
  *
- * Eight competencies, in the order a session actually unfolds: what was
- * prepared, what happened on the grass, and what the coach made of it
- * afterwards. Unlike the CDA rubric — which the Club Development Unit rewords
- * between cycles, and so lives in the database — this one is fixed, so it lives
- * here. A completed review stores the code, not a foreign key, and stays
- * readable even if a criterion is retired later.
- *
- * The same eight apply whether the educator is standing on the touchline or
- * watching film. A coach five hours from Brisbane submits video because of the
- * drive, not because less is expected of them.
+ * Seven criteria: engagement across the course as a whole, then six that apply
+ * to a delivery on the grass. The register lists them by name only, so the
+ * one-line `detail` under each is ours — a gloss to put the same words in front
+ * of every assessor, not part of the published rubric.
  */
 export const SUPPORT_CRITERIA = [
   {
-    code: "PLAN",
-    group: "Preparation",
-    title: "Session plan and organisation",
+    code: "ENGAGEMENT",
+    group: "Course",
+    title: "Participation / Engagement",
     detail:
-      "A plan exists, the session runs to it, and the transitions between practices don't cost the players minutes standing still.",
+      "Turns up, joins in, and contributes to the group — in the classroom as much as on the pitch.",
   },
   {
-    code: "DESIGN",
-    group: "Preparation",
-    title: "Practice design fits the age and stage",
+    code: "OBJECTIVE",
+    group: "Practical delivery",
+    title: "Objective",
     detail:
-      "Area, numbers, and conditions produce the picture the theme needs, and the practice is playable for the group in front of them.",
+      "A clear learning outcome for the session, and everything in it pointed at that outcome.",
   },
   {
-    code: "SAFETY",
-    group: "Preparation",
-    title: "Safety and duty of care",
+    code: "CONTENT",
+    group: "Practical delivery",
+    title: "Content",
     detail:
-      "Surface and equipment checked, sensible work-to-rest, heat and hydration managed, and no player left unsupervised.",
+      "The football is correct, current, and pitched at the level of the players in front of them.",
   },
   {
-    code: "TECHNICAL",
-    group: "Delivery",
-    title: "Technical and tactical content is correct",
+    code: "ORGANISATION",
+    group: "Practical delivery",
+    title: "Organisation",
     detail:
-      "What the coach teaches is right, and it matches the theme they set out to coach.",
+      "Practice design, pitch geography and numbers produce the picture the topic needs, and the session runs without dead time.",
   },
   {
-    code: "INTERVENE",
-    group: "Delivery",
-    title: "Interventions — when to stop, what to fix",
+    code: "PRESENTING",
+    group: "Practical delivery",
+    title: "Presenting",
     detail:
-      "Stops play on a moment worth stopping for, fixes one thing, and lets the practice run again.",
+      "Frames the session so the players know what they are doing and why — heard, understood, and shown.",
   },
   {
-    code: "COMMS",
-    group: "Delivery",
-    title: "Communication and demonstration",
+    code: "COACHING",
+    group: "Practical delivery",
+    title: "Coaching",
     detail:
-      "Heard, understood, and shown. Language pitched at the group, and a demonstration when words won't do it.",
+      "Observes, picks the moment, intervenes on something worth stopping for, and lets the practice run on.",
   },
   {
-    code: "ENGAGE",
-    group: "Delivery",
-    title: "Player engagement and management",
+    code: "ENVIRONMENT",
+    group: "Practical delivery",
+    title: "Environment",
     detail:
-      "Every player involved, behaviour managed without stopping the session, and the coach knows the players by name.",
-  },
-  {
-    code: "REFLECT",
-    group: "Review",
-    title: "Reflection and self-evaluation",
-    detail:
-      "Can say what worked, what didn't, and what they would change — without being led to it.",
+      "The session is safe, every player is involved, and the coach's presence is one players respond to.",
   },
 ] as const;
 
@@ -105,31 +97,88 @@ export function criteriaByGroup() {
   return groups;
 }
 
-export const RATING_LEVELS: {
-  value: DeliveryRating;
-  label: string;
-  detail: string;
-  tone: "bad" | "warn" | "good";
-}[] = [
+/**
+ * The rating at or above which a coach has passed.
+ *
+ * The rubric's own line: 2.5 and up is "Pass on course", 2 and below is
+ * "Post-course support". A course carries its own `ratingThreshold` so a future
+ * licence can set a different bar without this constant moving; this is what a
+ * course is given when nobody says otherwise.
+ */
+export const DEFAULT_RATING_THRESHOLD = 2.5;
+
+/** Every mark an assessor can give: 1 to 5, in half steps. */
+export const RATING_SCALE = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5] as const;
+
+export type Band = {
+  min: number;
+  /// Football Australia's wording.
+  faRating: "Highly Competent" | "Competent" | "Not yet competent";
+  outcome: "Pass on course" | "Post-course support";
+  definition: string;
+  tone: "good" | "ok" | "warn" | "bad";
+};
+
+/** The rubric's bands, highest first — `bandFor` reads them in this order. */
+export const RATING_BANDS: Band[] = [
   {
-    value: "NOT_YET",
-    label: "Not yet",
-    detail: "Below the standard on the day.",
-    tone: "bad",
+    min: 4.5,
+    faRating: "Highly Competent",
+    outcome: "Pass on course",
+    definition:
+      "High quality candidate to progress further in the Advanced Coach Education Pathway. To be considered for roles within National Team, A-League, full-time FQ, CET, etc.",
+    tone: "good",
   },
   {
-    value: "DEVELOPING",
-    label: "Developing",
-    detail: "Getting there — safe and sound, with something still to work on.",
+    min: 3.5,
+    faRating: "Highly Competent",
+    outcome: "Pass on course",
+    definition:
+      "Top Tier 1 club coach; shows strong skills and is well equipped for the next level of accreditation. Exceeds level of competency. To be considered for roles in the FQA Emerging Program, CET, etc.",
+    tone: "good",
+  },
+  {
+    min: 3,
+    faRating: "Competent",
+    outcome: "Pass on course",
+    definition:
+      "Average Tier 1 club coach; actively engages and contributes to the course. Demonstrates potential and readiness for the next level of accreditation. Meets level of competency.",
+    tone: "ok",
+  },
+  {
+    min: 2.5,
+    faRating: "Competent",
+    outcome: "Pass on course",
+    definition:
+      "Tier 2 club coach; displays some football knowledge. Will need a higher level of support before progressing to the next professional progression. Meets level of competency.",
+    tone: "ok",
+  },
+  {
+    min: 1.5,
+    faRating: "Not yet competent",
+    outcome: "Post-course support",
+    definition:
+      "Community club coach needing support; displays basic football knowledge. Will need a higher level of support before progressing to the next level. Does not meet level of competency yet.",
     tone: "warn",
   },
   {
-    value: "COMPETENT",
-    label: "Competent",
-    detail: "At the standard expected of the licence.",
-    tone: "good",
+    min: 1,
+    faRating: "Not yet competent",
+    outcome: "Post-course support",
+    definition: "Displays limited football knowledge; should not be on course, should not coach.",
+    tone: "bad",
   },
 ];
+
+export function bandFor(rating: number | null | undefined): Band | null {
+  if (rating === null || rating === undefined) return null;
+  return RATING_BANDS.find((b) => rating >= b.min) ?? RATING_BANDS[RATING_BANDS.length - 1];
+}
+
+/** Snaps a figure onto the rubric's half-step scale, and inside its range. */
+export function toRatingStep(value: number) {
+  return Math.min(5, Math.max(1, Math.round(value * 2) / 2));
+}
 
 export const PATHWAY_LABEL: Record<SupportPathway, string> = {
   LIVE_ASSESSMENT: "Live assessment",
@@ -142,87 +191,97 @@ export const PATHWAY_DESCRIPTION: Record<SupportPathway, string> = {
 };
 
 /**
- * Whether a set of marks can support a successful outcome.
+ * What a set of marks adds up to, and which outcomes that leaves open.
  *
- * Every criterion has to be rated — a blank is not a pass — and a single
- * "Not yet" blocks the outcome outright. That is the point of a competency
- * rubric: an educator who wants to pass a coach on seven of eight has to move
- * the eighth mark and own it, not average it away. The reviewer still chooses
- * the outcome; this only says which choices the marks leave open.
+ * Every criterion has to carry a mark — a blank is not a pass — and the overall
+ * rating is the mean of the seven, snapped to the rubric's half-step scale. The
+ * reviewer still chooses the outcome; this only says whether the rubric permits
+ * a successful one, which it does at the threshold and not below it.
  */
-export function reviewGate(marks: Map<string, DeliveryRating | null | undefined>) {
+export function reviewGate(
+  marks: Map<string, number | null | undefined>,
+  threshold = DEFAULT_RATING_THRESHOLD,
+) {
   const missing = SUPPORT_CRITERIA.filter((c) => !marks.get(c.code)).map((c) => c.code);
-  const notYet = SUPPORT_CRITERIA.filter((c) => marks.get(c.code) === "NOT_YET").map((c) => c.code);
+  const given = SUPPORT_CRITERIA.map((c) => marks.get(c.code)).filter(
+    (v): v is number => typeof v === "number" && v > 0,
+  );
+
+  const overall =
+    given.length === SUPPORT_CRITERIA.length
+      ? toRatingStep(given.reduce((sum, v) => sum + v, 0) / given.length)
+      : null;
+
   return {
     missing,
-    notYet,
     complete: missing.length === 0,
-    canPass: missing.length === 0 && notYet.length === 0,
+    overall,
+    band: bandFor(overall),
+    threshold,
+    canPass: overall !== null && overall >= threshold,
   };
 }
 
 /* --------------------------- Did they pass? ------------------------------- */
 
-export type CourseVerdict = "unranked" | "in_progress" | "passed" | "not_passed";
+export type CourseVerdict = "unrated" | "in_progress" | "passed" | "needs_support";
 
 export type CourseResult = {
   courseId: string;
   courseTitle: string;
-  passMark: number | null;
-  earned: number;
-  possible: number;
-  /// Null until at least one item has been graded.
-  pct: number | null;
-  total: number;
-  graded: number;
-  outstanding: number;
-  /// Every item on the course has been graded.
-  finished: boolean;
+  threshold: number | null;
+  rating: number | null;
+  band: Band | null;
+  outcome: string;
   verdict: CourseVerdict;
 };
 
 /**
- * Rolls a coach's tasks up to a per-course result.
+ * Where one enrolment stands.
  *
- * A course only ranks if it carries a pass mark; without one it is
- * complete-it-and-you're-done and nobody can fail it. A coach with work still
- * outstanding hasn't failed either — they simply aren't finished, and a
- * referral before then would be a referral for being late, which is a different
- * conversation.
+ * A course only ranks if it carries a threshold; without one it is
+ * complete-it-and-you're-done and nobody can fail it. An unrated coach on a
+ * rated course hasn't failed either — nobody has assessed them yet, and a
+ * referral before then would be a referral for the educator being behind.
  */
-export function rollUpCourse(
-  course: { id: string; title: string; passMark: number | null },
-  tasks: TaskItem[],
-): CourseResult {
-  const mine = tasks.filter((t) => t.courseId === course.id);
-  const graded = mine.filter((t) => t.state === "graded" && t.maxScore);
+export function courseResult(enrollment: {
+  courseId: string;
+  rating: number | null;
+  outcome: string;
+  course: { title: string; ratingThreshold: number | null };
+}): CourseResult {
+  const { rating, outcome } = enrollment;
+  const threshold = enrollment.course.ratingThreshold;
 
-  const earned = graded.reduce((sum, t) => sum + (t.score ?? 0), 0);
-  const possible = graded.reduce((sum, t) => sum + (t.maxScore ?? 0), 0);
-  const pct = possible > 0 ? Math.round((earned / possible) * 100) : null;
-
-  const finished = mine.length > 0 && mine.every((t) => t.state === "graded");
-
-  let verdict: CourseVerdict = "unranked";
-  if (course.passMark !== null) {
-    if (!finished || pct === null) verdict = "in_progress";
-    else verdict = pct >= course.passMark ? "passed" : "not_passed";
-  }
+  let verdict: CourseVerdict = "unrated";
+  if (outcome === "PASSED") verdict = "passed";
+  else if (outcome === "POST_COURSE_SUPPORT") verdict = "needs_support";
+  else if (threshold === null) verdict = "unrated";
+  else if (rating === null) verdict = "in_progress";
+  else verdict = rating >= threshold ? "passed" : "needs_support";
 
   return {
-    courseId: course.id,
-    courseTitle: course.title,
-    passMark: course.passMark,
-    earned,
-    possible,
-    pct,
-    total: mine.length,
-    graded: graded.length,
-    outstanding: mine.filter((t) => t.state !== "graded").length,
-    finished,
+    courseId: enrollment.courseId,
+    courseTitle: enrollment.course.title,
+    threshold,
+    rating,
+    band: bandFor(rating),
+    outcome,
     verdict,
   };
 }
+
+export const VERDICT_LABEL: Record<
+  CourseVerdict,
+  { label: string; tone: "muted" | "ok" | "good" | "warn" }
+> = {
+  unrated: { label: "Not rated", tone: "muted" },
+  in_progress: { label: "In progress", tone: "muted" },
+  passed: { label: "Passed", tone: "good" },
+  needs_support: { label: "Post-course support", tone: "warn" },
+};
+
+/* --------------------------- Support cases -------------------------------- */
 
 /** The attempt a case is currently living on, if any. */
 export function openAttempt<T extends { status: string; attemptNo: number }>(attempts: T[]) {
@@ -323,4 +382,3 @@ export function stageOf(
     next: "Your delivery is with your educator. Their feedback lands here once it's written up.",
   };
 }
-

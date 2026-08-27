@@ -8,13 +8,16 @@ import { deleteUpload, storeUpload, UploadError } from "@/lib/uploads";
 
 export type ActionState = { status: "idle" | "ok" | "error"; message?: string };
 
-/** A course's pass mark: blank means the course doesn't rank at all. */
+/**
+ * A course's pass mark on the rubric's 1-5 scale. Blank means the course isn't
+ * rated at all, and nobody on it can fall short.
+ */
 function parsePassMark(value: FormDataEntryValue | null) {
   const raw = String(value ?? "").trim();
   if (!raw) return { value: null as number | null };
   const mark = Number(raw);
-  if (!Number.isInteger(mark) || mark < 1 || mark > 100) {
-    return { error: "The pass mark has to be a whole percentage between 1 and 100, or blank." };
+  if (!Number.isFinite(mark) || mark < 1 || mark > 5 || mark * 2 !== Math.round(mark * 2)) {
+    return { error: "The pass mark has to be between 1 and 5 in half steps, or blank." };
   }
   return { value: mark };
 }
@@ -33,7 +36,7 @@ export async function createCourse(_prev: ActionState, formData: FormData): Prom
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return { status: "error", message: "Give the course a title." };
 
-  const passMark = parsePassMark(formData.get("passMark"));
+  const passMark = parsePassMark(formData.get("ratingThreshold"));
   if (passMark.error) return { status: "error", message: passMark.error };
 
   const course = await prisma.course.create({
@@ -41,7 +44,7 @@ export async function createCourse(_prev: ActionState, formData: FormData): Prom
       title,
       season: String(formData.get("season") ?? "").trim() || null,
       description: String(formData.get("description") ?? "").trim() || null,
-      passMark: passMark.value,
+      ratingThreshold: passMark.value,
       published: formData.get("published") === "on",
       authorId: admin.id,
     },
@@ -55,7 +58,7 @@ export async function updateCourse(formData: FormData) {
   await requireAdmin();
   const id = String(formData.get("courseId"));
 
-  const passMark = parsePassMark(formData.get("passMark"));
+  const passMark = parsePassMark(formData.get("ratingThreshold"));
 
   await prisma.course.update({
     where: { id },
@@ -63,11 +66,15 @@ export async function updateCourse(formData: FormData) {
       title: String(formData.get("title") ?? "").trim() || undefined,
       season: String(formData.get("season") ?? "").trim() || null,
       description: String(formData.get("description") ?? "").trim() || null,
+      qualification: String(formData.get("qualification") ?? "").trim() || null,
+      stream: String(formData.get("stream") ?? "").trim() || null,
+      location: String(formData.get("location") ?? "").trim() || null,
+      venue: String(formData.get("venue") ?? "").trim() || null,
       // A value the field rejects leaves the mark as it stands. This form posts
       // straight through without an error channel, and silently clearing a
       // course's pass mark because of a typo would take every coach on it out
       // of the referral list without anyone being told.
-      ...(passMark.error ? {} : { passMark: passMark.value }),
+      ...(passMark.error ? {} : { ratingThreshold: passMark.value }),
       published: formData.get("published") === "on",
     },
   });

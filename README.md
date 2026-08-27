@@ -31,14 +31,16 @@ across in the header.
 - Assignments accepting a written response, file attachments, or both — with drafts you can save and come back to
 - Quizzes with multiple-choice, true/false, and written questions
 - A Grades & Feedback page collecting every score and written comment in one place, and where each course stands against its pass mark
-- Post-course support if a course is finished below the mark: an educator watches you deliver a session, live or on film
+- Your own row of the course register: which days you were marked present, your rating out of five, and the write-up of every session an educator watched you deliver
+- Post-course support if you're rated below the mark: an educator watches you deliver a session again, live or on film
 
 **For admins (coach educators / technical staff)**
 
 - Create courses, enroll staff, and publish or hide coursework
 - Author assignments and build quizzes question by question
 - A grading queue: score submissions, review written quiz answers, add feedback, or send work back for revision
-- A post-course support desk: who finished below the pass mark, who is booked in, whose film is waiting to be reviewed
+- The attendance register: nine delivery days, the roster, catch-ups, the CET team, and the results block — one screen per course
+- A post-course support desk: who was rated below the pass mark, who is booked in, whose film is waiting to be reviewed
 - A staff progress dashboard — completion, overdue counts, and averages per coach, filterable by course
 - Staff management: add coaches by email, hand out sign-in links, promote to admin, deactivate
 
@@ -47,45 +49,97 @@ coach submits. Written answers can't be auto-graded, so an attempt containing
 one lands in the grading queue as `AWAITING_REVIEW` until an educator reads it
 and awards points. Assignment submissions are always graded by a human.
 
+## The attendance register
+
+Football Queensland runs its AFC/FA diplomas off one spreadsheet per course:
+nine delivery days across three blocks, a roster, a catch-ups block for coaches
+making up time, the CET team's own attendance, and a grid of Yes/No between
+them. Beside it sits an assessment sheet holding each coach's practical
+deliveries and a rating out of five.
+
+That register lives in the app at `/admin/courses/<id>/register`:
+
+- **The grid.** Roster, catch-ups and course team, days as columns. Tick a box
+  to mark someone present; a day heading marks the whole column at once. Nothing
+  is written until you save, because a register kept on a touchline needs a
+  mistake to be correctable before it counts.
+- **The results block.** Attendance met, journal, rating, outcome, readiness and
+  the register's own comments, for every coach on one screen.
+- **Practical deliveries.** Each coach's assessed sessions — assessor, block,
+  component, topic, comment, action plan and session rating — readable by the
+  coach on their own course page, and by an educator writing up a
+  reassessment.
+
+A coach sees their own row: which days they were marked present, their rating
+and what that rating means, and every write-up an educator left them.
+
+### How a course is rated
+
+Coaches are not scored on coursework percentages. They are rated **1 to 5 in
+half steps** against Football Australia's rubric, which ships inside every FQ
+register and is transcribed in `src/lib/support-rubric.ts`:
+
+| Criterion                                                                    | Group             |
+| ---------------------------------------------------------------------------- | ----------------- |
+| Participation / Engagement                                                    | Course            |
+| Objective · Content · Organisation · Presenting · Coaching · Environment      | Practical delivery |
+
+The rating maps to one of two outcomes, and the line between them is 2.5:
+
+| Rating    | Football Australia | Outcome              |
+| --------- | ------------------ | -------------------- |
+| 3.5 – 5   | Highly Competent   | Pass on course       |
+| 2.5 – 3   | Competent          | Pass on course       |
+| 1 – 2     | Not yet competent  | Post-course support  |
+
+A course carries its own `ratingThreshold` — 2.5 on every diploma — so a future
+licence can set a different bar. Leave it blank and the course isn't rated at
+all, and nobody on it can fall short.
+
+The register won't hold an outcome the rubric doesn't allow: recording a coach
+rated 2 as having passed is refused, both in the form and again on save.
+Withdrawing is always available, because leaving a course is not a judgement
+about a delivery.
+
 ## Post-course support
 
-A course can carry a **pass mark**: the percentage of its graded points a coach
-has to reach. Leave it blank and the course can't be failed. Set it, and a coach
-who finishes every item below it appears on `/admin/support` under *Finished
+Rated below the mark, and the rubric's own name for what happens next is
+**post-course support**. Those coaches appear on `/admin/support` under *Rated
 below the pass mark*.
 
-Coming up short doesn't fail anyone. Coursework shows what a coach knows; it
-doesn't show whether they can run a session. So a shortfall opens a **support
-case**, and the coach is reassessed on a delivery by one of two routes:
+Coming up short doesn't fail anyone. A rating says what an educator saw across
+the course; it doesn't say what the coach can do given the feedback. So a
+shortfall opens a **support case**, and the coach is reassessed on a delivery by
+one of two routes:
 
 - **Live assessment** — an educator attends one of their sessions and observes it.
 - **Video review** — the coach films a session and submits the link.
 
 Which route is a matter of geography and diaries, not of standard. A coach five
 hours from Brisbane sends film because of the drive, and is held to exactly what
-a coach observed in person is held to: the same eight competencies, across
-preparation, delivery and review.
+a coach observed in person is held to: the same seven criteria, on the same
+scale.
 
-**How a delivery is marked.** Each competency is marked *Not yet*, *Developing*
-or *Competent*. Every one has to carry a mark — a blank is not a pass — and a
-single *Not yet* rules out a successful outcome entirely. An educator who means
-to pass a coach on seven of eight has to move the eighth mark and own it, rather
-than averaging it away. The form offers only the outcomes the marks leave open,
-and the server checks the same rule again on save.
+**How a reassessment is marked.** Every criterion carries a mark — a blank is
+not a pass — and the delivery's overall rating is the mean, snapped to the
+half-step scale and computed on save rather than read from the form. If that
+figure lands below the course's pass mark, a successful outcome isn't available:
+the form doesn't offer it and the action refuses it. An educator who means to
+pass the coach has to move the marks and own it.
 
 **The flow.** An educator refers the coach and books the first assessment in one
 step → the coach either has an educator come out, or submits film → the educator
-marks the eight and records an outcome. *Successful* closes the case and passes
-the course. *Not yet successful* leaves it open for the next attempt. A case
-allows two assessments by default — the reassessment and one further
-opportunity — which an educator can raise on a case where circumstances warrant
-it.
+marks the seven and records an outcome. *Successful* closes the case, writes the
+new rating back to the register, and passes the course. *Not yet successful*
+leaves it open for the next attempt. A case allows two assessments by default —
+the reassessment and one further opportunity — which an educator can raise where
+circumstances warrant it.
 
-Nobody is referred automatically. A coach two points short after a bereavement
-and a coach who never engaged both land in the same list, and the educator
-decides which conversation each of them needs — but neither is quietly lost,
-which is what happens when "who didn't pass?" is a question somebody has to
-assemble by hand.
+Nobody is referred automatically. A coach half a point short after a
+bereavement and a coach who never engaged both land in the same list, and the
+educator decides which conversation each of them needs — but neither is quietly
+lost, which is what happens when "who didn't pass?" is a question somebody has
+to assemble by hand.
 
 Film is a **link**, never an upload: session footage is hundreds of megabytes
 and this app keeps its files in the database. YouTube and Vimeo play inline on
@@ -95,6 +149,37 @@ on paper can be attached as normal.
 A coach only sees a **Support** tab once they have a case. Most coaches never
 will, and a permanent tab reads as an accusation to everyone who doesn't need
 one.
+
+## Loading a real intake
+
+```bash
+npm run courses:import -- --dry-run   # say what would change, write nothing
+npm run courses:import -- --yes       # do it
+```
+
+Reads `prisma/data/b-diploma-2026.json` — three 2026 B Diploma registers,
+extracted from FQ's spreadsheets by `scripts/extract-b-diploma-2026.py`. Two
+steps rather than one, matching `cda:import-2026`: the registers are the coach
+education team's working documents and will change shape next intake, while the
+JSON is a flat record of one intake that can be reviewed, diffed and re-imported
+without Excel in the loop. Re-run the extractor when the registers move:
+
+```bash
+python3 scripts/extract-b-diploma-2026.py <register.xlsx> [...]
+```
+
+Every write is an upsert keyed on something stable, so a second run corrects the
+first rather than duplicating it. It opens no support cases — plenty of coaches
+sit below the pass mark, and every one of those is a conversation an educator
+has before a case exists.
+
+**Addresses in that file are anonymised.** The registers carry every coach's
+real address and this repository is public to whoever can read it; names are
+kept, because they are what makes the data worth testing against, but each
+address is rewritten to `first.last@example.com`. Nothing in the file can mail a
+real person. It is still real people's assessment history, so the import is a
+deliberate command and never runs at boot or on deploy.
+
 
 ---
 

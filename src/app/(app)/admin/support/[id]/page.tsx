@@ -8,11 +8,13 @@ import { prisma } from "@/lib/db";
 import { displayName, formatDate, formatDateTime, relativeDue } from "@/lib/format";
 import { courseResultsFor, getSupportCase } from "@/lib/support";
 import {
+  bandFor,
   criterionByCode,
+  DEFAULT_RATING_THRESHOLD,
   openAttempt,
   PATHWAY_LABEL,
-  RATING_LEVELS,
   stageOf,
+  VERDICT_LABEL,
 } from "@/lib/support-rubric";
 import { formatBytes } from "@/lib/uploads";
 import { cancelAttempt, reopenCase } from "../../actions/support";
@@ -40,12 +42,21 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
   const supportCase = await getSupportCase(id);
   if (!supportCase) notFound();
 
-  const [educators, results] = await Promise.all([
+  const [educators, results, enrollment] = await Promise.all([
     prisma.user.findMany({
       where: { role: "ADMIN", active: true },
       orderBy: [{ name: "asc" }, { email: "asc" }],
     }),
     courseResultsFor(supportCase.userId),
+    // What the coach was rated on during the course. This is the evidence the
+    // referral came out of, and the educator writing up the reassessment should
+    // not have to go and find it.
+    prisma.enrollment.findUnique({
+      where: {
+        userId_courseId: { userId: supportCase.userId, courseId: supportCase.courseId },
+      },
+      include: { deliveries: { orderBy: { deliveryNo: "asc" } } },
+    }),
   ]);
 
   const result = results.find((r) => r.courseId === supportCase.courseId);
@@ -80,15 +91,21 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
 
       <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile
-          label="Course result"
-          value={result?.pct === null || result === undefined ? "—" : `${result.pct}%`}
-          hint={result?.passMark !== null && result ? `Pass mark ${result.passMark}%` : "No pass mark"}
-          tone={result?.verdict === "not_passed" ? "bad" : "muted"}
+          label="Course rating"
+          value={result?.rating == null ? "—" : result.rating.toFixed(1)}
+          hint={
+            result?.threshold != null
+              ? `${VERDICT_LABEL[result.verdict].label} · pass mark ${result.threshold}`
+              : "This course isn't rated"
+          }
+          tone={result?.verdict === "needs_support" ? "bad" : "muted"}
         />
         <StatTile
           label="At referral"
-          value={supportCase.referredPct === null ? "—" : `${supportCase.referredPct}%`}
-          hint="Frozen when the case opened"
+          value={
+            supportCase.referredRating === null ? "—" : supportCase.referredRating.toFixed(1)
+          }
+          hint={bandFor(supportCase.referredRating)?.faRating ?? "Frozen when the case opened"}
         />
         <StatTile
           label="Assessments used"
@@ -111,6 +128,50 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
             <section className="card card-pad">
               <h2 className="section-title mb-2">Why they were referred</h2>
               <p className="prose-note">{supportCase.reason}</p>
+            </section>
+          )}
+
+          {enrollment && enrollment.deliveries.length > 0 && (
+            <section className="card card-pad">
+              <h2 className="mb-1 text-lg font-semibold text-ink-900">On the course</h2>
+              <p className="mb-3 text-sm text-ink-500">
+                What was written up during {supportCase.course.title}.
+              </p>
+              <div className="space-y-3">
+                {enrollment.deliveries.map((delivery) => (
+                  <details key={delivery.id} className="rounded-lg border border-ink-200 p-3">
+                    <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-ink-900">
+                        Delivery {delivery.deliveryNo}
+                        {delivery.topic ? ` — ${delivery.topic}` : ""}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-xs text-ink-500">
+                          {[delivery.block, delivery.component, delivery.assessor]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                        {delivery.rating !== null && (
+                          <Badge tone={bandFor(delivery.rating)?.tone ?? "muted"}>
+                            {delivery.rating.toFixed(1)}
+                          </Badge>
+                        )}
+                      </span>
+                    </summary>
+                    {delivery.comment && (
+                      <p className="prose-note mt-3 rounded-lg bg-ink-50 px-3 py-2">
+                        {delivery.comment}
+                      </p>
+                    )}
+                    {delivery.actionPlan && (
+                      <>
+                        <p className="section-title mt-3 mb-1">Action plan</p>
+                        <p className="prose-note">{delivery.actionPlan}</p>
+                      </>
+                    )}
+                  </details>
+                ))}
+              </div>
             </section>
           )}
 
@@ -202,6 +263,9 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
                       attemptId={current.id}
                       ratings={current.ratings}
                       defaultFeedback={current.feedback}
+                      threshold={
+                        supportCase.course.ratingThreshold ?? DEFAULT_RATING_THRESHOLD
+                      }
                     />
                   </div>
                 </div>
@@ -260,9 +324,16 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
                           {attempt.reviewedBy && ` by ${displayName(attempt.reviewedBy)}`}
                         </p>
                       </div>
-                      <Badge tone={attempt.outcome === "SUCCESSFUL" ? "good" : "warn"}>
-                        {attempt.outcome === "SUCCESSFUL" ? "Successful" : "Not yet successful"}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        {attempt.rating !== null && (
+                          <Badge tone={bandFor(attempt.rating)?.tone ?? "muted"}>
+                            {attempt.rating.toFixed(1)}
+                          </Badge>
+                        )}
+                        <Badge tone={attempt.outcome === "SUCCESSFUL" ? "good" : "warn"}>
+                          {attempt.outcome === "SUCCESSFUL" ? "Successful" : "Not yet successful"}
+                        </Badge>
+                      </div>
                     </div>
 
                     {attempt.videoUrl && (
@@ -279,11 +350,12 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
                     <ul className="mb-3 grid gap-1 sm:grid-cols-2">
                       {attempt.ratings.map((rating) => {
                         const criterion = criterionByCode(rating.code);
-                        const level = RATING_LEVELS.find((l) => l.value === rating.level);
                         return (
                           <li key={rating.id} className="flex items-start justify-between gap-2 text-sm">
                             <span className="text-ink-700">{criterion?.title ?? rating.code}</span>
-                            <Badge tone={level?.tone ?? "muted"}>{level?.label ?? rating.level}</Badge>
+                            <Badge tone={bandFor(rating.rating)?.tone ?? "muted"}>
+                              {rating.rating.toFixed(1)}
+                            </Badge>
                           </li>
                         );
                       })}

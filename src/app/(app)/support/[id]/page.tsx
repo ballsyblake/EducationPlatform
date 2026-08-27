@@ -5,12 +5,12 @@ import { requireUser } from "@/lib/auth";
 import { displayName, formatDateTime, relativeDue } from "@/lib/format";
 import { getSupportCase } from "@/lib/support";
 import {
+  bandFor,
   criteriaByGroup,
   criterionByCode,
   openAttempt,
   PATHWAY_DESCRIPTION,
   PATHWAY_LABEL,
-  RATING_LEVELS,
   stageOf,
 } from "@/lib/support-rubric";
 import { formatBytes } from "@/lib/uploads";
@@ -165,9 +165,16 @@ export default async function CoachSupportCasePage({
                             {attempt.reviewedBy && ` · ${displayName(attempt.reviewedBy)}`}
                           </p>
                         </div>
-                        <Badge tone={attempt.outcome === "SUCCESSFUL" ? "good" : "warn"}>
-                          {attempt.outcome === "SUCCESSFUL" ? "Successful" : "Not yet successful"}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          {attempt.rating !== null && (
+                            <Badge tone={bandFor(attempt.rating)?.tone ?? "muted"}>
+                              {attempt.rating.toFixed(1)}
+                            </Badge>
+                          )}
+                          <Badge tone={attempt.outcome === "SUCCESSFUL" ? "good" : "warn"}>
+                            {attempt.outcome === "SUCCESSFUL" ? "Successful" : "Not yet successful"}
+                          </Badge>
+                        </div>
                       </div>
 
                       {attempt.feedback && (
@@ -179,15 +186,15 @@ export default async function CoachSupportCasePage({
                       <ul className="space-y-1.5">
                         {attempt.ratings.map((rating) => {
                           const criterion = criterionByCode(rating.code);
-                          const level = RATING_LEVELS.find((l) => l.value === rating.level);
+                          const band = bandFor(rating.rating);
                           return (
                             <li key={rating.id}>
                               <div className="flex items-start justify-between gap-2 text-sm">
                                 <span className="text-ink-700">
                                   {criterion?.title ?? rating.code}
                                 </span>
-                                <Badge tone={level?.tone ?? "muted"}>
-                                  {level?.label ?? rating.level}
+                                <Badge tone={band?.tone ?? "muted"} >
+                                  {rating.rating.toFixed(1)} · {band?.faRating}
                                 </Badge>
                               </div>
                               {rating.comment && (

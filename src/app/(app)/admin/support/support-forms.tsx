@@ -6,14 +6,16 @@ import { SubmitButton } from "@/components/submit-button";
 import { FormError, FormSuccess } from "@/components/ui";
 import { toDateTimeLocal } from "@/lib/format";
 import {
+  bandFor,
   criteriaByGroup,
+  DEFAULT_RATING_THRESHOLD,
   PATHWAY_DESCRIPTION,
   PATHWAY_LABEL,
-  RATING_LEVELS,
+  RATING_SCALE,
   reviewGate,
   SUPPORT_CRITERIA,
 } from "@/lib/support-rubric";
-import type { DeliveryRating, SupportPathway } from "@prisma-client";
+import type { SupportPathway } from "@prisma-client";
 import {
   arrangeAttempt,
   closeCase,
@@ -340,30 +342,29 @@ export function RearrangeForm({
 
 /* -------------------------------- Review ---------------------------------- */
 
-export type ExistingRating = { code: string; level: DeliveryRating; comment: string | null };
+export type ExistingRating = { code: string; rating: number; comment: string | null };
 
 export function ReviewForm({
   attemptId,
   ratings,
   defaultFeedback,
+  threshold = DEFAULT_RATING_THRESHOLD,
 }: {
   attemptId: string;
   ratings: ExistingRating[];
   defaultFeedback: string | null;
+  threshold?: number;
 }) {
   const [state, formAction] = useActionState(recordReview, idle);
 
-  const [levels, setLevels] = useState<Record<string, DeliveryRating | "">>(() =>
+  const [marks, setMarks] = useState<Record<string, number | 0>>(() =>
     Object.fromEntries(
-      SUPPORT_CRITERIA.map((c) => [c.code, ratings.find((r) => r.code === c.code)?.level ?? ""]),
+      SUPPORT_CRITERIA.map((c) => [c.code, ratings.find((r) => r.code === c.code)?.rating ?? 0]),
     ),
   );
   const [comments, setComments] = useState<Record<string, string>>(() =>
     Object.fromEntries(
-      SUPPORT_CRITERIA.map((c) => [
-        c.code,
-        ratings.find((r) => r.code === c.code)?.comment ?? "",
-      ]),
+      SUPPORT_CRITERIA.map((c) => [c.code, ratings.find((r) => r.code === c.code)?.comment ?? ""]),
     ),
   );
   const [outcome, setOutcome] = useState("");
@@ -371,12 +372,19 @@ export function ReviewForm({
 
   // The same gate the action applies on save, so the form never offers an
   // outcome the server is going to reject.
-  const gate = reviewGate(new Map(Object.entries(levels).map(([k, v]) => [k, v || null])));
+  const gate = reviewGate(
+    new Map(Object.entries(marks).map(([k, v]) => [k, v || null])),
+    threshold,
+  );
 
-  function setLevel(code: string, level: DeliveryRating) {
-    const next = { ...levels, [code]: level };
-    setLevels(next);
-    if (level === "NOT_YET" && outcome === "SUCCESSFUL") setOutcome("");
+  function setMark(code: string, rating: number) {
+    const next = { ...marks, [code]: rating };
+    setMarks(next);
+    const after = reviewGate(
+      new Map(Object.entries(next).map(([k, v]) => [k, v || null])),
+      threshold,
+    );
+    if (!after.canPass && outcome === "SUCCESSFUL") setOutcome("");
   }
 
   return (
@@ -389,27 +397,39 @@ export function ReviewForm({
           <div className="space-y-3">
             {criteria.map((criterion) => (
               <div key={criterion.code} className="rounded-lg border border-ink-200 p-3">
-                <input type="hidden" name={`level_${criterion.code}`} value={levels[criterion.code]} />
-                <p className="text-sm font-semibold text-ink-900">{criterion.title}</p>
+                <input
+                  type="hidden"
+                  name={`rating_${criterion.code}`}
+                  value={marks[criterion.code] || ""}
+                />
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-sm font-semibold text-ink-900">{criterion.title}</p>
+                  <p className="text-xs font-semibold text-ink-500">
+                    {marks[criterion.code] ? marks[criterion.code].toFixed(1) : "—"}
+                  </p>
+                </div>
                 <p className="mt-0.5 text-xs text-ink-500">{criterion.detail}</p>
 
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {RATING_LEVELS.map((level) => {
-                    const selected = levels[criterion.code] === level.value;
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {RATING_SCALE.map((value) => {
+                    const selected = marks[criterion.code] === value;
+                    const band = bandFor(value)!;
                     return (
                       <button
-                        key={level.value}
+                        key={value}
                         type="button"
-                        onClick={() => setLevel(criterion.code, level.value)}
+                        onClick={() => setMark(criterion.code, value)}
                         aria-pressed={selected}
-                        title={level.detail}
-                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        title={`${value} — ${band.faRating}`}
+                        className={`w-11 rounded-lg border px-0 py-1 text-xs font-semibold transition-colors ${
                           selected
                             ? "border-maroon-600 bg-maroon-600 text-white"
-                            : "border-ink-300 bg-white text-ink-600 hover:bg-ink-50"
+                            : value < threshold
+                              ? "border-ink-300 bg-ink-50 text-ink-500 hover:bg-ink-100"
+                              : "border-ink-300 bg-white text-ink-700 hover:bg-ink-50"
                         }`}
                       >
-                        {level.label}
+                        {value.toFixed(1)}
                       </button>
                     );
                   })}
@@ -431,7 +451,18 @@ export function ReviewForm({
       ))}
 
       <div className="rounded-lg bg-ink-50 p-4">
-        <p className="section-title mb-2">Outcome</p>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <p className="section-title">Outcome</p>
+          {gate.overall !== null && (
+            <p className="text-sm font-semibold text-ink-800">
+              {gate.overall.toFixed(1)}
+              <span className="ml-2 font-normal text-ink-500">
+                {gate.band?.faRating} · {gate.band?.outcome}
+              </span>
+            </p>
+          )}
+        </div>
+
         <div className="space-y-2">
           <label
             className={`flex items-start gap-2 text-sm ${
@@ -468,16 +499,17 @@ export function ReviewForm({
           </label>
         </div>
 
-        {!gate.complete && (
+        {!gate.complete ? (
           <p className="hint">
-            {gate.missing.length} criteri{gate.missing.length === 1 ? "on" : "a"} still unmarked.
+            {gate.missing.length} criteri{gate.missing.length === 1 ? "on" : "a"} still unrated.
           </p>
-        )}
-        {gate.complete && gate.notYet.length > 0 && (
-          <p className="hint">
-            {gate.notYet.length} marked “Not yet”, so a successful outcome isn't available. Move
-            the mark or record it as not yet successful.
-          </p>
+        ) : (
+          !gate.canPass && (
+            <p className="hint">
+              {gate.overall?.toFixed(1)} is below {threshold}, so the rubric puts this in
+              post-course support. Move the marks or record it as not yet successful.
+            </p>
+          )
         )}
       </div>
 

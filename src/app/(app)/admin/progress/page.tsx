@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/auth";
 import { getStaffProgress } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
 import { displayName, formatDateTime } from "@/lib/format";
-import { rollUpCourse } from "@/lib/support-rubric";
+import { courseResult } from "@/lib/support-rubric";
 
 export const metadata = { title: "Progress" };
 
@@ -16,20 +16,27 @@ export default async function ProgressPage({
   await requireAdmin();
   const { course: courseFilter } = await searchParams;
 
-  const [courses, rows, supportCases] = await Promise.all([
+  const [courses, rows, supportCases, enrollments] = await Promise.all([
     prisma.course.findMany({
       orderBy: { title: "asc" },
-      select: { id: true, title: true, passMark: true },
+      select: { id: true, title: true, ratingThreshold: true },
     }),
     getStaffProgress(courseFilter),
     prisma.supportCase.findMany({ select: { userId: true, courseId: true, status: true } }),
+    // Where each coach stands on the register, which is the only place a
+    // shortfall is recorded — coursework percentages don't decide it.
+    prisma.enrollment.findMany({
+      where: courseFilter ? { courseId: courseFilter } : {},
+      select: {
+        userId: true,
+        courseId: true,
+        rating: true,
+        outcome: true,
+        course: { select: { title: true, ratingThreshold: true } },
+      },
+    }),
   ]);
 
-  // Courses that carry a pass mark are the only ones anyone can come up short
-  // on; the rest are complete-them-and-you're-done.
-  const ranked = courses.filter(
-    (c) => c.passMark !== null && (!courseFilter || c.id === courseFilter),
-  );
   const casesFor = (userId: string) => supportCases.filter((c) => c.userId === userId);
 
   const staffTotals = rows.reduce(
@@ -102,16 +109,17 @@ export default async function ProgressPage({
               .slice(0, 4);
             const overdue = row.summary.overdue;
 
-            // Ranked courses this coach has finished below the mark, minus any
-            // already carrying a case — a coach in support is being dealt with,
-            // and flagging them a second time only adds noise.
+            // Courses this coach has been rated short on, minus any already
+            // carrying a case — a coach in support is being dealt with, and
+            // flagging them a second time only adds noise.
             const cases = casesFor(row.user.id);
             const inSupport = cases.filter((c) => c.status === "IN_PROGRESS").length;
-            const shortfalls = ranked
-              .map((course) => rollUpCourse(course, row.tasks))
+            const shortfalls = enrollments
+              .filter((e) => e.userId === row.user.id)
+              .map(courseResult)
               .filter(
                 (result) =>
-                  result.verdict === "not_passed" &&
+                  result.verdict === "needs_support" &&
                   !cases.some((c) => c.courseId === result.courseId),
               );
 
@@ -128,7 +136,7 @@ export default async function ProgressPage({
                   <div className="flex items-center gap-2">
                     {shortfalls.map((result) => (
                       <Badge key={result.courseId} tone="warn">
-                        {result.pct}% on {result.courseTitle}
+                        {result.rating?.toFixed(1) ?? "—"} on {result.courseTitle}
                       </Badge>
                     ))}
                     {inSupport > 0 && <Badge tone="ok">In support</Badge>}
