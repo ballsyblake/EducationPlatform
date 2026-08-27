@@ -2,12 +2,7 @@ import { EmptyState, PageHeader } from "@/components/ui";
 import { ratingVisibleToClub } from "@/lib/cda/access";
 import { loadAssessment } from "@/lib/cda/assessment";
 import { ASSESSED_DOMAINS, DOMAIN_LABELS } from "@/lib/cda/rubric";
-import {
-  REVIEWABLE_DOMAINS,
-  REVIEW_MAX_ITEMS,
-  REVIEW_QUOTAS,
-  reviewTimeline,
-} from "@/lib/cda/review";
+import { REVIEWABLE_DOMAINS, reviewAllowance, reviewTimeline } from "@/lib/cda/review";
 import { prisma } from "@/lib/db";
 import { clubContext } from "../club-context";
 import { AppealForm } from "./appeal-form";
@@ -60,11 +55,15 @@ export default async function ClubReviewPage() {
     review,
   });
 
-  // Only what the club may put forward. Technical Qualifications is absent
-  // because it is computed from the staff register — there is no assessor
-  // judgement there to review, and offering it would send clubs down a path
-  // that ends in "correct your own data".
   const overview = await loadAssessment(assessment.id);
+
+  // What this club in particular may put forward. Tier 2 gets fewer items than
+  // Tier 1, and a Pool B club gets one Planning item rather than three, because
+  // only part of its Planning was reassessed this year.
+  const allowance = reviewAllowance({
+    tierCode: overview.rating.tier,
+    poolName: overview.assessment.pool?.name,
+  });
   const candidates: ReviewCandidate[] = overview.agreements
     .filter((a) => REVIEWABLE_DOMAINS.includes(a.criterion.domain))
     .map((a) => ({
@@ -78,8 +77,8 @@ export default async function ClubReviewPage() {
     }));
 
   const quotaSummary = (ASSESSED_DOMAINS as Domain[])
-    .filter((d) => REVIEW_QUOTAS[d] !== undefined)
-    .map((d) => `${REVIEW_QUOTAS[d]} ${DOMAIN_LABELS[d]}`)
+    .filter((d) => allowance.quotas[d] !== undefined)
+    .map((d) => `${allowance.quotas[d]} ${DOMAIN_LABELS[d]}`)
     .join(", ");
 
   return (
@@ -106,7 +105,10 @@ export default async function ClubReviewPage() {
             disagreement with the judgement itself is not one.
           </p>
           <p>
-            {`You may put forward ${quotaSummary} line items, up to ${REVIEW_MAX_ITEMS} in total, and one request per cycle.`}{" "}
+            {`You may put forward ${quotaSummary} line items, plus the Technical Staff Qualifications score — ${allowance.maxItems} in total, and one request per cycle.`}{" "}
+            {allowance.poolLimited
+              ? "Pool B clubs get one Planning item rather than three, because only part of your Planning was reassessed this year. "
+              : ""}
             If you don&apos;t request a review, your rating confirms itself once the window closes.
           </p>
           <p className="text-ink-500">
@@ -162,6 +164,7 @@ export default async function ClubReviewPage() {
         />
       ) : (
         <RequestForm
+        allowance={allowance}
           candidates={candidates}
           canRequest={timeline.canRequestReview}
           deadline={timeline.deadline}

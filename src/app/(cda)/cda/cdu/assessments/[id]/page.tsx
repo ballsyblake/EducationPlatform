@@ -73,7 +73,26 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
   // missing for each higher level, which is the part a club can act on.
   const structure = await loadStructure(id);
 
+  // Which standards this club was already on notice for last season. FQ allows
+  // a notice once; the same one twice running is repeated non-compliance, so
+  // the verdict has to be off the table rather than merely discouraged.
+  const onNoticeLastCycle = new Set(
+    (
+      await prisma.nonNegotiableResult.findMany({
+        where: {
+          verdict: "ON_NOTICE",
+          assessment: {
+            clubId: assessment.clubId,
+            cycle: { year: { lt: assessment.cycle.year } },
+          },
+        },
+        select: { nonNegotiable: { select: { code: true } } },
+      })
+    ).map((r) => r.nonNegotiable.code),
+  );
+
   const checks: VerifyItem[] = assessment.nonNegotiables.map((n) => ({
+    onNoticeLastCycle: onNoticeLastCycle.has(n.nonNegotiable.code),
     id: n.id,
     code: n.nonNegotiable.code,
     title: n.nonNegotiable.title,
@@ -187,7 +206,16 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
           value={<ShieldBadge shield={rating.shield} />}
           hint={
             !rating.eligibility.eligible
-              ? `${rating.eligibility.failed.length} failed, ${rating.eligibility.pending.length} pending`
+              ? [
+                  rating.eligibility.failed.length && `${rating.eligibility.failed.length} failed`,
+                  rating.eligibility.noticesRefused.length &&
+                    `${rating.eligibility.noticesRefused.length} notice${
+                      rating.eligibility.noticesRefused.length === 1 ? "" : "s"
+                    } refused`,
+                  rating.eligibility.pending.length && `${rating.eligibility.pending.length} pending`,
+                ]
+                  .filter(Boolean)
+                  .join(", ")
               : rating.cappedDown
                 ? // The score alone would have earned more. Saying so here stops
                   // the CDU chasing a scoring error that isn't there.

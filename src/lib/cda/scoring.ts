@@ -333,7 +333,16 @@ export function minShield(a: Shield, b: Shield): Shield {
 export type NonNegotiableState = {
   code: string;
   title: string;
-  verdict: "PENDING" | "PASS" | "FAIL";
+  verdict: "PENDING" | "PASS" | "FAIL" | "ON_NOTICE";
+  /**
+   * Whether this same check was on notice in the club's previous cycle.
+   *
+   * Passed in rather than looked up, because this module stays pure — the
+   * caller has the history. Absent means "not known to be", which is the safe
+   * default: it lets the notice stand, and the Unit sees the run of verdicts on
+   * the assessment either way.
+   */
+  onNoticeLastCycle?: boolean;
   /**
    * GATE checks are pass or fail; SHIELD_THRESHOLD checks set a different bar
    * per shield. Defaults to GATE when absent so a caller that hasn't been
@@ -350,6 +359,13 @@ export type EligibilityResult = {
   passed: number;
   failed: NonNegotiableState[];
   pending: NonNegotiableState[];
+  /** Threshold checks carrying a notice that stands. */
+  onNotice: NonNegotiableState[];
+  /**
+   * Notices FQ's own limits don't allow — a second one in the same year, or the
+   * same check on notice two seasons running. These read as failures.
+   */
+  noticesRefused: NonNegotiableState[];
   total: number;
   /**
    * The strongest shield the threshold checks allow, or null when none of them
@@ -378,40 +394,73 @@ export function checkEligibility(items: NonNegotiableState[]): EligibilityResult
   const gates = items.filter((i) => i.kind !== "SHIELD_THRESHOLD");
   const thresholds = items.filter((i) => i.kind === "SHIELD_THRESHOLD");
 
-  const failed = gates.filter((i) => i.verdict === "FAIL");
+  // On Notice is FQ's third verdict on the three Shield Threshold standards:
+  // the bar was missed, and the club keeps its level this season anyway. It is
+  // bounded — "clubs can only be on notice for the same line item for one
+  // season and no more than one line item in a year" — and a notice outside
+  // those bounds is what FQ calls repeated non-compliance, which reads as a
+  // failure. A notice on a gate check is meaningless and treated the same way:
+  // the six gates are documents that are there or aren't.
+  const claimed = items.filter((i) => i.verdict === "ON_NOTICE");
+  const noticesRefused = claimed.filter(
+    (i) =>
+      i.kind !== "SHIELD_THRESHOLD" ||
+      i.onNoticeLastCycle === true ||
+      // More than one in a year exhausts the allowance, and nothing in the
+      // process says which of them survives — so none does, and the Unit
+      // decides what each verdict should actually be.
+      claimed.length > 1,
+  );
+  const onNotice = claimed.filter((i) => !noticesRefused.includes(i));
+
+  const refused = (i: NonNegotiableState) => noticesRefused.includes(i);
+
+  const failed = [...gates.filter((i) => i.verdict === "FAIL"), ...gates.filter(refused)].filter(
+    (i, at, all) => all.indexOf(i) === at,
+  );
+
   // Pending counts against eligibility as much as a failure does, for threshold
   // checks as much as for gates. A shield awarded on unverified checks is
   // exactly the outcome the gate exists to prevent, so "not yet checked" can
   // never resolve in the club's favour.
   const pending = items.filter((i) => i.verdict === "PENDING");
 
+  /** The highest bar a threshold check is treated as having met. */
+  const levelMet = (t: NonNegotiableState): Shield => {
+    // A threshold check the CDU marked as failed met nobody's bar, and so does
+    // a notice the limits don't allow. One left without a level recorded is
+    // treated the same way; it is already holding up eligibility as a pending
+    // item, and guessing upward here would let a half-finished verification
+    // award a shield.
+    if (t.verdict === "FAIL" || refused(t)) return "NONE";
+    return t.shieldMet ?? "NONE";
+  };
+
   let cap: Shield | null = null;
   for (const t of thresholds) {
-    // A threshold check the CDU marked as failed met nobody's bar. One left
-    // without a level recorded is treated the same way; it is already holding
-    // up eligibility as a pending item, and guessing upward here would let a
-    // half-finished verification award a shield.
-    const met: Shield = t.verdict === "FAIL" ? "NONE" : (t.shieldMet ?? "NONE");
+    const met = levelMet(t);
     cap = cap === null ? met : minShield(cap, met);
   }
 
-  const cappedBy =
-    cap === null
-      ? []
-      : thresholds.filter(
-          (t) => (t.verdict === "FAIL" ? "NONE" : (t.shieldMet ?? "NONE")) === cap,
-        );
+  const cappedBy = cap === null ? [] : thresholds.filter((t) => levelMet(t) === cap);
 
   return {
-    eligible: items.length > 0 && failed.length === 0 && pending.length === 0,
+    eligible:
+      items.length > 0 &&
+      failed.length === 0 &&
+      pending.length === 0 &&
+      noticesRefused.length === 0,
     passed: items.filter((i) => i.verdict === "PASS").length,
     failed,
     pending,
+    onNotice,
+    noticesRefused,
     total: items.length,
     cap,
     cappedBy,
   };
 }
+
 
 /* -------------------------------------------------------------------------- */
 /* Weighted total and shield                                                  */
@@ -421,7 +470,16 @@ export type ShieldThresholds = {
   bronzeMin: number;
   silverMin: number;
   goldMin: number;
+  /** Tier 2's own bar for Development Committed. */
+  developmentMin: number;
 };
+
+/** Which rule set a club is rated under. Defaults to Tier 1. */
+export type AssessmentTier = "T1" | "T2";
+
+export function tierOf(code?: string | null): AssessmentTier {
+  return String(code ?? "T1").toUpperCase() === "T2" ? "T2" : "T1";
+}
 
 /** Points earned and available for one domain. */
 export type DomainPoints = { earned: number; available: number };
@@ -456,16 +514,39 @@ export type RatingResult = {
    * acknowledgement that they are in the program and compliant.
    */
   developmentBadge: boolean;
+  /**
+   * Whether the club is licence compliant. Carried through rather than applied:
+   * an FQ Academy League invitation needs the rating *and* this, and the Unit
+   * has to be able to see the two apart.
+   */
+  licenceCompliant: boolean | null;
+  tier: AssessmentTier;
 };
 
 /**
- * The shield a percentage earns on its own.
+ * The shield a percentage earns on its own, under that club's tier.
  *
- * Below Bronze this returns NONE rather than the Development Committed badge:
- * the badge also depends on licence compliance, which is not a scoring
- * question, so it is applied in `computeRating` where that answer is available.
+ * The two tiers award different things, and this is the correction the 2026
+ * Info Pack forced. Tier 1 runs the Bronze/Silver/Gold ladder. Tier 2 does not
+ * sit below it — it is a separate track with one outcome: "Tier 2 –
+ * Development Committed rating is awarded if minimum 55% is achieved out of the
+ * overall maximum points" (p19), reaffirmed as "Tier 2 assessment score over
+ * 55%" in the league-invitation criteria (p27).
+ *
+ * An earlier reading had Development Committed as a badge for a Tier 1 club
+ * scoring under 40%, quoting a sentence from an older pack that the 2026 one
+ * does not carry. That handed the badge to precisely the clubs it was never
+ * meant for — a Tier 1 club below Bronze — while a Tier 2 club on 60% could not
+ * be awarded it at all.
  */
-export function shieldFor(percent: number, t: ShieldThresholds): Shield {
+export function shieldFor(
+  percent: number,
+  t: ShieldThresholds,
+  tier: AssessmentTier = "T1",
+): Shield {
+  if (tier === "T2") {
+    return percent >= t.developmentMin ? "DEVELOPMENT_COMMITTED" : "NONE";
+  }
   if (percent >= t.goldMin) return "GOLD";
   if (percent >= t.silverMin) return "SILVER";
   if (percent >= t.bronzeMin) return "BRONZE";
@@ -495,12 +576,16 @@ export function computeRating(
   cycle: ShieldThresholds,
   nonNegotiables: NonNegotiableState[],
   /**
-   * Whether the club is licence compliant in non-technical areas — the one
-   * condition on the Development Committed badge. Null or false means no badge:
-   * FQ publishes it, and a recognition nobody has confirmed shouldn't be handed
-   * out because the field was left blank.
+   * Whether the club is licence compliant in non-technical areas.
+   *
+   * No longer a condition on the award. The 2026 pack keeps licence compliance
+   * as one of the two tests for an FQ Academy League invitation — "ASSESSMENT
+   * COMPLIANT… LICENCE COMPLIANT" (p27) — and makes the rating itself turn on
+   * the score alone. It stays on the result so the Unit can see, of a club that
+   * earned its rating, whether the other half of the invitation is met.
    */
   licenceCompliant: boolean | null = null,
+  tier: AssessmentTier = "T1",
 ): RatingResult {
   const earned = DOMAINS.reduce((sum, d) => sum + points[d].earned, 0);
   const available = DOMAINS.reduce((sum, d) => sum + points[d].available, 0);
@@ -519,22 +604,19 @@ export function computeRating(
   const percent = available === 0 ? 0 : (earned / available) * 100;
 
   const eligibility = checkEligibility(nonNegotiables);
-  const provisionalShield = shieldFor(percent, cycle);
+  const provisionalShield = shieldFor(percent, cycle, tier);
 
+  // Tier 2 clubs are outside the Shield Threshold standards — "Tier 2 Academies
+  // that have achieved the Development Committed shield are not bound by the
+  // additional Shield Thresholds" (p14) — so nothing caps them. They still meet
+  // the gate Non-Negotiables, which is what the same sentence goes on to say.
   const capped =
-    eligibility.cap === null
+    tier === "T2" || eligibility.cap === null
       ? provisionalShield
       : minShield(provisionalShield, eligibility.cap);
 
-  // The badge is keyed off the score, not off the capped result. FQ's condition
-  // is "clubs scoring less than 40%", and a club that scored a shield but met no
-  // threshold standard is not a development-committed club — it is a club whose
-  // structure met no standard, which is a different finding and reads as NONE.
-  //
-  // Applied after the cap so the cap can't take it away: there is no threshold
-  // bar below Bronze for it to fall short of.
-  const badge = provisionalShield === "NONE" && licenceCompliant === true;
-  const awarded: Shield = badge ? "DEVELOPMENT_COMMITTED" : capped;
+  const awarded: Shield = capped;
+  const badge = awarded === "DEVELOPMENT_COMMITTED";
 
   return {
     domains,
@@ -551,6 +633,8 @@ export function computeRating(
     // which raises the award rather than lowering it — never reads as a cap.
     cappedDown: eligibility.eligible && capped !== provisionalShield,
     developmentBadge: eligibility.eligible === true && badge,
+    licenceCompliant,
+    tier,
   };
 }
 

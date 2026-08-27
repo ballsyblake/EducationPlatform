@@ -398,16 +398,21 @@ const CLUBS = [
     strength: 0.4,
     admin: { email: "admin@rockycentral.example.com", name: "Bec Alderton" },
   },
-  // Scores below the Bronze bar but is licence compliant, so its award is the
-  // Development Committed badge. Worth a club of its own: it is a different
-  // outcome from Rockhampton's, which fails a gate check and gets nothing, and
-  // the two look identical on a dashboard unless both are in the data.
+  // Clears Tier 2's own bar, so its award is Development Committed — the only
+  // rating a Tier 2 club can be given. Worth a club of its own: it is a
+  // different outcome from Rockhampton's, which clears nothing and fails a gate
+  // check besides, and the two look identical on a dashboard unless both are in
+  // the data.
+  //
+  // Strength was 0.3 while the badge was wrongly modelled as something a club
+  // received for scoring *under* 40%. It has to clear 55% to earn the rating
+  // FQ actually awards.
   {
     name: "Mount Isa Rovers FC",
     slug: "mount-isa-rovers",
     zone: "North West Queensland",
     tier: "Community",
-    strength: 0.3,
+    strength: 0.85,
     admin: { email: "admin@misarovers.example.com", name: "Toby Nguyen-Hale" },
   },
 ];

@@ -10,7 +10,7 @@ import {
 } from "@/lib/cda/access";
 import { activeCycle, ensureAssessment, syncStructureLevel } from "@/lib/cda/assessment";
 import { METRIC_SPECS } from "@/lib/cda/rubric";
-import { checkQuota, reviewTimeline } from "@/lib/cda/review";
+import { checkQuota, reviewAllowance, reviewTimeline } from "@/lib/cda/review";
 import { STATUS_OPTIONS } from "@/lib/cda/structure";
 import { prisma } from "@/lib/db";
 import { UploadError, storeUpload } from "@/lib/uploads";
@@ -343,7 +343,9 @@ async function releasedAssessment() {
 
   const assessment = await prisma.clubAssessment.findUnique({
     where: { clubId_cycleId: { clubId: club.id, cycleId: cycle.id } },
-    include: { review: true },
+    // Tier and pool come along because they set the club's review allowance,
+    // and that has to be read from the record rather than from the form.
+    include: { review: true, tier: true, pool: true },
   });
   if (!assessment || !ratingVisibleToClub(assessment.status)) {
     throw new Error("Your rating hasn't been released yet.");
@@ -396,7 +398,9 @@ export async function submitReviewRequest(
     if (comment) selections.push({ criterionId: key.slice("comment:".length), comment });
   }
 
-  if (selections.length === 0) {
+  const technicalComment = String(formData.get("technicalComment") ?? "").trim();
+
+  if (selections.length === 0 && !technicalComment) {
     return {
       status: "error",
       message:
@@ -415,7 +419,18 @@ export async function submitReviewRequest(
     return { status: "error", message: "One of those line items no longer exists." };
   }
 
-  const quota = checkQuota(criteria.map((c) => c.domain));
+  // The club's own allowance, read from its tier and pool rather than from the
+  // form: the quota is the whole substance of the rule, and a Pool B club must
+  // not be able to spend a Pool A allowance by posting one.
+  const allowance = reviewAllowance({
+    tierCode: assessment.tier?.code,
+    poolName: assessment.pool?.name,
+  });
+
+  const quota = checkQuota(
+    { domains: criteria.map((c) => c.domain), technical: Boolean(technicalComment) },
+    allowance,
+  );
   if (!quota.ok) return { status: "error", message: quota.message };
 
   await prisma.reviewRequest.create({
@@ -427,6 +442,8 @@ export async function submitReviewRequest(
       // moment the Unit revises anything.
       percentBefore: assessment.finalPercent,
       shieldBefore: assessment.eligible ? assessment.finalShield : null,
+      technicalRequested: Boolean(technicalComment),
+      technicalComment: technicalComment || null,
       items: {
         create: selections.map((s) => ({
           criterionId: s.criterionId,
@@ -444,9 +461,7 @@ export async function submitReviewRequest(
   revalidatePath("/cda/club", "layout");
   return {
     status: "ok",
-    message: `Review request submitted for ${selections.length} line item${
-      selections.length === 1 ? "" : "s"
-    }.`,
+    message: `Review request submitted for ${quota.total} item${quota.total === 1 ? "" : "s"}.`,
   };
 }
 

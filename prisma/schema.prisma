@@ -941,6 +941,14 @@ model Cycle {
   silverMin Int @default(55)
   goldMin   Int @default(75)
 
+  /// Tier 2's own bar. "Development Committed rating is awarded if minimum 55%
+  /// is achieved out of the overall maximum points."
+  ///
+  /// Its own column rather than a reuse of silverMin, which it happens to equal
+  /// in 2026: FQ raises Silver to 60% in 2027 and says nothing about moving
+  /// this, and a Tier 2 club should not be dragged up by a Tier 1 change.
+  developmentMin Int @default(55)
+
   assessments ClubAssessment[]
   pools       Pool[]
 
@@ -1402,6 +1410,16 @@ enum NonNegotiableVerdict {
   PENDING
   PASS
   FAIL
+
+  /// Shield Threshold standards only. FQ's third verdict: the club has not met
+  /// the bar, but keeps its level this season on the understanding that it will
+  /// by the next one.
+  ///
+  /// It is bounded, and the bounds are the whole point — "clubs can only be on
+  /// notice for the same line item for one season and no more than one line
+  /// item in a year". An on-notice verdict outside those bounds is repeated
+  /// non-compliance, and reads as a failure. See checkEligibility.
+  ON_NOTICE
 }
 
 /// A club's declaration against one Non-Negotiable, and the CDU's verdict.
@@ -1543,6 +1561,16 @@ model ReviewRequest {
   /// The result as it stood when the club asked for the review, so the report
   /// can show what the review actually moved. Recomputing it later would be
   /// impossible once the revised scores are in.
+  /// FQ allows one review of the Technical Staff Qualifications score, in both
+  /// tiers. It rides on the request rather than in ReviewItem because there is
+  /// no Criterion behind it — the Technical score is computed from the club's
+  /// staff register, so what a club disputes is how a qualification was read,
+  /// and the remedy is a corrected register that recomputes.
+  technicalRequested Boolean       @default(false)
+  technicalComment   String?
+  technicalOutcome   ReviewOutcome @default(PENDING)
+  technicalResponse  String?
+
   percentBefore Float?
   shieldBefore  Shield?
 

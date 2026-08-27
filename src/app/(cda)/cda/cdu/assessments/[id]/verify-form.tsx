@@ -29,7 +29,9 @@ export type VerifyItem = {
   derivedFailures: { shield: Shield; met: boolean; failures: string[] }[];
   clubDeclared: boolean | null;
   clubNote: string | null;
-  verdict: "PENDING" | "PASS" | "FAIL";
+  verdict: "PENDING" | "PASS" | "FAIL" | "ON_NOTICE";
+  /** Whether this club was already on notice for this standard last season. */
+  onNoticeLastCycle: boolean;
   adminNote: string;
   evidence: { id: string; filename: string }[];
 };
@@ -45,7 +47,10 @@ export function VerifyForm({ item, locked }: { item: VerifyItem; locked: boolean
   // A departure from the computation is the only thing that needs justifying.
   // Agreeing with it needs nothing, which is what keeps the common case fast.
   const departing =
-    threshold && verdict === "PASS" && item.shieldMetDerived !== null && level !== item.shieldMetDerived;
+    threshold &&
+    (verdict === "PASS" || verdict === "ON_NOTICE") &&
+    item.shieldMetDerived !== null &&
+    level !== item.shieldMetDerived;
 
   return (
     <form action={formAction} className="px-5 py-4">
@@ -123,12 +128,24 @@ export function VerifyForm({ item, locked }: { item: VerifyItem; locked: boolean
 
         <div className="shrink-0 text-right">
           <Badge
-            tone={item.verdict === "PASS" ? "good" : item.verdict === "FAIL" ? "bad" : "muted"}
+            tone={
+              item.verdict === "PASS"
+                ? "good"
+                : item.verdict === "FAIL"
+                  ? "bad"
+                  : item.verdict === "ON_NOTICE"
+                    ? "warn"
+                    : "muted"
+            }
           >
-            {item.verdict === "PENDING" ? "Not verified" : item.verdict}
+            {item.verdict === "PENDING"
+              ? "Not verified"
+              : item.verdict === "ON_NOTICE"
+                ? "On notice"
+                : item.verdict}
           </Badge>
           {threshold &&
-            item.verdict === "PASS" &&
+            (item.verdict === "PASS" || item.verdict === "ON_NOTICE") &&
             (item.shieldMet && item.shieldMet !== "NONE" ? (
               <div className="mt-1.5 flex items-center justify-end gap-1.5">
                 <ShieldBadge shield={item.shieldMet} size="sm" />
@@ -150,37 +167,58 @@ export function VerifyForm({ item, locked }: { item: VerifyItem; locked: boolean
           <fieldset>
             <legend className="label">Verdict</legend>
             <div className="flex flex-wrap gap-3">
-              {(["PENDING", "PASS", "FAIL"] as const).map((v) => (
-                <label key={v} className="flex items-center gap-2 text-sm text-ink-700">
-                  <input
-                    type="radio"
-                    name="verdict"
-                    value={v}
-                    className="h-4 w-4 accent-maroon-600"
-                    checked={verdict === v}
-                    onChange={() => {
-                      setVerdict(v);
-                      // The server clears the level on anything but a pass, so
-                      // the control has to clear too. Leaving Silver selected
-                      // under "Not verified" would show a cap that isn't there.
-                      if (v !== "PASS") setLevel("");
-                    }}
-                  />
-                  {v === "PENDING"
-                    ? "Not verified"
-                    : v === "PASS"
-                      ? threshold
-                        ? "Standard met"
-                        : "Pass"
-                      : threshold
-                        ? "Met no standard"
-                        : "Fail"}
-                </label>
-              ))}
+              {((threshold
+                ? (["PENDING", "PASS", "ON_NOTICE", "FAIL"] as const)
+                : (["PENDING", "PASS", "FAIL"] as const)) as readonly VerifyItem["verdict"][]).map(
+                (v) => (
+                  <label key={v} className="flex items-center gap-2 text-sm text-ink-700">
+                    <input
+                      type="radio"
+                      name="verdict"
+                      value={v}
+                      className="h-4 w-4 accent-maroon-600"
+                      disabled={v === "ON_NOTICE" && item.onNoticeLastCycle}
+                      checked={verdict === v}
+                      onChange={() => {
+                        setVerdict(v);
+                        // The server clears the level on anything that doesn't
+                        // keep one, so the control has to clear too. Leaving
+                        // Silver selected under "Not verified" would show a cap
+                        // that isn't there.
+                        if (v !== "PASS" && v !== "ON_NOTICE") setLevel("");
+                      }}
+                    />
+                    {v === "PENDING"
+                      ? "Not verified"
+                      : v === "PASS"
+                        ? threshold
+                          ? "Standard met"
+                          : "Pass"
+                        : v === "ON_NOTICE"
+                          ? "On notice"
+                          : threshold
+                            ? "Met no standard"
+                            : "Fail"}
+                  </label>
+                ),
+              )}
             </div>
           </fieldset>
 
-          {threshold && verdict === "PASS" && (
+          {item.onNoticeLastCycle && (
+            <p className="rounded-lg bg-status-orange-bg px-3 py-2 text-xs text-status-orange-fg">
+              This club was on notice for this standard last season. FQ allows that once — a second
+              is repeated non-compliance, so the only verdicts left are met or not met.
+            </p>
+          )}
+          {verdict === "ON_NOTICE" && !item.onNoticeLastCycle && (
+            <p className="rounded-lg bg-status-orange-bg px-3 py-2 text-xs text-status-orange-fg">
+              The club keeps the standard below this season and has until the next assessment to
+              meet it. One notice a year, and not the same standard twice.
+            </p>
+          )}
+
+          {threshold && (verdict === "PASS" || verdict === "ON_NOTICE") && (
             <>
             <input type="hidden" name="shieldMet" value={level} />
             {departing && (
@@ -234,7 +272,9 @@ export function VerifyForm({ item, locked }: { item: VerifyItem; locked: boolean
             <label className="label" htmlFor={`note-${item.id}`}>
               Note{" "}
               <span className="font-normal text-ink-400">
-                {verdict === "FAIL" ? "(required — the club sees this)" : "(the club sees this)"}
+                {verdict === "FAIL" || verdict === "ON_NOTICE"
+                  ? "(required — the club sees this)"
+                  : "(the club sees this)"}
               </span>
             </label>
             <textarea

@@ -6,18 +6,20 @@
  * server-side guards all read the same clock rather than three approximations
  * of it.
  *
- * FQ's process, quoted from the assessment document:
+ * FQ's process, quoted from the 2026 Club Development & Assessment Info Pack:
  *
- *   "Clubs can submit their review request with specific comments regarding
- *   areas they request a review of within 8 days… A score review can be
- *   requested for a maximum of 4-line items in the Planning, 4-line items in
- *   the Delivery, and 2-line items in the Outcome section. A maximum of
- *   10-line items will be reviewed… If there is no review request, the club
- *   assessment score is set and final (Confirmed) after the review timeframe
- *   has lapsed… the Club Development and Assessment Unit provides detailed
- *   feedback… within 10 working days. Clubs can appeal the outcome of the
- *   review within 3 working days to the CEO… The CEO has 8 working days to
- *   respond and revise or preserve the score."
+ *   "Clubs can submit their review request with specific comments within eight
+ *   (8) days… Tier 1 - A maximum of 9-line items will be reviewed… A score
+ *   review can be requested for a maximum of 1 review for Technical Staff
+ *   Qualifications, 3-line items in the Planning, 3-line items in the Delivery,
+ *   and 2-line items in the Outcome section. Please note, clubs in Pool B can
+ *   only review 1x Planning Item… Tier 2 - A maximum of 6-line items… 1 review
+ *   for Technical Staff Qualifications, 2-line items in the Planning, 2-line
+ *   items in the Delivery, and 1-line item in the Outcome section… the FQ Club
+ *   Development Unit provides detailed feedback… within 10 working days. Clubs
+ *   can appeal the outcome of the review within three (3) days to the CEO… The
+ *   CEO has eight (8) working days to respond and revise or preserve the
+ *   score." (pp. 9, 20)
  */
 import type { Domain, Shield } from "@prisma-client";
 
@@ -41,24 +43,67 @@ export const APPEAL_REQUEST_WORKING_DAYS = 3;
 export const APPEAL_RESPONSE_WORKING_DAYS = 8;
 
 /**
- * How many line items a club may put up for review, by domain.
+ * What a club may put up for review, given its tier and pool.
  *
- * Technical Qualifications is absent on purpose. It is computed from the staff
- * register rather than judged by an assessor, so a wrong Technical score is
- * fixed by correcting the register — there is no opinion to review.
+ * FQ sets this three ways at once — a per-domain quota, a stated total, and a
+ * Pool B exception on Planning — so it is a function of the club rather than a
+ * constant. The 2026 pack cut Tier 1's Planning and Delivery allowances from
+ * four to three, on the finding that only 32% of such requests moved a score.
+ *
+ * Technical Staff Qualifications is now among them. An earlier reading of this
+ * module excluded it, on the reasoning that the Technical score is computed
+ * from the staff register and so carries no opinion to review. FQ allows one
+ * anyway, in both tiers, and they are right to: what a club disputes is how a
+ * qualification was read, which is a judgement even though the arithmetic after
+ * it is not.
  */
-export const REVIEW_QUOTAS: Partial<Record<Domain, number>> = {
-  PLANNING: 4,
-  DELIVERY: 4,
-  OUTCOMES: 2,
+export type ReviewAllowance = {
+  /** Line-item quotas by domain. */
+  quotas: Partial<Record<Domain, number>>;
+  /** Whether the Technical Staff Qualifications score may also be put up. */
+  technical: boolean;
+  /** Everything the club may put forward, Technical included. */
+  maxItems: number;
+  /** For the copy on the page: which rule set produced this. */
+  tier: "T1" | "T2";
+  poolLimited: boolean;
 };
 
-/**
- * The overall cap. It happens to equal the sum of the per-domain quotas, but FQ
- * states it separately, so it is enforced separately: if they ever raise one
- * domain's allowance without restating the total, the total is what holds.
- */
-export const REVIEW_MAX_ITEMS = 10;
+/** FQ's stated ceilings, before the Pool B exception narrows Planning. */
+const STATED_TOTAL = { T1: 9, T2: 6 } as const;
+
+export function reviewAllowance(club: {
+  tierCode?: string | null;
+  poolName?: string | null;
+}): ReviewAllowance {
+  const tier = String(club.tierCode ?? "T1").toUpperCase() === "T2" ? "T2" : "T1";
+
+  // Pool applies to Tier 1 only; Tier 2 clubs are not pooled.
+  const poolLimited =
+    tier === "T1" && /^(pool\s*)?b$/i.test(String(club.poolName ?? "").trim());
+
+  const quotas: Partial<Record<Domain, number>> =
+    tier === "T2"
+      ? { PLANNING: 2, DELIVERY: 2, OUTCOMES: 1 }
+      : { PLANNING: poolLimited ? 1 : 3, DELIVERY: 3, OUTCOMES: 2 };
+
+  // The stated total is a ceiling, not a promise. Where the per-domain quotas
+  // cannot reach it — a Pool B club can only ever put forward seven — the sum
+  // is what the club is told, because advertising headroom nobody can use is
+  // just a worse way of saying seven.
+  const reachable = Object.values(quotas).reduce((sum, n) => sum + n, 0) + 1;
+
+  return {
+    quotas,
+    technical: true,
+    maxItems: Math.min(STATED_TOTAL[tier], reachable),
+    tier,
+    poolLimited,
+  };
+}
+
+/** The Tier 1, non-Pool-B allowance. For copy and tests that need a default. */
+export const DEFAULT_ALLOWANCE = reviewAllowance({});
 
 /* -------------------------------------------------------------------------- */
 /* Working days                                                               */
@@ -242,62 +287,66 @@ export type QuotaCheck = {
   /** How many of each domain's allowance is used. */
   used: Partial<Record<Domain, number>>;
   remaining: Partial<Record<Domain, number>>;
+  /** Everything selected, the Technical review included. */
   total: number;
 };
 
-/** Checks a proposed selection against FQ's per-domain and overall caps. */
-export function checkQuota(domains: Domain[]): QuotaCheck {
+export type Selection = {
+  domains: Domain[];
+  /** Whether the club has also put the Technical Qualifications score up. */
+  technical?: boolean;
+};
+
+/** Checks a proposed selection against the club's per-domain and overall caps. */
+export function checkQuota(selection: Selection, allowance: ReviewAllowance): QuotaCheck {
+  const { domains, technical = false } = selection;
+
   const used: Partial<Record<Domain, number>> = {};
   for (const d of domains) used[d] = (used[d] ?? 0) + 1;
 
   const remaining: Partial<Record<Domain, number>> = {};
-  for (const [domain, allowed] of Object.entries(REVIEW_QUOTAS) as [Domain, number][]) {
+  for (const [domain, allowed] of Object.entries(allowance.quotas) as [Domain, number][]) {
     remaining[domain] = allowed - (used[domain] ?? 0);
   }
 
+  const total = domains.length + (technical ? 1 : 0);
+  const fail = (message: string): QuotaCheck => ({ ok: false, message, used, remaining, total });
+
   for (const [domain, count] of Object.entries(used) as [Domain, number][]) {
-    const allowed = REVIEW_QUOTAS[domain];
+    const allowed = allowance.quotas[domain];
     if (allowed === undefined) {
-      return {
-        ok: false,
-        message: "Technical Qualifications isn't reviewable — correct the staff register instead.",
-        used,
-        remaining,
-        total: domains.length,
-      };
+      return fail(`${DOMAIN_WORD[domain] ?? domain} line items can't be put up for review.`);
     }
     if (count > allowed) {
-      return {
-        ok: false,
-        message: `You can put forward at most ${allowed} ${DOMAIN_WORD[domain]} items; you've selected ${count}.`,
-        used,
-        remaining,
-        total: domains.length,
-      };
+      const because =
+        domain === "PLANNING" && allowance.poolLimited
+          ? " Pool B clubs get one, because their Planning is only part-reassessed."
+          : "";
+      return fail(
+        `You can put forward at most ${allowed} ${DOMAIN_WORD[domain]} item${
+          allowed === 1 ? "" : "s"
+        }; you've selected ${count}.${because}`,
+      );
     }
   }
 
-  if (domains.length > REVIEW_MAX_ITEMS) {
-    return {
-      ok: false,
-      message: `Football Queensland reviews at most ${REVIEW_MAX_ITEMS} line items; you've selected ${domains.length}.`,
-      used,
-      remaining,
-      total: domains.length,
-    };
+  if (technical && !allowance.technical) {
+    return fail("The Technical Staff Qualifications score isn't reviewable on this assessment.");
   }
 
-  if (domains.length === 0) {
-    return {
-      ok: false,
-      message: "Choose at least one line item to put forward.",
-      used,
-      remaining,
-      total: 0,
-    };
+  if (total > allowance.maxItems) {
+    return fail(
+      `Football Queensland reviews at most ${allowance.maxItems} items on a ${
+        allowance.tier === "T2" ? "Tier 2" : "Tier 1"
+      } assessment; you've selected ${total}.`,
+    );
   }
 
-  return { ok: true, used, remaining, total: domains.length };
+  if (total === 0) {
+    return fail("Choose at least one line item to put forward.");
+  }
+
+  return { ok: true, used, remaining, total };
 }
 
 const DOMAIN_WORD: Partial<Record<Domain, string>> = {
@@ -307,7 +356,9 @@ const DOMAIN_WORD: Partial<Record<Domain, string>> = {
 };
 
 /** The domains a club may put items forward from. */
-export const REVIEWABLE_DOMAINS = Object.keys(REVIEW_QUOTAS) as Domain[];
+export const REVIEWABLE_DOMAINS: Domain[] = ["PLANNING", "DELIVERY", "OUTCOMES"];
+
+export { DOMAIN_WORD as REVIEW_DOMAIN_WORD };
 
 export const STAGE_LABELS: Record<ReviewStage, string> = {
   NOT_RELEASED: "Not released",
