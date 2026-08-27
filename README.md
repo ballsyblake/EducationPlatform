@@ -31,7 +31,8 @@ across in the header.
 - Assignments accepting a written response, file attachments, or both — with drafts you can save and come back to
 - Quizzes with multiple-choice, true/false, and written questions
 - A Grades & Feedback page collecting every score and written comment in one place, and where each course stands against its pass mark
-- Your own row of the course register: which days you were marked present, your rating out of five, and the write-up of every session an educator watched you deliver
+- Your own row of the course register: the hours you sat on each day, your rating out of five, and the write-up of every session an educator watched you deliver
+- Any hours you owe from a day you missed, and where they are being made up
 - Post-course support if you're rated below the mark: an educator watches you deliver a session again, live or on film
 
 **For admins (coach educators / technical staff)**
@@ -40,6 +41,7 @@ across in the header.
 - Author assignments and build quizzes question by question
 - A grading queue: score submissions, review written quiz answers, add feedback, or send work back for revision
 - The attendance register: nine delivery days, the roster, catch-ups, the CET team, and the results block — one screen per course
+- An hours desk: who is short, what they owe, and where it is being made up — across every course at once
 - A post-course support desk: who was rated below the pass mark, who is booked in, whose film is waiting to be reviewed
 - A staff progress dashboard — completion, overdue counts, and averages per coach, filterable by course
 - Staff management: add coaches by email, hand out sign-in links, promote to admin, deactivate
@@ -63,6 +65,9 @@ That register lives in the app at `/admin/courses/<id>/register`:
   to mark someone present; a day heading marks the whole column at once. Nothing
   is written until you save, because a register kept on a touchline needs a
   mistake to be correctable before it counts.
+- **Part days.** A tick is the whole day. For anything less, click *part* under
+  the cell and type the hours actually sat. Attendance is held in minutes, not
+  as a yes/no — see [Hours and make-ups](#hours-and-make-ups).
 - **The results block.** Attendance met, journal, rating, outcome, readiness and
   the register's own comments, for every coach on one screen.
 - **Practical deliveries.** Each coach's assessed sessions — assessor, block,
@@ -72,6 +77,52 @@ That register lives in the app at `/admin/courses/<id>/register`:
 
 A coach sees their own row: which days they were marked present, their rating
 and what that rating means, and every write-up an educator left them.
+
+### Hours and make-ups
+
+Attendance is **minutes, not a tick**. FQ's registers are full of half days —
+"Missed Day 2 PM", "3 hours missed on Day 2", "1.5 hours Day 3" — and a boolean
+rounds every one of them to a whole day in one direction or the other, which is
+why the spreadsheets end up recording them in the Comments column, where nothing
+can add them up.
+
+- A day is worth its scheduled length (`startTime`–`endTime`). A day with no
+  times recorded is worth nothing rather than a guessed eight hours: an invented
+  denominator would put a whole roster into debt against a standard nobody has
+  stated.
+- Only **days the register has actually taken** count towards what a coach owes.
+  A course in its first block has six days ahead of it, and measuring anybody
+  against them would show the entire roster forty-eight hours short.
+- A **catch-up** enrolment has no requirement of its own. It exists to host
+  hours owed on another course.
+
+Time missed becomes a debt when an educator says so, not automatically. That
+debt is an `AttendanceMakeUp`, and it follows the coach rather than the course —
+which is the whole point, because a coach who misses Day 6 on the Sunshine Coast
+usually sits it at Gold Coast Knights three weeks later, and no single register
+can say whether they are square. A make-up is `OWED`, `ARRANGED`, `COMPLETED` or
+`WAIVED`, carries the hours credited so far, and can point at the attendance row
+that paid it off.
+
+Two numbers do most of the work, and the difference between them is the point:
+
+| | |
+|---|---|
+| **Owed** | Raised on the ledger and not yet covered. Somebody is dealing with it. |
+| **Unaccounted** | Hours missing that nobody has raised anything for. These are the ones an educator needs to see. |
+
+The hours desk at `/admin/make-ups` shows both, across every course: the open
+ledger, and everybody short with nothing raised — each with a form to raise the
+debt on the spot. The same panel appears on a course register, scoped to that
+course. A coach sees their own outstanding hours on their dashboard and on their
+course page.
+
+**The importer reads the margins.** `courses:import` understands three shapes in
+the Comments column — "Missed Day N AM/PM", "N hours missed on Day N", "full day
+of Day N" — and turns each into a corrected attendance figure plus an `OWED`
+make-up quoting the original comment. Anything vaguer ("needs to catch up a few
+hours on another B") is printed at the end of the run for a person to raise by
+hand, never guessed at.
 
 ### How a course is rated
 
@@ -637,7 +688,8 @@ src/
       assignments/     Instructions, submission, feedback
       quizzes/         Taking a quiz and reading results
       grades/          Score and feedback history
-      admin/           Courses, quiz builder, grading queue, progress, staff
+      admin/           Courses, quiz builder, grading queue, hours, progress,
+                       staff
     (cda)/cda/         Club Development & Assessment
       club/            Staff register, Non-Negotiables, participation, rating
       assess/          An assessor's clubs and the scoring screen
@@ -649,6 +701,8 @@ src/
     access.ts          Course and upload authorization
     grading.ts         Auto-grading and score rollups
     coursework.ts      Task aggregation and progress summaries
+    attendance.ts      Pure hours: day lengths, totals, debts and shortfalls
+    support-rubric.ts  FA's 1-5 rubric, bands, and the support pathway
     uploads.ts         File validation and database-backed storage
     adapter.ts         Picks SQLite or Turso from DATABASE_URL
     cda/

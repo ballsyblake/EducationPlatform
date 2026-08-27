@@ -3,6 +3,13 @@ import { MaterialList } from "@/components/material-list";
 import { TaskList } from "@/components/task-list";
 import { Badge, EmptyState, PageHeader, ProgressBar } from "@/components/ui";
 import { requireCourseAccess } from "@/lib/access";
+import {
+  dayMinutes,
+  formatHours,
+  makeUpBalance,
+  MAKE_UP_STATUS,
+  summariseAttendance,
+} from "@/lib/attendance";
 import { isAdmin, requireUser } from "@/lib/auth";
 import { getTasksForCoach, summarizeTasks } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
@@ -32,6 +39,7 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
     where: { userId_courseId: { userId: user.id, courseId: id } },
     include: {
       attendance: true,
+      makeUps: { orderBy: { openedAt: "asc" }, include: { courseDay: true } },
       deliveries: { orderBy: { deliveryNo: "asc" }, include: { assessorUser: true } },
     },
   });
@@ -45,8 +53,15 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
       })
     : null;
 
-  const marks = new Map((enrollment?.attendance ?? []).map((a) => [a.courseDayId, a.present]));
-  const attended = [...marks.values()].filter(Boolean).length;
+  const marks = new Map((enrollment?.attendance ?? []).map((a) => [a.courseDayId, a.minutes]));
+  const hours = enrollment
+    ? summariseAttendance({
+        days: course.days,
+        attendance: enrollment.attendance,
+        makeUps: enrollment.makeUps,
+        track: enrollment.track,
+      })
+    : null;
 
   return (
     <>
@@ -81,7 +96,9 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
             <div>
               <h2 className="text-lg font-semibold text-ink-900">Your register</h2>
               <p className="text-sm text-ink-500">
-                {attended} of {course.days.length} days marked present
+                {hours && hours.requiredMinutes > 0
+                  ? `${formatHours(hours.effectiveMinutes)} of ${formatHours(hours.requiredMinutes)} so far`
+                  : `${hours?.daysTaken ?? 0} of ${course.days.length} days taken`}
                 {enrollment.track === "CATCH_UP" &&
                   ` · catching up${enrollment.catchUpNote ? ` ${enrollment.catchUpNote}` : ""}`}
               </p>
@@ -101,27 +118,78 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
 
           <ul className="flex flex-wrap gap-2">
             {course.days.map((day) => {
-              const present = marks.get(day.id);
+              const minutes = marks.get(day.id);
+              const scheduled = dayMinutes(day);
+              // Three states, not two: a day nobody has marked yet is not the
+              // same as a day the coach missed, and a part day is neither.
+              const full = minutes !== undefined && minutes > 0 && minutes >= scheduled;
+              const partial = minutes !== undefined && minutes > 0 && minutes < scheduled;
               return (
                 <li
                   key={day.id}
                   className={`rounded-lg border px-3 py-1.5 text-xs ${
-                    present === true
+                    full
                       ? "border-status-green-fg/30 bg-status-green-bg text-status-green-fg"
-                      : present === false
-                        ? "border-maroon-300 bg-maroon-50 text-maroon-800"
-                        : "border-ink-200 bg-white text-ink-400"
+                      : partial
+                        ? "border-status-orange-fg/30 bg-status-orange-bg text-status-orange-fg"
+                        : minutes === 0
+                          ? "border-maroon-300 bg-maroon-50 text-maroon-800"
+                          : "border-ink-200 bg-white text-ink-400"
                   }`}
                   title={
-                    present === true ? "Present" : present === false ? "Absent" : "Not yet marked"
+                    minutes === undefined
+                      ? "Not yet marked"
+                      : minutes === 0
+                        ? "Absent"
+                        : `${formatHours(minutes)} of ${formatHours(scheduled)}`
                   }
                 >
                   <span className="font-semibold">Day {day.dayNo}</span>
                   <span className="ml-2">{formatDate(day.date)}</span>
+                  {partial && <span className="ml-2 font-semibold">{formatHours(minutes)}</span>}
                 </li>
               );
             })}
           </ul>
+
+          {enrollment.makeUps.length > 0 && (
+            <div className="mt-4 rounded-lg border border-ink-200 px-4 py-3">
+              <p className="mb-2 text-sm font-semibold text-ink-900">
+                {enrollment.makeUps.some((m) => makeUpBalance(m) > 0)
+                  ? "Hours to make up"
+                  : "Hours missed"}
+              </p>
+              <ul className="space-y-2">
+                {enrollment.makeUps.map((m) => {
+                  const meta = MAKE_UP_STATUS[m.status];
+                  const left = makeUpBalance(m);
+                  return (
+                    <li key={m.id} className="flex flex-wrap items-center gap-2 text-sm">
+                      <Badge tone={meta.tone}>{meta.label}</Badge>
+                      <span className="text-ink-700">
+                        {formatHours(m.minutesOwed)}
+                        {m.courseDay && ` · Day ${m.courseDay.dayNo}`}
+                        {left > 0 && left !== m.minutesOwed && ` · ${formatHours(left)} still to do`}
+                      </span>
+                      <span className="text-xs text-ink-500">
+                        {/* Once it is settled, how it was made up is the news;
+                            until then, where it is being made up is. */}
+                        {(left === 0
+                          ? (m.creditedNote ?? m.arrangedNote)
+                          : (m.arrangedNote ?? m.creditedNote)) ?? meta.blurb}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              {enrollment.makeUps.some((m) => makeUpBalance(m) > 0) && (
+                <p className="mt-2 text-xs text-ink-500">
+                  Speak to your educator about where to make these up — a day on another course
+                  counts, and it is recorded here when you sit it.
+                </p>
+              )}
+            </div>
+          )}
 
           {result?.band && (
             <p className="prose-note mt-4 rounded-lg bg-ink-50 px-3 py-2">

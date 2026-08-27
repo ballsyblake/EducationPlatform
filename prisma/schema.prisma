@@ -77,6 +77,7 @@ model User {
   // on every practical delivery they assessed.
   courseStaffRoles   CourseStaff[]       @relation("CourseStaffUser")
   assessedDeliveries PracticalDelivery[] @relation("DeliveryAssessor")
+  openedMakeUps      AttendanceMakeUp[]  @relation("MakeUpOpener")
 
   // Post-course support. A coach holds cases; an educator is named on the ones
   // they run and on every attempt they have written up.
@@ -213,6 +214,7 @@ model Enrollment {
 
   attendance Attendance[]
   deliveries PracticalDelivery[]
+  makeUps    AttendanceMakeUp[]
 
   @@unique([userId, courseId])
   @@index([courseId])
@@ -505,12 +507,13 @@ model CourseDay {
 
   attendance      Attendance[]
   staffAttendance StaffAttendance[]
+  makeUps         AttendanceMakeUp[]
 
   @@unique([courseId, dayNo])
   @@index([courseId])
 }
 
-/// Whether one coach was there on one day.
+/// How long one coach was there on one day.
 ///
 /// A missing row means nobody marked it, which is not the same as absent: on a
 /// course still in its first block, days 4 to 9 are unmarked for everybody.
@@ -520,7 +523,20 @@ model Attendance {
   courseDay    CourseDay  @relation(fields: [courseDayId], references: [id], onDelete: Cascade)
   enrollmentId String
   enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
-  present      Boolean
+
+  /// Minutes actually attended. Zero is absent; the day's scheduled length is
+  /// present; anything between is what happened.
+  ///
+  /// Minutes rather than a yes/no, because the registers are full of half days
+  /// — "Missed Day 2 PM", "3 hours missed on Day 2", "1.5 hours Day 3". A
+  /// boolean rounds each of those to a whole day in one direction or the other,
+  /// and the register works around it in the Comments column, where nothing can
+  /// add it up.
+  minutes Int
+
+  /// The debts these hours paid off. Usually empty; set when a coach sat a day
+  /// on one course to make up time owed on another.
+  credits AttendanceMakeUp[] @relation("MakeUpCredit")
 
   @@unique([courseDayId, enrollmentId])
   @@index([enrollmentId])
@@ -600,6 +616,70 @@ model PracticalDelivery {
   @@unique([enrollmentId, deliveryNo])
   @@index([enrollmentId])
   @@index([assessorId])
+}
+
+/// Whether a debt has been settled, and how far along it is.
+enum MakeUpStatus {
+  /// Recorded, with nothing arranged yet.
+  OWED
+
+  /// A day has been found for it — often on another club's course.
+  ARRANGED
+
+  /// Fully covered.
+  COMPLETED
+
+  /// Written off. Force majeure, a course that has ended, an educator's call.
+  WAIVED
+}
+
+/// Time a coach owes on their own course, and what covered it.
+///
+/// The registers coordinate this in prose — "Needs to catch up full day of Day
+/// 3 on Sunny Coast B", "Send tasks to make up 3 hours missed on Day 2", "Make
+/// up Toowoomba Day 1 (Missed Day 2 PM)" — spread across the Comments column of
+/// three separate spreadsheets. That works while one person holds all three in
+/// their head, and it cannot answer "who still owes hours?".
+///
+/// A debt is opened against the enrolment that is short and closed by pointing
+/// at the attendance that covered it. That attendance usually sits on a
+/// different course, which is the whole point: the credit and the debt live on
+/// different registers, and this row is the only thing that knows they are the
+/// same hours.
+model AttendanceMakeUp {
+  id           String     @id @default(cuid())
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  /// The day missed, when it was a particular one. Null covers the register's
+  /// looser debts — "a few hours on another B", "Block 3".
+  courseDayId String?
+  courseDay   CourseDay? @relation(fields: [courseDayId], references: [id], onDelete: SetNull)
+
+  minutesOwed     Int
+  minutesCredited Int          @default(0)
+  status          MakeUpStatus @default(OWED)
+
+  /// The attendance that paid it off, when the hours were sat on a course this
+  /// system holds.
+  creditedAttendanceId String?
+  creditedAttendance   Attendance? @relation("MakeUpCredit", fields: [creditedAttendanceId], references: [id], onDelete: SetNull)
+
+  /// How it was made up when there is no attendance row to point at: written
+  /// tasks, a webinar, a course FQ runs that this system doesn't hold.
+  creditedNote String?
+
+  /// What has been agreed but not yet done — "GCK Day 3 or Sunny Coast Day 3".
+  arrangedNote String?
+
+  openedAt   DateTime  @default(now())
+  settledAt  DateTime?
+  openedById String?
+  openedBy   User?     @relation("MakeUpOpener", fields: [openedById], references: [id], onDelete: SetNull)
+
+  @@index([enrollmentId])
+  @@index([status])
+  @@index([creditedAttendanceId])
 }
 
 /**

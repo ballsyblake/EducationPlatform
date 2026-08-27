@@ -31,10 +31,70 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { PrismaClient } from "../generated/prisma/client.ts";
 import { createAdapter } from "../src/lib/adapter.ts";
+import { dayMinutes } from "../src/lib/attendance.ts";
 
 const prisma = new PrismaClient({ adapter: createAdapter() });
 
 const DATA = path.join(process.cwd(), "prisma", "data", "b-diploma-2026.json");
+
+/* --------------------------- Hours in the margins -------------------------- */
+
+/**
+ * The hours the registers record in prose rather than in the grid.
+ *
+ * A tick can only say "the whole day", so anything smaller ends up in the
+ * Comments column: "Missed Day 2 PM", "3 hours missed on Day 2", "catch up full
+ * day of Day 3". Those sentences are the register's real record of attendance,
+ * and leaving them as text means nothing can total them.
+ *
+ * Read narrowly on purpose. Only these three shapes are understood, each one
+ * naming both a quantity and a day; everything vaguer — "needs to catch up a
+ * few hours on another B" — is left for a person to raise on the make-ups desk,
+ * and reported at the end of the run rather than guessed at. An importer that
+ * invents hours is worse than one that admits it can't read the sentence.
+ */
+type Shortfall = { dayNo: number; minutes: number | null; half: boolean };
+
+function shortfallsFromComment(comment: string | null): Shortfall[] {
+  if (!comment) return [];
+  const out: Shortfall[] = [];
+
+  // "Missed Day 2 PM" — half a day, whichever half.
+  for (const m of comment.matchAll(/missed\s+day\s*(\d+)\s*(am|pm)/gi)) {
+    out.push({ dayNo: Number(m[1]), minutes: null, half: true });
+  }
+  // "3 hours missed on Day 2"
+  for (const m of comment.matchAll(/(\d+(?:\.\d+)?)\s*hours?\s+missed\s+on\s+day\s*(\d+)/gi)) {
+    out.push({ dayNo: Number(m[2]), minutes: Math.round(Number(m[1]) * 60), half: false });
+  }
+  // "catch up full day of Day 3 on Sunny Coast B" — the day missed here; where
+  // it is being made up is the rest of the sentence, kept as the note.
+  for (const m of comment.matchAll(/full\s+day\s+of\s+day\s*(\d+)/gi)) {
+    out.push({ dayNo: Number(m[1]), minutes: null, half: false });
+  }
+
+  return out;
+}
+
+/**
+ * A catch-up's note says what they came to sit: "1.5 hours Day 3".
+ *
+ * That is attendance, not a debt — the coach is on this register precisely
+ * because they owe the hours somewhere else — so it corrects the tick rather
+ * than raising anything.
+ */
+function partialFromCatchUpNote(note: string | null): { dayNo: number; minutes: number } | null {
+  if (!note) return null;
+  const m = /(\d+(?:\.\d+)?)\s*hours?\s+day\s*(\d+)/i.exec(note);
+  if (!m) return null;
+  return { dayNo: Number(m[2]), minutes: Math.round(Number(m[1]) * 60) };
+}
+
+/** Hours talked about but never quantified — for a human to pick up. */
+function mentionsHours(text: string | null): boolean {
+  if (!text) return false;
+  return /(catch\s*up|make\s*up|missed)/i.test(text);
+}
 
 type Delivery = {
   deliveryNo: number;
@@ -148,7 +208,11 @@ async function main() {
     staffAttendance: 0,
     deliveries: 0,
     belowThreshold: 0,
+    makeUps: 0,
+    partDays: 0,
   };
+  /** Register comments about hours that name no quantity. Printed at the end. */
+  const unreadable: string[] = [];
 
   for (const course of data.courses) {
     console.log(`\n${course.title}`);
@@ -194,6 +258,9 @@ async function main() {
 
     // ---- Days -------------------------------------------------------------
     const dayIds = new Map<number, string>();
+    /// Day number -> scheduled length, so a tick in the register becomes the
+    /// hours that day was actually run for.
+    const dayLengths = new Map<number, number>();
     for (const day of course.days) {
       const row = await prisma.courseDay.upsert({
         where: { courseId_dayNo: { courseId: saved.id, dayNo: day.dayNo } },
@@ -213,6 +280,7 @@ async function main() {
         },
       });
       dayIds.set(day.dayNo, row.id);
+      dayLengths.set(day.dayNo, dayMinutes(day));
       counts.days += 1;
     }
 
@@ -293,15 +361,86 @@ async function main() {
       });
       counts.enrolments += 1;
 
+      // The registers mark attendance with a tick, so an import can only say
+      // "the whole day" or "none of it". The part days these spreadsheets
+      // record in their Comments column — "Missed Day 2 PM" — are read by a
+      // person and raised on the make-up ledger, not guessed at here.
       for (const [dayNo, present] of Object.entries(coach.attendance)) {
         const courseDayId = dayIds.get(Number(dayNo));
         if (!courseDayId) continue;
+        const minutes = present ? (dayLengths.get(Number(dayNo)) ?? 0) : 0;
         await prisma.attendance.upsert({
           where: { courseDayId_enrollmentId: { courseDayId, enrollmentId: row.id } },
-          create: { courseDayId, enrollmentId: row.id, present },
-          update: { present },
+          create: { courseDayId, enrollmentId: row.id, minutes },
+          update: { minutes },
         });
         counts.attendance += 1;
+      }
+
+      // ---- Hours from the Comments column --------------------------------
+      //
+      // Applied after the grid, because it corrects it: a coach ticked present
+      // on a day the comments say they missed the afternoon of was there for
+      // half of it, and the tick is the register's shorthand rather than a
+      // contradiction.
+      const shortfalls =
+        coach.track === "MAIN" ? shortfallsFromComment(coach.comments) : [];
+
+      for (const shortfall of shortfalls) {
+        const courseDayId = dayIds.get(shortfall.dayNo);
+        const length = dayLengths.get(shortfall.dayNo) ?? 0;
+        if (!courseDayId || !length) continue;
+
+        const owed = shortfall.minutes ?? (shortfall.half ? Math.round(length / 2) : length);
+        const sat = Math.max(0, length - owed);
+
+        await prisma.attendance.upsert({
+          where: { courseDayId_enrollmentId: { courseDayId, enrollmentId: row.id } },
+          create: { courseDayId, enrollmentId: row.id, minutes: sat },
+          update: { minutes: sat },
+        });
+        counts.partDays += 1;
+
+        // A stable id, so re-importing corrects the debt rather than raising a
+        // second one. The status is OWED, never settled: whether the hours were
+        // ever made up is not something the register says.
+        const id = `import-${row.id}-day${shortfall.dayNo}`;
+        const makeUp = {
+          enrollmentId: row.id,
+          courseDayId,
+          minutesOwed: owed,
+          arrangedNote: coach.comments,
+        };
+        await prisma.attendanceMakeUp.upsert({
+          where: { id },
+          create: { id, ...makeUp },
+          update: makeUp,
+        });
+        counts.makeUps += 1;
+      }
+
+      // A catch-up's note is attendance, not a debt.
+      const partial =
+        coach.track === "CATCH_UP" ? partialFromCatchUpNote(coach.catchUpNote) : null;
+      if (partial) {
+        const courseDayId = dayIds.get(partial.dayNo);
+        if (courseDayId) {
+          await prisma.attendance.upsert({
+            where: { courseDayId_enrollmentId: { courseDayId, enrollmentId: row.id } },
+            create: { courseDayId, enrollmentId: row.id, minutes: partial.minutes },
+            update: { minutes: partial.minutes },
+          });
+          counts.partDays += 1;
+        }
+      }
+
+      if (
+        shortfalls.length === 0 &&
+        !partial &&
+        coach.track === "MAIN" &&
+        mentionsHours(coach.comments)
+      ) {
+        unreadable.push(`${coach.firstName} ${coach.lastName} — ${coach.comments}`);
       }
 
       for (const delivery of coach.deliveries) {
@@ -345,11 +484,19 @@ async function main() {
     console.log(`  Course days        ${counts.days}`);
     console.log(`  Coaches            ${counts.coaches} (${counts.newAccounts} new accounts)`);
     console.log(`  Enrolments         ${counts.enrolments}`);
-    console.log(`  Attendance marks   ${counts.attendance}`);
+    console.log(`  Attendance marks   ${counts.attendance} (${counts.partDays} part days)`);
+    console.log(`  Make-ups raised    ${counts.makeUps}`);
     console.log(`  Course staff       ${counts.staff} (${counts.staffAttendance} marks)`);
     console.log(`  Deliveries         ${counts.deliveries}`);
   }
   console.log(`  Below the pass mark ${counts.belowThreshold}`);
+  if (unreadable.length > 0) {
+    console.log(
+      `\n  ${unreadable.length} comment${unreadable.length === 1 ? "" : "s"} talk about hours ` +
+        "without saying how many.\n  Raise these on /admin/make-ups if they still stand:\n",
+    );
+    for (const line of unreadable) console.log(`    ${line}`);
+  }
   console.log(
     "\nNobody has been referred: they show on /admin/support as candidates, and opening a\n" +
       "case is a decision an educator makes after the conversation.\n",
