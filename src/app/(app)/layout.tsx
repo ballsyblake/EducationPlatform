@@ -16,6 +16,7 @@ const SUPPORT_LINK: NavLink = { href: "/support", label: "Support" };
 
 const ADMIN_LINKS: NavLink[] = [
   { href: "/admin", label: "Manage" },
+  { href: "/admin/coaches", label: "Coaches" },
   { href: "/admin/grading", label: "Grading" },
   { href: "/admin/support", label: "Support" },
   { href: "/admin/make-ups", label: "Hours" },

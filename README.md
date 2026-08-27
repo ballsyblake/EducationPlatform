@@ -40,6 +40,7 @@ across in the header.
 - Create courses, enroll staff, and publish or hide coursework
 - Author assignments and build quizzes question by question
 - A grading queue: score submissions, review written quiz answers, add feedback, or send work back for revision
+- A coaches list: every coach and where they stand on each course — hours, rating, outcome — filterable by course and outcome, searchable by name or club
 - The attendance register: nine delivery days, the roster, catch-ups, the CET team, and the results block — one screen per course
 - An hours desk: who is short, what they owe, and where it is being made up — across every course at once
 - A post-course support desk: who was rated below the pass mark, who is booked in, whose film is waiting to be reviewed
@@ -77,6 +78,26 @@ That register lives in the app at `/admin/courses/<id>/register`:
 
 A coach sees their own row: which days they were marked present, their rating
 and what that rating means, and every write-up an educator left them.
+
+### Seeing across the registers
+
+A register answers for one course. A coach who missed Day 6 on the Sunshine
+Coast and is sitting it at Gold Coast Knights appears on two of them, and
+`/admin/coaches` is the page that reads across the lot: **one row per
+enrolment**, not per person, because a coach on two courses has two standings
+and averaging them would describe neither.
+
+Each row carries hours sat against hours run, hours owed and hours unaccounted,
+the rating and its FA band, the outcome, whether a support case is open, the
+journal and the count of assessed deliveries. Filter by course or outcome —
+including *Hours unaccounted*, which is the "who has nobody looking at them"
+list — and search a name, a club or a course. Every figure comes from
+`summariseAttendance` and `courseResult`, the same functions the register uses,
+so this is a second view of the register rather than a second opinion about it.
+
+`/admin/progress` is left to the question it actually answers: coursework
+completion, which is what the online courses are marked on and is no measure at
+all of a diploma.
 
 ### Hours and make-ups
 
@@ -688,8 +709,8 @@ src/
       assignments/     Instructions, submission, feedback
       quizzes/         Taking a quiz and reading results
       grades/          Score and feedback history
-      admin/           Courses, quiz builder, grading queue, hours, progress,
-                       staff
+      admin/           Courses, coaches, quiz builder, grading queue, hours,
+                       progress, staff
     (cda)/cda/         Club Development & Assessment
       club/            Staff register, Non-Negotiables, participation, rating
       assess/          An assessor's clubs and the scoring screen
@@ -702,6 +723,7 @@ src/
     grading.ts         Auto-grading and score rollups
     coursework.ts      Task aggregation and progress summaries
     attendance.ts      Pure hours: day lengths, totals, debts and shortfalls
+    coaches.ts         The cross-course roster: one row per enrolment
     support-rubric.ts  FA's 1-5 rubric, bands, and the support pathway
     uploads.ts         File validation and database-backed storage
     adapter.ts         Picks SQLite or Turso from DATABASE_URL
