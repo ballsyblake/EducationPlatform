@@ -21,7 +21,7 @@ import type { CourseOutcome, EnrollmentTrack, SupportCaseStatus, User } from "@p
 export type CoachRow = {
   /** Enrolment id, or the user id for a coach on no course at all. */
   key: string;
-  user: Pick<User, "id" | "name" | "email" | "active" | "title">;
+  user: Pick<User, "id" | "name" | "email" | "active" | "title" | "photoId">;
   enrolment: {
     id: string;
     courseId: string;

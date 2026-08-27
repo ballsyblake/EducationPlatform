@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { embedUrl } from "@/components/material-list";
 import { SubmitButton } from "@/components/submit-button";
+import { Avatar } from "@/components/avatar";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -395,11 +396,19 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
         <aside className="space-y-6">
           <section className="card card-pad">
             <h2 className="section-title mb-3">Coach</h2>
-            <p className="font-semibold text-ink-900">{displayName(supportCase.user)}</p>
-            <p className="text-xs text-ink-500">{supportCase.user.email}</p>
-            {supportCase.user.title && (
-              <p className="text-xs text-ink-500">{supportCase.user.title}</p>
-            )}
+            {/* The face, because an educator arriving to reassess a delivery
+                has often never met them — the referral came off somebody
+                else's register, weeks ago. */}
+            <div className="flex items-start gap-3">
+              <Avatar user={supportCase.user} size="lg" />
+              <div className="min-w-0">
+                <p className="font-semibold text-ink-900">{displayName(supportCase.user)}</p>
+                <p className="text-xs text-ink-500">{supportCase.user.email}</p>
+                {supportCase.user.title && (
+                  <p className="text-xs text-ink-500">{supportCase.user.title}</p>
+                )}
+              </div>
+            </div>
             <Link
               href={`/admin/progress?course=${supportCase.courseId}`}
               className="mt-3 inline-block text-sm font-medium text-maroon-700 hover:underline"

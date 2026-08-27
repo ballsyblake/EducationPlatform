@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { displayName, formatDate } from "@/lib/format";
 import { DEFAULT_RATING_THRESHOLD } from "@/lib/support-rubric";
 import { MakeUpCard, OpenMakeUpForm, type MakeUpRow } from "@/components/make-up-forms";
+import { PhotoCapture } from "@/components/photo-capture";
 import {
   dayMinutes,
   formatHours,
@@ -111,6 +112,8 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
   const toRow = (e: (typeof course.enrollments)[number]): RegisterRow => ({
     id: e.id,
     name: displayName(e.user),
+    email: e.user.email,
+    photoId: e.user.photoId,
     subtitle: e.track === "CATCH_UP" ? e.catchUpNote : e.clubName,
     marks: Object.fromEntries(e.attendance.map((a) => [a.courseDayId, a.minutes])),
     creditedMinutes: summaries.get(e.id)?.creditedMinutes ?? 0,
@@ -339,6 +342,32 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
         <h2 className="mb-1 text-lg font-semibold text-ink-900">Course team</h2>
         <p className="mb-3 text-sm text-ink-500">Who was on the grass, and on which days.</p>
         <StaffAttendanceGrid courseId={course.id} days={days} rows={staffRows} />
+      </section>
+
+      <section className="mb-10">
+        <h2 className="mb-1 text-lg font-semibold text-ink-900">Who&apos;s who</h2>
+        <p className="mb-3 text-sm text-ink-500">
+          Take a photo of each coach on the first morning and the register stops being a list of
+          strangers — for whoever is assessing their delivery in Block 3, and for the educator who
+          wasn&apos;t there for Block 1. Shown to coach education staff and to the coach
+          themselves, never to other coaches, and removable by either.
+        </p>
+        <div className="card card-pad grid gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-3">
+          {/* Roster first, then catch-ups. The query orders by track, and
+              "CATCH_UP" sorts before "MAIN" alphabetically, which put the
+              visitors above the course's own roster. */}
+          {[...main, ...catchUps].map((e) => (
+            <div key={e.id} className="min-w-0">
+              <p className="mb-1 truncate text-sm font-medium text-ink-900">
+                {displayName(e.user)}
+                {e.track === "CATCH_UP" && (
+                  <span className="ml-2 text-xs font-normal text-ink-500">catch-up</span>
+                )}
+              </p>
+              <PhotoCapture compact user={e.user} />
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="mb-10">

@@ -35,10 +35,20 @@ export async function canAccessUpload(user: User, uploadId: string) {
       supportAttemptOf: { select: { case: { select: { userId: true } } } },
       staffCertificateOf: { select: { assessmentId: true } },
       nonNegotiableProofOf: { select: { assessmentId: true } },
+      photoOf: { select: { id: true } },
     },
   });
   if (!upload) return null;
   if (isAdmin(user)) return upload;
+
+  // A coach's photo: theirs, and coach-education staff's — who are admins and
+  // returned above. Checked first and returning outright, so it can never fall
+  // through to a rule written for a different kind of file: a club
+  // administrator or an assessor has no business with a coach's likeness, and
+  // one coach has none with another's.
+  if (upload.photoOf) {
+    return upload.photoOf.id === user.id ? upload : null;
+  }
 
   // Course material: readable by anyone enrolled in that course.
   if (upload.material) {

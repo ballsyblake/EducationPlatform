@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { Avatar } from "@/components/avatar";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, FormError, FormSuccess } from "@/components/ui";
 import { formatHours } from "@/lib/attendance";
@@ -26,6 +27,8 @@ export type DayColumn = {
 export type RegisterRow = {
   id: string;
   name: string;
+  email: string;
+  photoId: string | null;
   subtitle: string | null;
   /// Day id -> minutes attended. A day the register has no mark for is absent
   /// from this, which is not the same as a zero: nobody has taken it yet.
@@ -211,10 +214,17 @@ export function CoachAttendanceGrid({
               return (
                 <tr key={row.id} className="hover:bg-ink-50">
                   <td className="sticky left-0 z-10 bg-white px-4 py-2 whitespace-nowrap">
-                    <span className="font-medium text-ink-900">{row.name}</span>
-                    {row.subtitle && (
-                      <span className="ml-2 text-xs text-ink-500">{row.subtitle}</span>
-                    )}
+                    {/* The face beside the name, because the person marking
+                        this grid is looking at twenty-five strangers. */}
+                    <span className="flex items-center gap-2">
+                      <Avatar user={{ name: row.name, email: row.email, photoId: row.photoId }} size="sm" />
+                      <span>
+                        <span className="font-medium text-ink-900">{row.name}</span>
+                        {row.subtitle && (
+                          <span className="ml-2 text-xs text-ink-500">{row.subtitle}</span>
+                        )}
+                      </span>
+                    </span>
                   </td>
                   {days.map((day) => {
                     const key = `${day.id}:${row.id}`;

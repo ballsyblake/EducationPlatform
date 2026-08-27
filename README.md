@@ -40,6 +40,7 @@ across in the header.
 - Create courses, enroll staff, and publish or hide coursework
 - Author assignments and build quizzes question by question
 - A grading queue: score submissions, review written quiz answers, add feedback, or send work back for revision
+- A photo of each coach, taken on the phone from the register, so whoever assesses their delivery in Block 3 knows who is who
 - A coaches list: every coach and where they stand on each course — hours, rating, outcome — filterable by course and outcome, searchable by name or club
 - The attendance register: nine delivery days, the roster, catch-ups, the CET team, and the results block — one screen per course
 - An hours desk: who is short, what they owe, and where it is being made up — across every course at once
@@ -98,6 +99,45 @@ so this is a second view of the register rather than a second opinion about it.
 `/admin/progress` is left to the question it actually answers: coursework
 completion, which is what the online courses are marked on and is no measure at
 all of a diploma.
+
+### Knowing who is who
+
+A B Diploma runs twenty-five coaches across nine days and three blocks, months
+apart, often with a different educator on the grass each time. The register
+gives them names; **Who's who** on the same page gives them faces.
+
+- **Taking one** is `<input type="file" accept="image/*" capture="environment">`
+  — on a phone that opens the camera directly, on a laptop it's an ordinary file
+  picker. No permissions prompt, no `getUserMedia`, nothing to install, which
+  matters when the person using it is standing on grass.
+- **The browser shrinks it first**: centre-cropped to a 512px square JPEG,
+  roughly 6–60 KB, before anything is uploaded. A phone takes three to five
+  megabytes, and a register showing twenty-five coaches would otherwise pull a
+  hundred of them on every load. EXIF orientation is applied during the decode,
+  so portrait photos aren't stored sideways. The server caps a photo at 400 KB —
+  a file arriving near that is a client that skipped the resize, not a coach who
+  stood too far back.
+- **It hangs off the account, not the enrolment.** The point is recognising the
+  same coach across courses and years, and a photo per intake would mean taking
+  it again every time. One current photo, replaced rather than accumulated: this
+  is a name badge, not an album.
+- **Who can set it**: coach education staff, and the coach themselves at
+  `/account`. Staff because it is taken on the day by the educator running the
+  course; the coach because it is their likeness.
+- **Who can see it**: the same two. `canAccessUpload` returns 404 to every other
+  coach, and to the Club Development portal's assessors and club administrators —
+  checked before any other rule, so a photo can never fall through to a rule
+  written for a different kind of file.
+- **Removing it** is a button on the register and on the coach's own account
+  page, and it deletes the bytes rather than just unlinking them.
+- `Upload.takenById` records whose hand was on the phone. An educator
+  photographing a roster is handling somebody else's likeness, and that belongs
+  in the record rather than being inferred from a timestamp.
+
+Faces appear on the register grid, in **Who's who**, on the coaches list, and on
+a post-course support case — where an educator arriving to reassess a delivery
+has often never met the coach, because the referral came off somebody else's
+register weeks ago. Everywhere else falls back to initials.
 
 ### Moves and part intakes
 
@@ -763,7 +803,7 @@ src/
     attendance.ts      Pure hours: day lengths, totals, debts and shortfalls
     coaches.ts         The cross-course roster: one row per enrolment
     support-rubric.ts  FA's 1-5 rubric, bands, and the support pathway
-    uploads.ts         File validation and database-backed storage
+    uploads.ts         File validation, database-backed storage, photo caps
     adapter.ts         Picks SQLite or Turso from DATABASE_URL
     cda/
       rubric.ts        Role weights, points, star thresholds — the fixed rubric

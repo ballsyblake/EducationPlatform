@@ -1,3 +1,4 @@
+import { PhotoCapture } from "@/components/photo-capture";
 import { SubmitButton } from "@/components/submit-button";
 import { PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
@@ -20,6 +21,11 @@ export default async function AccountPage() {
       <PageHeader title="Your account" subtitle={displayName(user)} />
 
       <section className="card card-pad">
+        <h2 className="mb-3 section-title">Your photo</h2>
+        <PhotoCapture user={user} />
+      </section>
+
+      <section className="card card-pad mt-6">
         <h2 className="mb-2 section-title">Account details</h2>
         <dl className="space-y-2 text-sm">
           <div className="flex justify-between gap-3">

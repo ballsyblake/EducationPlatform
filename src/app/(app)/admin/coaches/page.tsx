@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Avatar } from "@/components/avatar";
 import { Badge, EmptyState, PageHeader, StatTile, type Tone } from "@/components/ui";
 import { formatHours } from "@/lib/attendance";
 import { requireAdmin } from "@/lib/auth";
@@ -190,14 +191,23 @@ export default async function CoachesPage({
                 return (
                   <tr key={row.key} className="align-top hover:bg-ink-50">
                     <td className="px-4 py-3">
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-ink-900">{displayName(row.user)}</span>
-                        {!row.user.active && <Badge tone="bad">Deactivated</Badge>}
+                      <span className="flex items-start gap-3">
+                        <Avatar user={row.user} />
+                        <span className="min-w-0">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-ink-900">
+                              {displayName(row.user)}
+                            </span>
+                            {!row.user.active && <Badge tone="bad">Deactivated</Badge>}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-ink-500">
+                            {row.user.email}
+                          </span>
+                          {e?.clubName && (
+                            <span className="block text-xs text-ink-400">{e.clubName}</span>
+                          )}
+                        </span>
                       </span>
-                      <span className="mt-0.5 block text-xs text-ink-500">{row.user.email}</span>
-                      {e?.clubName && (
-                        <span className="block text-xs text-ink-400">{e.clubName}</span>
-                      )}
                     </td>
 
                     <td className="px-3 py-3">

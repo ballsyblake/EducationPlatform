@@ -63,6 +63,21 @@ model User {
   /// line item whose reconciled score was settled by one of its own assessors.
   assesses Boolean @default(false)
 
+  /// A head-and-shoulders photo, so an educator on the grass knows who is who.
+  ///
+  /// On the account rather than the enrolment: the point of it is recognising
+  /// the same coach across courses and years, and a photo per intake would
+  /// mean taking it again every time. One current photo, replaced rather than
+  /// accumulated — this is a name badge, not an album.
+  ///
+  /// Readable by coach-education staff and by the coach themselves, and by
+  /// nobody else; see `canAccessUpload`.
+  photoId String? @unique
+  photo   Upload? @relation("CoachPhoto", fields: [photoId], references: [id], onDelete: SetNull)
+
+  /// Photos this person took of somebody else. Only ever set on an educator.
+  photosTaken Upload[] @relation("CoachPhotoTakenBy")
+
   sessions     Session[]
   loginTokens  LoginToken[]
   enrollments  Enrollment[]
@@ -306,6 +321,15 @@ model Upload {
   supportAttemptOf SupportAttempt? @relation("SupportAttemptFiles", fields: [supportAttemptId], references: [id], onDelete: Cascade)
   supportAttemptId String?
 
+  // A coach's photo. The back half of the one-to-one on User.photoId, plus who
+  // took it — an educator photographing a roster on the touchline is handling
+  // somebody else's likeness, and the record should say whose hand was on the
+  // phone rather than leaving it to be inferred from a timestamp.
+  photoOf   User?   @relation("CoachPhoto")
+  takenById String?
+  takenBy   User?   @relation("CoachPhotoTakenBy", fields: [takenById], references: [id], onDelete: SetNull)
+
+  @@index([takenById])
   @@index([submissionId])
   @@index([staffMemberId])
   @@index([nonNegotiableResultId])
