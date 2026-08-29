@@ -61,7 +61,7 @@ export async function setCoachPhoto(_prev: PhotoState, formData: FormData): Prom
   }
 
   try {
-    const upload = await storeUpload(file, { takenById: actor.id });
+    const upload = await storeUpload(file);
     await prisma.user.update({ where: { id: userId }, data: { photoId: upload.id } });
 
     // One current photo, not an album. The old one goes once the new one is

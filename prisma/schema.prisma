@@ -75,9 +75,6 @@ model User {
   photoId String? @unique
   photo   Upload? @relation("CoachPhoto", fields: [photoId], references: [id], onDelete: SetNull)
 
-  /// Photos this person took of somebody else. Only ever set on an educator.
-  photosTaken Upload[] @relation("CoachPhotoTakenBy")
-
   sessions     Session[]
   loginTokens  LoginToken[]
   enrollments  Enrollment[]
@@ -321,15 +318,9 @@ model Upload {
   supportAttemptOf SupportAttempt? @relation("SupportAttemptFiles", fields: [supportAttemptId], references: [id], onDelete: Cascade)
   supportAttemptId String?
 
-  // A coach's photo. The back half of the one-to-one on User.photoId, plus who
-  // took it — an educator photographing a roster on the touchline is handling
-  // somebody else's likeness, and the record should say whose hand was on the
-  // phone rather than leaving it to be inferred from a timestamp.
-  photoOf   User?   @relation("CoachPhoto")
-  takenById String?
-  takenBy   User?   @relation("CoachPhotoTakenBy", fields: [takenById], references: [id], onDelete: SetNull)
+  // A coach's photo. The back half of the one-to-one on User.photoId.
+  photoOf User? @relation("CoachPhoto")
 
-  @@index([takenById])
   @@index([submissionId])
   @@index([staffMemberId])
   @@index([nonNegotiableResultId])

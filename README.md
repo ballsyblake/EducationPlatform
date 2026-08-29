@@ -130,9 +130,6 @@ gives them names; **Who's who** on the same page gives them faces.
   written for a different kind of file.
 - **Removing it** is a button on the register and on the coach's own account
   page, and it deletes the bytes rather than just unlinking them.
-- `Upload.takenById` records whose hand was on the phone. An educator
-  photographing a roster is handling somebody else's likeness, and that belongs
-  in the record rather than being inferred from a timestamp.
 
 Faces appear on the register grid, in **Who's who**, on the coaches list, and on
 a post-course support case — where an educator arriving to reassess a delivery

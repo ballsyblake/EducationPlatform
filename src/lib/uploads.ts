@@ -62,7 +62,7 @@ export const MAX_PHOTO_BYTES = 400 * 1024;
 
 export async function storeUpload(
   file: File,
-  opts: { submissionId?: string; supportAttemptId?: string; takenById?: string } = {},
+  opts: { submissionId?: string; supportAttemptId?: string } = {},
 ) {
   assertAllowed(file);
 
@@ -83,7 +83,6 @@ export async function storeUpload(
       data: bytes,
       submissionId: opts.submissionId,
       supportAttemptId: opts.supportAttemptId,
-      takenById: opts.takenById,
     },
   });
 }
