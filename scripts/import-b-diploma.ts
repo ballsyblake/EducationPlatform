@@ -33,9 +33,16 @@ import { PrismaClient } from "../generated/prisma/client.ts";
 import { createAdapter } from "../src/lib/adapter.ts";
 import { dayMinutes } from "../src/lib/attendance.ts";
 
-const prisma = new PrismaClient({ adapter: createAdapter() });
-
 const DATA = path.join(process.cwd(), "prisma", "data", "b-diploma-2026.json");
+
+/**
+ * The row in Meta that says this has already been loaded.
+ *
+ * Only read by the boot-time path — see `scripts/import-courses.ts`. Running
+ * the command by hand ignores it, because somebody typing `--yes` has said what
+ * they want.
+ */
+export const B_DIPLOMA_IMPORT_MARKER = "b-diploma-2026-imported";
 
 /* --------------------------- Hours in the margins -------------------------- */
 
@@ -180,19 +187,15 @@ function staffEmail(name: string) {
   return `${stem}@${process.env.FQ_ASSESSOR_DOMAIN ?? "footballqueensland.com.au"}`;
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  const dryRun = args.includes("--dry-run");
-  const confirmed = args.includes("--yes");
-
-  if (!dryRun && !confirmed) {
-    console.log(
-      "Refusing to write without --yes.\n\n" +
-        "  npm run courses:import -- --dry-run   what would change\n" +
-        "  npm run courses:import -- --yes       do it\n",
-    );
-    return;
-  }
+/**
+ * Loads the registers. Exported so it can also run on a host with no shell —
+ * see `scripts/import-courses.ts` and B_DIPLOMA_IMPORT_2026 there.
+ *
+ * Takes the client rather than owning one, so the boot-time path can share a
+ * connection and control when it is closed.
+ */
+export async function importBDiploma(prisma: PrismaClient, { dry = false } = {}) {
+  const dryRun = dry;
 
   const data: Data = JSON.parse(readFileSync(DATA, "utf8"));
   const threshold = data.rubric.passMark;
@@ -503,13 +506,22 @@ async function main() {
   );
 }
 
-const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-
-if (invokedDirectly) {
-  main()
-    .catch((error) => {
-      console.error(error);
-      process.exit(1);
-    })
-    .finally(() => prisma.$disconnect());
+// Only when run directly; the boot-time path owns its own client.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const dry = process.argv.includes("--dry-run");
+  if (!dry && !process.argv.includes("--yes")) {
+    console.log(
+      "Refusing to write without --yes.\n\n" +
+        "  npm run courses:import -- --dry-run   what would change\n" +
+        "  npm run courses:import -- --yes       do it\n",
+    );
+  } else {
+    const prisma = new PrismaClient({ adapter: createAdapter() });
+    importBDiploma(prisma, { dry })
+      .catch((error) => {
+        console.error(error);
+        process.exit(1);
+      })
+      .finally(() => prisma.$disconnect());
+  }
 }

@@ -318,7 +318,31 @@ python3 scripts/extract-b-diploma-2026.py <register.xlsx> [...]
 Every write is an upsert keyed on something stable, so a second run corrects the
 first rather than duplicating it. It opens no support cases — plenty of coaches
 sit below the pass mark, and every one of those is a conversation an educator
-has before a case exists.
+has before a case exists. It never disturbs a transfer, an enrolment window or a
+make-up an educator recorded afterwards.
+
+### On a host with no shell
+
+Render's free plan has no shell, so there is no command line to type that into.
+Set **`B_DIPLOMA_IMPORT_2026=1`** in the service's Environment tab instead:
+saving redeploys, and `docker-entrypoint.sh` runs the import in the background
+*beside* the web server rather than in front of it. Watch the logs for
+`[courses] imported in Ns`, then remove the variable.
+
+Beside, not before, because an import that holds up the port costs the deploy:
+the CDA season's first run against the hosted database took over fourteen
+minutes, the host stopped scanning for an open port after five, and the deploy
+was killed with the season half-loaded. Nothing about either import is a
+prerequisite for serving.
+
+Two guards, because a data import that runs itself is worth being careful with.
+The variable arms it; a row in `Meta` disarms it permanently once it succeeds,
+so a variable left set costs one query per boot rather than the whole import
+again. Failure writes no marker, so fixing the cause and redeploying retries.
+`B_DIPLOMA_IMPORT_2026=force` re-runs over a completed import — for when a fix
+to the importer needs applying to a database that already ran it.
+
+`FQ_IMPORT_2026` does the same for the Club Development season.
 
 **Addresses in that file are anonymised.** The registers carry every coach's
 real address and this repository is public to whoever can read it; names are
@@ -690,6 +714,8 @@ runner refuses to start if an already-applied migration file has been edited.
 | `DATABASE_URL`  | Yes      | Turso `libsql://…` URL, or unset to use a local SQLite file           |
 | `TURSO_AUTH_TOKEN` | Yes\*  | Required whenever `DATABASE_URL` is a hosted URL                     |
 | `MAX_UPLOAD_MB` | –        | Per-file upload cap. Defaults to 10                                  |
+| `FQ_IMPORT_2026` | –       | Set to `1` to load the 2026 CDA season on the next boot; `force` re-runs |
+| `B_DIPLOMA_IMPORT_2026` | – | Set to `1` to load the 2026 B Diploma registers on the next boot; `force` re-runs |
 | `DATA_DIR`      | –        | Only for local SQLite. Disk mount point, defaults to `/data`          |
 
 Set `APP_URL` correctly before inviting anyone. It's the base of every sign-in
