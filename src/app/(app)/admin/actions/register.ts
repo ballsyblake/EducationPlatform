@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { assertCourseStaff } from "@/lib/access";
 import { dayMinutes, formatHours } from "@/lib/attendance";
-import { requireAdmin } from "@/lib/auth";
+import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { DEFAULT_RATING_THRESHOLD, RATING_SCALE } from "@/lib/support-rubric";
 import type { CourseOutcome } from "@prisma-client";
@@ -39,8 +40,9 @@ export async function saveAttendance(
   _prev: RegisterState,
   formData: FormData,
 ): Promise<RegisterState> {
-  await requireAdmin();
+  const actor = await requireStaff();
   const courseId = text(formData, "courseId");
+  await assertCourseStaff(actor, courseId);
 
   const course = await prisma.course.findUnique({
     where: { id: courseId },
@@ -101,8 +103,9 @@ export async function saveStaffAttendance(
   _prev: RegisterState,
   formData: FormData,
 ): Promise<RegisterState> {
-  await requireAdmin();
+  const actor = await requireStaff();
   const courseId = text(formData, "courseId");
+  await assertCourseStaff(actor, courseId);
 
   const course = await prisma.course.findUnique({
     where: { id: courseId },
@@ -148,8 +151,9 @@ export async function saveResults(
   _prev: RegisterState,
   formData: FormData,
 ): Promise<RegisterState> {
-  await requireAdmin();
+  const actor = await requireStaff();
   const courseId = text(formData, "courseId");
+  await assertCourseStaff(actor, courseId);
 
   const course = await prisma.course.findUnique({
     where: { id: courseId },

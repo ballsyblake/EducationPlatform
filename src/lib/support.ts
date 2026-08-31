@@ -52,10 +52,10 @@ export async function getSupportCasesForCoach(userId: string) {
  * Attempts sitting with an educator: film that has come in, and observations
  * whose date has passed and still have no write-up.
  */
-export async function getSupportQueue(now = new Date()) {
+export async function getSupportQueue(now = new Date(), scope: string[] | null = null) {
   return prisma.supportAttempt.findMany({
     where: {
-      case: { status: "IN_PROGRESS" },
+      case: { status: "IN_PROGRESS", ...(scope === null ? {} : { courseId: { in: scope } }) },
       OR: [
         { status: "SUBMITTED" },
         { status: "SCHEDULED", dueAt: { lte: now } },
@@ -69,20 +69,20 @@ export async function getSupportQueue(now = new Date()) {
   });
 }
 
-export async function getSupportQueueCount(now = new Date()) {
+export async function getSupportQueueCount(now = new Date(), scope: string[] | null = null) {
   return prisma.supportAttempt.count({
     where: {
-      case: { status: "IN_PROGRESS" },
+      case: { status: "IN_PROGRESS", ...(scope === null ? {} : { courseId: { in: scope } }) },
       OR: [{ status: "SUBMITTED" }, { status: "SCHEDULED", dueAt: { lte: now } }],
     },
   });
 }
 
 /** Coaches who have been asked for film and haven't sent it by the date set. */
-export async function getOverdueVideos(now = new Date()) {
+export async function getOverdueVideos(now = new Date(), scope: string[] | null = null) {
   return prisma.supportAttempt.findMany({
     where: {
-      case: { status: "IN_PROGRESS" },
+      case: { status: "IN_PROGRESS", ...(scope === null ? {} : { courseId: { in: scope } }) },
       status: "AWAITING_VIDEO",
       dueAt: { lt: now },
     },
@@ -107,9 +107,12 @@ export type ReferralCandidate = {
  * gets quietly lost, which is what happens when "who didn't pass?" is a
  * question you have to go and assemble by hand.
  */
-export async function getReferralCandidates(): Promise<ReferralCandidate[]> {
+export async function getReferralCandidates(
+  scope: string[] | null = null,
+): Promise<ReferralCandidate[]> {
   const enrollments = await prisma.enrollment.findMany({
     where: {
+      ...(scope === null ? {} : { courseId: { in: scope } }),
       course: { published: true, ratingThreshold: { not: null } },
       user: { role: "COACH", active: true },
       // The register can say so outright; otherwise the rating decides, and an

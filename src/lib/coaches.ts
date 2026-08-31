@@ -65,6 +65,14 @@ export function shortCourseTitle(title: string): string {
 }
 
 export type CoachFilters = {
+  /**
+   * The courses the viewer may see, or null for every course.
+   *
+   * An educator's roster is the courses they are rostered onto. Applied before
+   * the course filter, not instead of it: asking for a course outside the scope
+   * has to return nothing rather than everything.
+   */
+  scope?: string[] | null;
   courseId?: string;
   /** An outcome, or "SHORT" for anybody with hours missing and nothing raised. */
   outcome?: string;
@@ -95,11 +103,14 @@ function matches(row: CoachRow, query: string): boolean {
 }
 
 export async function getCoachRoster(filters: CoachFilters = {}): Promise<CoachRow[]> {
-  const { courseId, outcome, query } = filters;
+  const { courseId, outcome, query, scope = null } = filters;
+  if (courseId && scope !== null && !scope.includes(courseId)) return [];
+
+  const within = scope === null ? {} : { courseId: { in: scope } };
 
   const [enrollments, cases, unenrolled] = await Promise.all([
     prisma.enrollment.findMany({
-      where: courseId ? { courseId } : {},
+      where: courseId ? { courseId } : within,
       include: {
         user: true,
         attendance: true,
@@ -118,12 +129,17 @@ export async function getCoachRoster(filters: CoachFilters = {}): Promise<CoachR
         _count: { select: { deliveries: true } },
       },
     }),
-    prisma.supportCase.findMany({ select: { id: true, userId: true, courseId: true, status: true } }),
+    prisma.supportCase.findMany({
+      where: within,
+      select: { id: true, userId: true, courseId: true, status: true },
+    }),
     // A coach with an account and no course is still somebody's problem — they
     // were added for an intake that hasn't started, or their enrolment never
     // happened. Filtering to one course is asking about that course, so they
     // drop out of the answer then.
-    courseId
+    // An educator's list is their courses; a coach on none of them is not
+    // theirs to see, so the unenrolled only appear for an admin.
+    courseId || scope !== null
       ? Promise.resolve([])
       : prisma.user.findMany({
           where: { role: "COACH", enrollments: { none: {} } },

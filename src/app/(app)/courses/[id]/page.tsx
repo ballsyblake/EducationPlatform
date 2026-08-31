@@ -2,7 +2,7 @@ import Link from "next/link";
 import { MaterialList } from "@/components/material-list";
 import { TaskList } from "@/components/task-list";
 import { Badge, EmptyState, PageHeader, ProgressBar } from "@/components/ui";
-import { requireCourseAccess } from "@/lib/access";
+import { isCourseStaff, requireCourseAccess } from "@/lib/access";
 import {
   dayMinutes,
   formatHours,
@@ -11,7 +11,7 @@ import {
   summariseAttendance,
   withinWindow,
 } from "@/lib/attendance";
-import { isAdmin, requireUser } from "@/lib/auth";
+import { isAdmin, isStaff, requireUser } from "@/lib/auth";
 import { getTasksForCoach, summarizeTasks } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/format";
@@ -56,6 +56,10 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
       })
     : null;
 
+  // Whether this viewer is on the course team, which decides if they are
+  // offered the register.
+  const rostered = isStaff(user) ? await isCourseStaff(user, id) : false;
+
   const marks = new Map((enrollment?.attendance ?? []).map((a) => [a.courseDayId, a.minutes]));
   const hours = enrollment
     ? summariseAttendance({
@@ -81,9 +85,18 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
           </span>
         }
         action={
+          // An admin manages the course; an educator rostered onto it works its
+          // register. A coach gets neither.
           isAdmin(user) ? (
             <Link href={`/admin/courses/${course.id}`} className="btn-secondary btn-sm">
               Manage course
+            </Link>
+          ) : rostered ? (
+            <Link
+              href={`/admin/courses/${course.id}/register`}
+              className="btn-secondary btn-sm"
+            >
+              Open the register
             </Link>
           ) : null
         }

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { isAdmin, requireUser } from "@/lib/auth";
+import { isStaff, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { deleteUpload, formatBytes, MAX_PHOTO_BYTES, storeUpload, UploadError } from "@/lib/uploads";
 
@@ -19,7 +19,12 @@ export type PhotoState = { status: "idle" | "ok" | "error"; message?: string };
  */
 async function requirePhotoRights(userId: string) {
   const actor = await requireUser();
-  if (!isAdmin(actor) && actor.id !== userId) return null;
+  // Any coach education staff, not just an admin: the educator standing in
+  // front of the coach is the one who takes the photo, and they are usually
+  // not an admin. Not scoped to a course — a face is a face, and an educator
+  // meeting a coach at a catch-up on somebody else's register still needs to
+  // be able to add one.
+  if (!isStaff(actor) && actor.id !== userId) return null;
   return actor;
 }
 

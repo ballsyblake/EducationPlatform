@@ -1,7 +1,7 @@
 import "server-only";
 
 import { notFound, redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth";
+import { homePathFor, isCdu, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import type { User } from "@prisma-client";
 
@@ -18,8 +18,13 @@ import type { User } from "@prisma-client";
 
 export type CdaRole = "CLUB" | "ASSESSOR" | "ADMIN";
 
-export function cdaRole(user: Pick<User, "role">): CdaRole | null {
-  if (user.role === "ADMIN") return "ADMIN";
+export function cdaRole(user: Pick<User, "role" | "cdu">): CdaRole | null {
+  // An admin is only in this product if they have been put in it. Coach
+  // education and the Unit share an account system and nothing else, and
+  // "admin" used to mean both — so promoting an educator to admin quietly
+  // handed them every club's assessment. `User.cdu` is that grant, held
+  // separately and on purpose.
+  if (user.role === "ADMIN" && user.cdu) return "ADMIN";
   if (user.role === "CLUB") return "CLUB";
   if (user.role === "ASSESSOR") return "ASSESSOR";
   return null;
@@ -38,8 +43,8 @@ export function cdaRole(user: Pick<User, "role">): CdaRole | null {
  * assessment regardless — it only makes them allocatable. Where it does create
  * an overlap, the assessment's audit trail names it.
  */
-export function mayAssess(user: Pick<User, "role" | "assesses">): boolean {
-  return user.role === "ASSESSOR" || (user.role === "ADMIN" && user.assesses);
+export function mayAssess(user: Pick<User, "role" | "assesses" | "cdu">): boolean {
+  return user.role === "ASSESSOR" || (user.role === "ADMIN" && user.cdu && user.assesses);
 }
 
 /** The `where` that selects everyone eligible to hold a line item. */
@@ -59,7 +64,10 @@ export async function requireCdaUser(): Promise<User & { cda: CdaRole }> {
 
 export async function requireCdu(): Promise<User> {
   const user = await requireUser();
-  if (user.role !== "ADMIN") redirect("/cda");
+  // Not `role === "ADMIN"` any more. The Unit is a grant of its own, so an
+  // admin who runs coach education and was never put in the Unit lands where
+  // everybody else without a portal role lands.
+  if (!isCdu(user)) redirect(homePathFor(user));
   return user;
 }
 
@@ -111,7 +119,7 @@ export async function requireAssessmentAccess(user: User, assessmentId: string) 
   });
   if (!assessment) notFound();
 
-  if (user.role === "ADMIN") return assessment;
+  if (isCdu(user)) return assessment;
 
   if (user.role === "ASSESSOR") {
     // A club not yet placed in a pool has no assessors by definition.
@@ -168,18 +176,18 @@ export async function ambassadorClubIds(userId: string) {
  * assessor is, not what the Unit may see.
  */
 export async function portfolioFilter(
-  user: Pick<User, "id" | "role">,
+  user: Pick<User, "id" | "role" | "cdu">,
 ): Promise<Set<string> | null> {
-  if (user.role === "ADMIN") return null;
+  if (isCdu(user)) return null;
   return ambassadorClubIds(user.id);
 }
 
 /** Whether this user is one of the club's Club Development Ambassadors. */
 export async function isAmbassadorFor(
-  user: Pick<User, "id" | "role">,
+  user: Pick<User, "id" | "role" | "cdu">,
   clubId: string,
 ): Promise<boolean> {
-  if (user.role === "ADMIN") return true;
+  if (isCdu(user)) return true;
   const row = await prisma.clubAmbassador.findUnique({
     where: { clubId_userId: { clubId, userId: user.id } },
     select: { id: true },
@@ -199,7 +207,10 @@ export async function isAmbassadorFor(
  * 404 rather than 403 for the same reason as everywhere else here: the response
  * must not confirm that a club it names is being assessed.
  */
-export async function requireAmbassadorFor(user: Pick<User, "id" | "role">, clubId: string) {
+export async function requireAmbassadorFor(
+  user: Pick<User, "id" | "role" | "cdu">,
+  clubId: string,
+) {
   if (!(await isAmbassadorFor(user, clubId))) notFound();
 }
 

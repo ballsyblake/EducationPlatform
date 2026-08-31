@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge, PageHeader, StatTile } from "@/components/ui";
-import { requireAdmin } from "@/lib/auth";
+import { staffCourseIds } from "@/lib/access";
+import { isAdmin, requireStaff } from "@/lib/auth";
 import { getGradingQueueCounts } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
 import { getSupportQueueCount } from "@/lib/support";
@@ -9,26 +10,43 @@ import { CreateCourseForm } from "./create-course-form";
 export const metadata = { title: "Manage" };
 
 export default async function AdminPage() {
-  await requireAdmin();
+  const user = await requireStaff();
+  // Null for an admin — the absence of a filter — and a list of ids for an
+  // educator, who runs the courses they are rostered onto and no others.
+  const scope = await staffCourseIds(user);
+  const mine = scope === null ? {} : { id: { in: scope } };
 
   const [courses, queue, coachCount, supportQueue, openCases] = await Promise.all([
     prisma.course.findMany({
+      where: mine,
       orderBy: [{ published: "desc" }, { createdAt: "desc" }],
       include: {
         _count: { select: { enrollments: true, assignments: true, quizzes: true, materials: true } },
       },
     }),
-    getGradingQueueCounts(),
-    prisma.user.count({ where: { role: "COACH", active: true } }),
-    getSupportQueueCount(),
-    prisma.supportCase.count({ where: { status: "IN_PROGRESS" } }),
+    getGradingQueueCounts(scope),
+    prisma.user.count({
+      where: {
+        role: "COACH",
+        active: true,
+        ...(scope === null ? {} : { enrollments: { some: { courseId: { in: scope } } } }),
+      },
+    }),
+    getSupportQueueCount(new Date(), scope),
+    prisma.supportCase.count({
+      where: { status: "IN_PROGRESS", ...(scope === null ? {} : { courseId: { in: scope } }) },
+    }),
   ]);
 
   return (
     <>
       <PageHeader
-        title="Manage program"
-        subtitle="Courses, coursework, and the staff who see them."
+        title={isAdmin(user) ? "Manage program" : "Your courses"}
+        subtitle={
+          isAdmin(user)
+            ? "Courses, coursework, and the staff who see them."
+            : "The courses you are rostered onto."
+        }
       />
 
       <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-5">
@@ -57,7 +75,7 @@ export default async function AdminPage() {
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+      <div className={`grid gap-6 ${isAdmin(user) ? "lg:grid-cols-[2fr_1fr]" : ""}`}>
         <section>
           <h2 className="mb-3 text-lg font-semibold text-ink-900">Courses</h2>
           {courses.length ? (
@@ -65,7 +83,13 @@ export default async function AdminPage() {
               {courses.map((course) => (
                 <Link
                   key={course.id}
-                  href={`/admin/courses/${course.id}`}
+                  // Course settings are an admin's. An educator's way in is the
+                  // register, which is the page they actually work on.
+                  href={
+                    isAdmin(user)
+                      ? `/admin/courses/${course.id}`
+                      : `/admin/courses/${course.id}/register`
+                  }
                   className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 hover:bg-ink-50"
                 >
                   <div className="min-w-0">
@@ -80,23 +104,29 @@ export default async function AdminPage() {
                       materials
                     </p>
                   </div>
-                  <span className="text-sm font-medium text-maroon-700">Manage →</span>
+                  <span className="text-sm font-medium text-maroon-700">
+                    {isAdmin(user) ? "Manage →" : "Register →"}
+                  </span>
                 </Link>
               ))}
             </div>
           ) : (
             <div className="card card-pad text-sm text-ink-500">
-              No courses yet — create your first one on the right.
+              {isAdmin(user)
+                ? "No courses yet — create your first one on the right."
+                : "You aren't rostered onto a course yet. An admin adds you to a course team from its register."}
             </div>
           )}
         </section>
 
-        <aside>
-          <h2 className="mb-3 text-lg font-semibold text-ink-900">New course</h2>
-          <div className="card card-pad">
-            <CreateCourseForm />
-          </div>
-        </aside>
+        {isAdmin(user) && (
+          <aside>
+            <h2 className="mb-3 text-lg font-semibold text-ink-900">New course</h2>
+            <div className="card card-pad">
+              <CreateCourseForm />
+            </div>
+          </aside>
+        )}
       </div>
     </>
   );

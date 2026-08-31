@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
-import { requireAdmin } from "@/lib/auth";
+import { assertCourseStaff } from "@/lib/access";
+import { requireStaff } from "@/lib/auth";
 import { shortCourseTitle } from "@/lib/coaches";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate } from "@/lib/format";
@@ -36,8 +37,9 @@ import {
 export const metadata = { title: "Attendance register" };
 
 export default async function RegisterPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
+  const user = await requireStaff();
   const { id } = await params;
+  await assertCourseStaff(user, id);
 
   const course = await prisma.course.findUnique({
     where: { id },

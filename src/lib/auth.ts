@@ -273,8 +273,42 @@ export async function requireAdmin(): Promise<User> {
   return user;
 }
 
+/**
+ * Coach education staff: an admin, or an educator.
+ *
+ * The gate for everything an educator does on a course — the register, grading,
+ * ratings, support. It says nothing about *which* course; that is
+ * `requireCourseStaff` in `@/lib/access`, and every one of these surfaces needs
+ * both. Being staff gets you through the door; being rostered gets you into the
+ * room.
+ */
+export async function requireStaff(): Promise<User> {
+  const user = await requireUser();
+  if (!isStaff(user)) redirect(homePathFor(user));
+  return user;
+}
+
 export function isAdmin(user: Pick<User, "role"> | null | undefined) {
   return user?.role === "ADMIN";
+}
+
+export function isEducator(user: Pick<User, "role"> | null | undefined) {
+  return user?.role === "EDUCATOR";
+}
+
+export function isStaff(user: Pick<User, "role"> | null | undefined) {
+  return user?.role === "ADMIN" || user?.role === "EDUCATOR";
+}
+
+/**
+ * Whether this account is in the Club Development Unit.
+ *
+ * Its own grant, not a consequence of being an admin — see `User.cdu`. An
+ * account that is not an admin cannot hold it meaningfully, so both are
+ * checked here and there is nowhere else to ask.
+ */
+export function isCdu(user: Pick<User, "role" | "cdu"> | null | undefined) {
+  return user?.role === "ADMIN" && user.cdu === true;
 }
 
 /**
@@ -282,8 +316,9 @@ export function isAdmin(user: Pick<User, "role"> | null | undefined) {
  *
  * One instance serves two products. A club administrator and an FQ assessor
  * have no business in the coach-education app at all, so they go straight to
- * the CDA portal; an ADMIN works in both and lands on the coach dashboard,
- * which carries a link across.
+ * the CDA portal. Everyone else — coach, educator, admin — lands on the coach
+ * dashboard, and an admin in the Club Development Unit gets a link across from
+ * there.
  */
 export function homePathFor(user: Pick<User, "role">) {
   return user.role === "CLUB" || user.role === "ASSESSOR" ? "/cda" : "/dashboard";

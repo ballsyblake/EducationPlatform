@@ -13,10 +13,12 @@ They share one account system, one database and one deploy. Sign-in is
 passwordless — there are no passwords anywhere in the system — and running it
 needs no email server. See [Signing in](#signing-in).
 
-An account has exactly one role. `ADMIN` works in both products; `COACH`
-belongs to Coach Education; `CLUB` and `ASSESSOR` belong to the CDA Portal.
-Signing in lands you in whichever product is yours, and admins get a link
-across in the header.
+An account has exactly one role. `COACH` and `EDUCATOR` belong to Coach
+Education; `CLUB` and `ASSESSOR` belong to the CDA Portal; `ADMIN` runs Coach
+Education and may additionally be put in the **Club Development Unit**, which is
+a grant of its own (`User.cdu`) rather than something admin implies. Signing in
+lands you in whichever product is yours, and a link across appears in the header
+for the accounts that are in both.
 
 ---
 
@@ -52,6 +54,42 @@ across in the header.
 coach submits. Written answers can't be auto-graded, so an attempt containing
 one lands in the grading queue as `AWAITING_REVIEW` until an educator reads it
 and awards points. Assignment submissions are always graded by a human.
+
+## Who can do what
+
+Three roles on this side of the app, and the middle one is the point.
+
+| | Coach | Educator | Admin |
+| --- | --- | --- | --- |
+| See course content, submit work | ✓ | ✓ | ✓ |
+| Mark the register, rate deliveries, grade, run support | | **their courses** | every course |
+| Raise and settle make-up hours, record transfers | | **their courses** | every course |
+| Create, publish, delete a course; author coursework | | | ✓ |
+| Add accounts, change roles, deactivate | | | ✓ |
+| The Club Development portal | | | only with the `cdu` grant |
+
+**An educator's courses** are the ones they are rostered onto as `CourseStaff` —
+the CET1–CET5 seats the registers already record. Everything they can reach is
+filtered to those courses: the grading queue, the support desk, the hours desk,
+the coaches list, progress, and the course list itself. Another course's
+register is a redirect, not a 403, for the same reason a coach gets a 404 on a
+course they aren't on.
+
+Being staff is not the same as being staff *here*: `requireStaff()` gets you
+through the door and `assertCourseStaff(user, courseId)` gets you into the room,
+and every action that writes a mark, a grade, a rating or a case calls both.
+Educators are exactly the people who assess coaches, so the importer now creates
+a course team as `EDUCATOR` — it used to create them as `ADMIN`, which also
+handed each of them every club's assessment in the other product.
+
+**The Club Development Unit** is `User.cdu`, granted from the Staff page on an
+admin and nowhere else. It used to be `role === "ADMIN"`, so promoting an
+educator in Coach Education silently gave them the entire Unit. Revoking it ends
+their sessions, because access withdrawn at the next sign-out is not withdrawn.
+The last active Unit member cannot be removed, demoted or deactivated from the
+Staff page: somebody has to be able to run the cycle, and an empty Unit can only
+be refilled from inside the Unit. `ADMIN_EMAILS` is the way back in either way —
+`bootstrap-admin` grants the Unit as well as the role, on every boot.
 
 ## The attendance register
 

@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 import { Badge, EmptyState, PageHeader, StatTile, type Tone } from "@/components/ui";
 import { formatHours } from "@/lib/attendance";
-import { requireAdmin } from "@/lib/auth";
+import { staffCourseIds } from "@/lib/access";
+import { requireStaff } from "@/lib/auth";
 import { getCoachRoster, ROSTER_OUTCOMES, shortCourseTitle } from "@/lib/coaches";
 import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
@@ -46,12 +47,17 @@ export default async function CoachesPage({
 }: {
   searchParams: Promise<{ course?: string; outcome?: string; q?: string }>;
 }) {
-  await requireAdmin();
+  const user = await requireStaff();
+  const scope = await staffCourseIds(user);
   const { course: courseId, outcome, q } = await searchParams;
 
   const [courses, rows] = await Promise.all([
-    prisma.course.findMany({ orderBy: { title: "asc" }, select: { id: true, title: true } }),
-    getCoachRoster({ courseId, outcome, query: q }),
+    prisma.course.findMany({
+      where: scope === null ? {} : { id: { in: scope } },
+      orderBy: { title: "asc" },
+      select: { id: true, title: true },
+    }),
+    getCoachRoster({ courseId, outcome, query: q, scope }),
   ]);
 
   const coaches = new Set(rows.map((r) => r.user.id));

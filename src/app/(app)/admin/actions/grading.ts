@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth";
+import { assertCourseStaff } from "@/lib/access";
+import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recalculateAttemptScore } from "@/lib/grading";
 
@@ -9,7 +10,7 @@ export type GradeState = { status: "idle" | "ok" | "error"; message?: string };
 
 /** Scores an assignment submission and writes the coach's feedback. */
 export async function gradeSubmission(_prev: GradeState, formData: FormData): Promise<GradeState> {
-  const admin = await requireAdmin();
+  const admin = await requireStaff();
   const submissionId = String(formData.get("submissionId"));
   const feedback = String(formData.get("feedback") ?? "").trim() || null;
   const rawScore = String(formData.get("score") ?? "").trim();
@@ -19,6 +20,7 @@ export async function gradeSubmission(_prev: GradeState, formData: FormData): Pr
     include: { assignment: true },
   });
   if (!submission) return { status: "error", message: "Submission not found." };
+  await assertCourseStaff(admin, submission.assignment.courseId);
 
   if (rawScore === "") {
     return { status: "error", message: "Enter a score." };
@@ -54,7 +56,7 @@ export async function gradeSubmission(_prev: GradeState, formData: FormData): Pr
  * rolls the per-answer points back up into the attempt total.
  */
 export async function reviewAttempt(_prev: GradeState, formData: FormData): Promise<GradeState> {
-  const admin = await requireAdmin();
+  const admin = await requireStaff();
   const attemptId = String(formData.get("attemptId"));
 
   const attempt = await prisma.quizAttempt.findUnique({
@@ -65,6 +67,7 @@ export async function reviewAttempt(_prev: GradeState, formData: FormData): Prom
     },
   });
   if (!attempt) return { status: "error", message: "Attempt not found." };
+  await assertCourseStaff(admin, attempt.quiz.courseId);
 
   for (const answer of attempt.answers) {
     if (answer.question.kind !== "SHORT_ANSWER") continue;
@@ -107,9 +110,19 @@ export async function reviewAttempt(_prev: GradeState, formData: FormData): Prom
 
 /** Sends a submission back so the coach can revise and resubmit. */
 export async function returnForRevision(formData: FormData) {
-  const admin = await requireAdmin();
+  const admin = await requireStaff();
   const submissionId = String(formData.get("submissionId"));
   const feedback = String(formData.get("feedback") ?? "").trim() || null;
+
+  // Read before write: the course this belongs to decides whether the actor may
+  // touch it at all, and an update that authorises itself afterwards has
+  // already happened.
+  const target = await prisma.submission.findUnique({
+    where: { id: submissionId },
+    select: { assignment: { select: { courseId: true } } },
+  });
+  if (!target) return;
+  await assertCourseStaff(admin, target.assignment.courseId);
 
   const submission = await prisma.submission.update({
     where: { id: submissionId },

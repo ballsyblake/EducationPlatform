@@ -128,9 +128,23 @@ export async function updateStaffMember(formData: FormData) {
   // line-item allocations depend on. Those accounts are managed at /cda/cdu.
   const target = await prisma.user.findUnique({
     where: { id: userId },
-    select: { role: true },
+    select: { role: true, cdu: true },
   });
   if (!target || target.role === "CLUB" || target.role === "ASSESSOR") return;
+
+  // The last way into the Club Development Unit must not be closeable from a
+  // page about coach education. Somebody has to be able to run the cycle, and
+  // an empty Unit can only be refilled from inside the Unit.
+  const losesCdu =
+    target.cdu &&
+    (action === "revoke_cdu" || action === "make_educator" || action === "make_coach" ||
+      action === "deactivate");
+  if (losesCdu) {
+    const others = await prisma.user.count({
+      where: { cdu: true, role: "ADMIN", active: true, id: { not: userId } },
+    });
+    if (others === 0) return;
+  }
 
   if (action === "deactivate") {
     await prisma.user.update({ where: { id: userId }, data: { active: false } });
@@ -143,9 +157,31 @@ export async function updateStaffMember(formData: FormData) {
   } else if (action === "reactivate") {
     await prisma.user.update({ where: { id: userId }, data: { active: true } });
   } else if (action === "make_admin") {
+    // Promoting to admin does not hand over the Club Development Unit. That is
+    // its own grant now — the whole point of separating them — so an admin who
+    // should also run the cycle is given it deliberately, below.
     await prisma.user.update({ where: { id: userId }, data: { role: "ADMIN" } });
+  } else if (action === "make_educator") {
+    await prisma.user.update({ where: { id: userId }, data: { role: "EDUCATOR", cdu: false } });
   } else if (action === "make_coach") {
-    await prisma.user.update({ where: { id: userId }, data: { role: "COACH" } });
+    // Dropping out of staff takes the Unit with it: a coach cannot hold it, and
+    // leaving the flag set would silently restore portal access the day
+    // somebody was promoted back.
+    await prisma.user.update({ where: { id: userId }, data: { role: "COACH", cdu: false } });
+  } else if (action === "grant_cdu" || action === "revoke_cdu") {
+    // Only meaningful on an admin, so granting it to anybody else is refused
+    // rather than stored and quietly ignored.
+    if (action === "grant_cdu" && target.role !== "ADMIN") return;
+    await prisma.user.update({
+      where: { id: userId },
+      data: { cdu: action === "grant_cdu" },
+    });
+    if (action === "revoke_cdu") {
+      // Their portal sessions are the access being withdrawn. Leaving them
+      // signed in would mean the revocation took effect whenever they next
+      // happened to sign out.
+      await prisma.session.deleteMany({ where: { userId } });
+    }
   } else if (action === "update") {
     await prisma.user.update({
       where: { id: userId },
