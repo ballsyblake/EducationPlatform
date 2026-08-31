@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { BrandLogo } from "@/components/brand";
 import { NavLinks, type NavLink } from "@/components/nav";
 import { homePathFor, isAdmin, requireUser } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { displayName, initials } from "@/lib/format";
 
 const COACH_LINKS: NavLink[] = [
@@ -11,9 +12,14 @@ const COACH_LINKS: NavLink[] = [
   { href: "/grades", label: "Grades & Feedback" },
 ];
 
+const SUPPORT_LINK: NavLink = { href: "/support", label: "Support" };
+
 const ADMIN_LINKS: NavLink[] = [
   { href: "/admin", label: "Manage" },
+  { href: "/admin/coaches", label: "Coaches" },
   { href: "/admin/grading", label: "Grading" },
+  { href: "/admin/support", label: "Support" },
+  { href: "/admin/make-ups", label: "Hours" },
   { href: "/admin/progress", label: "Progress" },
   { href: "/admin/people", label: "Staff" },
 ];
@@ -27,7 +33,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const home = homePathFor(user);
   if (home !== "/dashboard") redirect(home);
 
-  const links = isAdmin(user) ? [...COACH_LINKS, ...ADMIN_LINKS] : COACH_LINKS;
+  // A coach only gets a Support tab once they have a case. Most coaches never
+  // will, and a permanent tab labelled "Support" reads as an accusation to
+  // everyone who doesn't need it.
+  const hasSupport = isAdmin(user)
+    ? false
+    : (await prisma.supportCase.count({ where: { userId: user.id } })) > 0;
+
+  const links = isAdmin(user)
+    ? [...COACH_LINKS, ...ADMIN_LINKS]
+    : hasSupport
+      ? [...COACH_LINKS, SUPPORT_LINK]
+      : COACH_LINKS;
 
   return (
     <div className="min-h-screen">

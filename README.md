@@ -30,13 +30,21 @@ across in the header.
 - Course pages with a library of session plans, resources and video (uploaded files or YouTube/Vimeo links)
 - Assignments accepting a written response, file attachments, or both — with drafts you can save and come back to
 - Quizzes with multiple-choice, true/false, and written questions
-- A Grades & Feedback page collecting every score and written comment in one place
+- A Grades & Feedback page collecting every score and written comment in one place, and where each course stands against its pass mark
+- Your own row of the course register: the hours you sat on each day, your rating out of five, and the write-up of every session an educator watched you deliver
+- Any hours you owe from a day you missed, and where they are being made up
+- Post-course support if you're rated below the mark: an educator watches you deliver a session again, live or on film
 
 **For admins (coach educators / technical staff)**
 
 - Create courses, enroll staff, and publish or hide coursework
 - Author assignments and build quizzes question by question
 - A grading queue: score submissions, review written quiz answers, add feedback, or send work back for revision
+- A photo of each coach, taken on the phone from the register, so whoever assesses their delivery in Block 3 knows who is who
+- A coaches list: every coach and where they stand on each course — hours, rating, outcome — filterable by course and outcome, searchable by name or club
+- The attendance register: nine delivery days, the roster, catch-ups, the CET team, and the results block — one screen per course
+- An hours desk: who is short, what they owe, and where it is being made up — across every course at once
+- A post-course support desk: who was rated below the pass mark, who is booked in, whose film is waiting to be reviewed
 - A staff progress dashboard — completion, overdue counts, and averages per coach, filterable by course
 - Staff management: add coaches by email, hand out sign-in links, promote to admin, deactivate
 
@@ -44,6 +52,281 @@ across in the header.
 coach submits. Written answers can't be auto-graded, so an attempt containing
 one lands in the grading queue as `AWAITING_REVIEW` until an educator reads it
 and awards points. Assignment submissions are always graded by a human.
+
+## The attendance register
+
+Football Queensland runs its AFC/FA diplomas off one spreadsheet per course:
+nine delivery days across three blocks, a roster, a catch-ups block for coaches
+making up time, the CET team's own attendance, and a grid of Yes/No between
+them. Beside it sits an assessment sheet holding each coach's practical
+deliveries and a rating out of five.
+
+That register lives in the app at `/admin/courses/<id>/register`:
+
+- **The grid.** Roster, catch-ups and course team, days as columns. Tick a box
+  to mark someone present; a day heading marks the whole column at once. Nothing
+  is written until you save, because a register kept on a touchline needs a
+  mistake to be correctable before it counts.
+- **Part days.** A tick is the whole day. For anything less, click *part* under
+  the cell and type the hours actually sat. Attendance is held in minutes, not
+  as a yes/no — see [Hours and make-ups](#hours-and-make-ups).
+- **The results block.** Attendance met, journal, rating, outcome, readiness and
+  the register's own comments, for every coach on one screen.
+- **Practical deliveries.** Each coach's assessed sessions — assessor, block,
+  component, topic, comment, action plan and session rating — readable by the
+  coach on their own course page, and by an educator writing up a
+  reassessment.
+
+A coach sees their own row: which days they were marked present, their rating
+and what that rating means, and every write-up an educator left them.
+
+### Seeing across the registers
+
+A register answers for one course. A coach who missed Day 6 on the Sunshine
+Coast and is sitting it at Gold Coast Knights appears on two of them, and
+`/admin/coaches` is the page that reads across the lot: **one row per
+enrolment**, not per person, because a coach on two courses has two standings
+and averaging them would describe neither.
+
+Each row carries hours sat against hours run, hours owed and hours unaccounted,
+the rating and its FA band, the outcome, whether a support case is open, the
+journal and the count of assessed deliveries. Filter by course or outcome —
+including *Hours unaccounted*, which is the "who has nobody looking at them"
+list — and search a name, a club or a course. Every figure comes from
+`summariseAttendance` and `courseResult`, the same functions the register uses,
+so this is a second view of the register rather than a second opinion about it.
+
+`/admin/progress` is left to the question it actually answers: coursework
+completion, which is what the online courses are marked on and is no measure at
+all of a diploma.
+
+### Knowing who is who
+
+A B Diploma runs twenty-five coaches across nine days and three blocks, months
+apart, often with a different educator on the grass each time. The register
+gives them names; **Who's who** on the same page gives them faces.
+
+- **Taking one** is `<input type="file" accept="image/*" capture="environment">`
+  — on a phone that opens the camera directly, on a laptop it's an ordinary file
+  picker. No permissions prompt, no `getUserMedia`, nothing to install, which
+  matters when the person using it is standing on grass.
+- **The browser shrinks it first**: centre-cropped to a 512px square JPEG,
+  roughly 6–60 KB, before anything is uploaded. A phone takes three to five
+  megabytes, and a register showing twenty-five coaches would otherwise pull a
+  hundred of them on every load. EXIF orientation is applied during the decode,
+  so portrait photos aren't stored sideways. The server caps a photo at 400 KB —
+  a file arriving near that is a client that skipped the resize, not a coach who
+  stood too far back.
+- **It hangs off the account, not the enrolment.** The point is recognising the
+  same coach across courses and years, and a photo per intake would mean taking
+  it again every time. One current photo, replaced rather than accumulated: this
+  is a name badge, not an album.
+- **Who can set it**: coach education staff, and the coach themselves at
+  `/account`. Staff because it is taken on the day by the educator running the
+  course; the coach because it is their likeness.
+- **Who can see it**: the same two. `canAccessUpload` returns 404 to every other
+  coach, and to the Club Development portal's assessors and club administrators —
+  checked before any other rule, so a photo can never fall through to a rule
+  written for a different kind of file.
+- **Removing it** is a button on the register and on the coach's own account
+  page, and it deletes the bytes rather than just unlinking them.
+
+Faces appear on the register grid, in **Who's who**, on the coaches list, and on
+a post-course support case — where an educator arriving to reassess a delivery
+has often never met the coach, because the referral came off somebody else's
+register weeks ago. Everywhere else falls back to initials.
+
+### Moves and part intakes
+
+Not everybody does all nine days of the course they are listed on. Coaches join
+at Block 2 and pick up Block 1 elsewhere; coaches do Block 1 at one venue and
+start again at the next intake. Without saying so, both read as somebody who
+didn't turn up, and the register puts them twenty-four hours short of a standard
+nobody was applying.
+
+An enrolment therefore has a **window**: `joinedAt` and `leftAt`, both null in
+the ordinary case. Days outside it drop out of the requirement *and* out of the
+hours sat, and show on the register as a dash rather than an empty box — an
+empty box means "didn't turn up", which is the wrong thing to say about somebody
+who had already moved to another intake. Marks recorded outside the window are
+kept, not deleted: the register is the record of what was written down on the
+day.
+
+A **move** is one operation, because its parts are only correct together —
+`/admin/courses/<id>/register` → *Moves and part intakes*:
+
+1. the origin closes at the coach's last day there,
+2. the destination opens at their first day (joining an enrolment that already
+   exists, rather than creating a second one),
+3. the two are linked one-to-one through `transferredToId`, so "transferred" can
+   never be recorded without saying where to,
+4. **hours still owed go with the coach**, off the register they have left,
+5. the origin's outcome becomes `TRANSFERRED` — but only if it was still
+   `IN_PROGRESS`. A coach who was rated and passed there passed there, and
+   moving them afterwards is not a reason to erase an educator's decision.
+
+Hours already sat are deliberately **not** added to the new course's total. A
+coach who did Block 1 at one venue and started again at another has sat those
+days twice, and quietly adding them would report a qualification as
+three-quarters done on the strength of the same three days counted twice. The
+link makes them visible from both ends; whether they are worth crediting is a
+judgement, and the make-up ledger is where a judgement gets written down.
+
+### Hours and make-ups
+
+Attendance is **minutes, not a tick**. FQ's registers are full of half days —
+"Missed Day 2 PM", "3 hours missed on Day 2", "1.5 hours Day 3" — and a boolean
+rounds every one of them to a whole day in one direction or the other, which is
+why the spreadsheets end up recording them in the Comments column, where nothing
+can add them up.
+
+- A day is worth its scheduled length (`startTime`–`endTime`). A day with no
+  times recorded is worth nothing rather than a guessed eight hours: an invented
+  denominator would put a whole roster into debt against a standard nobody has
+  stated.
+- Only **days the register has actually taken** count towards what a coach owes.
+  A course in its first block has six days ahead of it, and measuring anybody
+  against them would show the entire roster forty-eight hours short.
+- A **catch-up** enrolment has no requirement of its own. It exists to host
+  hours owed on another course.
+
+Time missed becomes a debt when an educator says so, not automatically. That
+debt is an `AttendanceMakeUp`, and it follows the coach rather than the course —
+which is the whole point, because a coach who misses Day 6 on the Sunshine Coast
+usually sits it at Gold Coast Knights three weeks later, and no single register
+can say whether they are square. A make-up is `OWED`, `ARRANGED`, `COMPLETED` or
+`WAIVED`, carries the hours credited so far, and can point at the attendance row
+that paid it off.
+
+Two numbers do most of the work, and the difference between them is the point:
+
+| | |
+|---|---|
+| **Owed** | Raised on the ledger and not yet covered. Somebody is dealing with it. |
+| **Unaccounted** | Hours missing that nobody has raised anything for. These are the ones an educator needs to see. |
+
+Days outside a coach's window count towards neither.
+
+The hours desk at `/admin/make-ups` shows both, across every course: the open
+ledger, and everybody short with nothing raised — each with a form to raise the
+debt on the spot. The same panel appears on a course register, scoped to that
+course. A coach sees their own outstanding hours on their dashboard and on their
+course page.
+
+**The importer reads the margins.** `courses:import` understands three shapes in
+the Comments column — "Missed Day N AM/PM", "N hours missed on Day N", "full day
+of Day N" — and turns each into a corrected attendance figure plus an `OWED`
+make-up quoting the original comment. Anything vaguer ("needs to catch up a few
+hours on another B") is printed at the end of the run for a person to raise by
+hand, never guessed at.
+
+### How a course is rated
+
+Coaches are not scored on coursework percentages. They are rated **1 to 5 in
+half steps** against Football Australia's rubric, which ships inside every FQ
+register and is transcribed in `src/lib/support-rubric.ts`:
+
+| Criterion                                                                    | Group             |
+| ---------------------------------------------------------------------------- | ----------------- |
+| Participation / Engagement                                                    | Course            |
+| Objective · Content · Organisation · Presenting · Coaching · Environment      | Practical delivery |
+
+The rating maps to one of two outcomes, and the line between them is 2.5:
+
+| Rating    | Football Australia | Outcome              |
+| --------- | ------------------ | -------------------- |
+| 3.5 – 5   | Highly Competent   | Pass on course       |
+| 2.5 – 3   | Competent          | Pass on course       |
+| 1 – 2     | Not yet competent  | Post-course support  |
+
+A course carries its own `ratingThreshold` — 2.5 on every diploma — so a future
+licence can set a different bar. Leave it blank and the course isn't rated at
+all, and nobody on it can fall short.
+
+The register won't hold an outcome the rubric doesn't allow: recording a coach
+rated 2 as having passed is refused, both in the form and again on save.
+Withdrawing is always available, because leaving a course is not a judgement
+about a delivery.
+
+## Post-course support
+
+Rated below the mark, and the rubric's own name for what happens next is
+**post-course support**. Those coaches appear on `/admin/support` under *Rated
+below the pass mark*.
+
+Coming up short doesn't fail anyone. A rating says what an educator saw across
+the course; it doesn't say what the coach can do given the feedback. So a
+shortfall opens a **support case**, and the coach is reassessed on a delivery by
+one of two routes:
+
+- **Live assessment** — an educator attends one of their sessions and observes it.
+- **Video review** — the coach films a session and submits the link.
+
+Which route is a matter of geography and diaries, not of standard. A coach five
+hours from Brisbane sends film because of the drive, and is held to exactly what
+a coach observed in person is held to: the same seven criteria, on the same
+scale.
+
+**How a reassessment is marked.** Every criterion carries a mark — a blank is
+not a pass — and the delivery's overall rating is the mean, snapped to the
+half-step scale and computed on save rather than read from the form. If that
+figure lands below the course's pass mark, a successful outcome isn't available:
+the form doesn't offer it and the action refuses it. An educator who means to
+pass the coach has to move the marks and own it.
+
+**The flow.** An educator refers the coach and books the first assessment in one
+step → the coach either has an educator come out, or submits film → the educator
+marks the seven and records an outcome. *Successful* closes the case, writes the
+new rating back to the register, and passes the course. *Not yet successful*
+leaves it open for the next attempt. A case allows two assessments by default —
+the reassessment and one further opportunity — which an educator can raise where
+circumstances warrant it.
+
+Nobody is referred automatically. A coach half a point short after a
+bereavement and a coach who never engaged both land in the same list, and the
+educator decides which conversation each of them needs — but neither is quietly
+lost, which is what happens when "who didn't pass?" is a question somebody has
+to assemble by hand.
+
+Film is a **link**, never an upload: session footage is hundreds of megabytes
+and this app keeps its files in the database. YouTube and Vimeo play inline on
+the educator's page — unlisted, not private. The session plan and anything else
+on paper can be attached as normal.
+
+A coach only sees a **Support** tab once they have a case. Most coaches never
+will, and a permanent tab reads as an accusation to everyone who doesn't need
+one.
+
+## Loading a real intake
+
+```bash
+npm run courses:import -- --dry-run   # say what would change, write nothing
+npm run courses:import -- --yes       # do it
+```
+
+Reads `prisma/data/b-diploma-2026.json` — three 2026 B Diploma registers,
+extracted from FQ's spreadsheets by `scripts/extract-b-diploma-2026.py`. Two
+steps rather than one, matching `cda:import-2026`: the registers are the coach
+education team's working documents and will change shape next intake, while the
+JSON is a flat record of one intake that can be reviewed, diffed and re-imported
+without Excel in the loop. Re-run the extractor when the registers move:
+
+```bash
+python3 scripts/extract-b-diploma-2026.py <register.xlsx> [...]
+```
+
+Every write is an upsert keyed on something stable, so a second run corrects the
+first rather than duplicating it. It opens no support cases — plenty of coaches
+sit below the pass mark, and every one of those is a conversation an educator
+has before a case exists.
+
+**Addresses in that file are anonymised.** The registers carry every coach's
+real address and this repository is public to whoever can read it; names are
+kept, because they are what makes the data worth testing against, but each
+address is rewritten to `first.last@example.com`. Nothing in the file can mail a
+real person. It is still real people's assessment history, so the import is a
+deliberate command and never runs at boot or on deploy.
+
 
 ---
 
@@ -181,12 +464,15 @@ npm run dev
 Open http://localhost:3000/login and enter any seeded address. In development
 the sign-in link appears on the page, so you can click straight through:
 
-| Email                       | Role                            |
-| --------------------------- | ------------------------------- |
-| `head.coach@example.com`    | Admin — courses and grading     |
-| `marcus.webb@example.com`   | Coach — Technical Director      |
-| `tj.rollins@example.com`    | Coach — Senior Men's Head Coach |
-| `dana.pryor@example.com`    | Coach — U15 Girls Head Coach    |
+| Email                     | Role                                            |
+| ------------------------- | ----------------------------------------------- |
+| `head.coach@example.com`  | Admin — courses, grading and support            |
+| `marcus.webb@example.com` | Coach — Technical Director                      |
+| `tj.rollins@example.com`  | Coach — passed on his second support assessment |
+| `dana.pryor@example.com`  | Coach — U15 Girls Head Coach                    |
+| `elliot.snow@example.com` | Coach — film submitted, waiting on a review     |
+| `sam.okafor@example.com`  | Coach — live assessment booked                  |
+| `priya.raman@example.com` | Coach — below the pass mark, no case opened yet |
 
 ## Signing in
 
@@ -498,7 +784,8 @@ src/
       assignments/     Instructions, submission, feedback
       quizzes/         Taking a quiz and reading results
       grades/          Score and feedback history
-      admin/           Courses, quiz builder, grading queue, progress, staff
+      admin/           Courses, coaches, quiz builder, grading queue, hours,
+                       progress, staff
     (cda)/cda/         Club Development & Assessment
       club/            Staff register, Non-Negotiables, participation, rating
       assess/          An assessor's clubs and the scoring screen
@@ -510,7 +797,10 @@ src/
     access.ts          Course and upload authorization
     grading.ts         Auto-grading and score rollups
     coursework.ts      Task aggregation and progress summaries
-    uploads.ts         File validation and database-backed storage
+    attendance.ts      Pure hours: day lengths, totals, debts and shortfalls
+    coaches.ts         The cross-course roster: one row per enrolment
+    support-rubric.ts  FA's 1-5 rubric, bands, and the support pathway
+    uploads.ts         File validation, database-backed storage, photo caps
     adapter.ts         Picks SQLite or Turso from DATABASE_URL
     cda/
       rubric.ts        Role weights, points, star thresholds — the fixed rubric

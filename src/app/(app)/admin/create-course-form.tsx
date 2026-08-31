@@ -45,6 +45,26 @@ export function CreateCourseForm() {
         />
       </div>
 
+      <div>
+        <label className="label" htmlFor="course-pass-mark">
+          Pass mark
+        </label>
+        <input
+          id="course-pass-mark"
+          name="ratingThreshold"
+          type="number"
+          min={1}
+          max={5}
+          step={0.5}
+          placeholder="2.5"
+          className="input"
+        />
+        <p className="hint">
+          The FQ rating a coach has to reach, out of 5. 2.5 on every AFC/FA diploma. Leave it
+          blank if the course isn&apos;t rated.
+        </p>
+      </div>
+
       <label className="flex items-center gap-2 text-sm text-ink-700">
         <input type="checkbox" name="published" className="accent-maroon-600" />
         Publish immediately

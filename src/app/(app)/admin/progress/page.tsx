@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/auth";
 import { getStaffProgress } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
 import { displayName, formatDateTime } from "@/lib/format";
+import { courseResult } from "@/lib/support-rubric";
 
 export const metadata = { title: "Progress" };
 
@@ -15,10 +16,28 @@ export default async function ProgressPage({
   await requireAdmin();
   const { course: courseFilter } = await searchParams;
 
-  const [courses, rows] = await Promise.all([
-    prisma.course.findMany({ orderBy: { title: "asc" }, select: { id: true, title: true } }),
+  const [courses, rows, supportCases, enrollments] = await Promise.all([
+    prisma.course.findMany({
+      orderBy: { title: "asc" },
+      select: { id: true, title: true, ratingThreshold: true },
+    }),
     getStaffProgress(courseFilter),
+    prisma.supportCase.findMany({ select: { userId: true, courseId: true, status: true } }),
+    // Where each coach stands on the register, which is the only place a
+    // shortfall is recorded — coursework percentages don't decide it.
+    prisma.enrollment.findMany({
+      where: courseFilter ? { courseId: courseFilter } : {},
+      select: {
+        userId: true,
+        courseId: true,
+        rating: true,
+        outcome: true,
+        course: { select: { title: true, ratingThreshold: true } },
+      },
+    }),
   ]);
+
+  const casesFor = (userId: string) => supportCases.filter((c) => c.userId === userId);
 
   const staffTotals = rows.reduce(
     (acc, row) => ({
@@ -90,6 +109,20 @@ export default async function ProgressPage({
               .slice(0, 4);
             const overdue = row.summary.overdue;
 
+            // Courses this coach has been rated short on, minus any already
+            // carrying a case — a coach in support is being dealt with, and
+            // flagging them a second time only adds noise.
+            const cases = casesFor(row.user.id);
+            const inSupport = cases.filter((c) => c.status === "IN_PROGRESS").length;
+            const shortfalls = enrollments
+              .filter((e) => e.userId === row.user.id)
+              .map(courseResult)
+              .filter(
+                (result) =>
+                  result.verdict === "needs_support" &&
+                  !cases.some((c) => c.courseId === result.courseId),
+              );
+
             return (
               <div key={row.user.id} className="card card-pad">
                 <div className="flex flex-wrap items-start justify-between gap-4">
@@ -101,6 +134,12 @@ export default async function ProgressPage({
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {shortfalls.map((result) => (
+                      <Badge key={result.courseId} tone="warn">
+                        {result.rating?.toFixed(1) ?? "—"} on {result.courseTitle}
+                      </Badge>
+                    ))}
+                    {inSupport > 0 && <Badge tone="ok">In support</Badge>}
                     {overdue > 0 && <Badge tone="bad">{overdue} overdue</Badge>}
                     {row.summary.awaitingFeedback > 0 && (
                       <Badge tone="ok">{row.summary.awaitingFeedback} awaiting feedback</Badge>

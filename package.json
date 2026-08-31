@@ -21,7 +21,8 @@
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
     "cda:reset": "tsx scripts/reset-cda.ts",
     "boot": "tsx scripts/boot.ts",
-    "cda:import-2026": "tsx scripts/import-fq-2026.ts"
+    "cda:import-2026": "tsx scripts/import-fq-2026.ts",
+    "courses:import": "tsx scripts/import-b-diploma.ts"
   },
   "repository": {
     "type": "git",

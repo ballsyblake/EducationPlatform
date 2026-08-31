@@ -9,7 +9,7 @@ import { prisma } from "@/lib/db";
 import { CycleSettings } from "./cycle-settings";
 import { NewCycle } from "./new-cycle";
 import { PoolsPanel, type PoolSummary } from "./pools-panel";
-import type { Shield } from "@prisma-client";
+import type { NonNegotiableVerdict, Shield } from "@prisma-client";
 
 export const metadata = { title: "Cycle" };
 
@@ -133,9 +133,12 @@ export default async function CduHomePage() {
     _count: { _all: true },
   });
 
-  const verdicts = new Map<string, { PASS: number; FAIL: number; PENDING: number }>();
+  type VerdictTally = Record<NonNegotiableVerdict, number>;
+  const emptyTally = (): VerdictTally => ({ PASS: 0, FAIL: 0, PENDING: 0, ON_NOTICE: 0 });
+
+  const verdicts = new Map<string, VerdictTally>();
   for (const row of verdictCounts) {
-    const entry = verdicts.get(row.assessmentId) ?? { PASS: 0, FAIL: 0, PENDING: 0 };
+    const entry = verdicts.get(row.assessmentId) ?? emptyTally();
     entry[row.verdict] = row._count._all;
     verdicts.set(row.assessmentId, entry);
   }
@@ -208,7 +211,7 @@ export default async function CduHomePage() {
                   const itemsIn = items.filter((cid) =>
                     a.pool!.assignments.filter((x) => x.criterionId === cid).every((x) => x.submittedAt),
                   ).length;
-                  const v = verdicts.get(a.id) ?? { PASS: 0, FAIL: 0, PENDING: 0 };
+                  const v = verdicts.get(a.id) ?? emptyTally();
                   const frozen = a.lockedAt !== null;
 
                   // Clamped, because a club moved between tiers can carry an
@@ -261,6 +264,8 @@ export default async function CduHomePage() {
                       <td className="px-3 py-3 whitespace-nowrap">
                         {v.FAIL > 0 ? (
                           <Badge tone="bad">{v.FAIL} failed</Badge>
+                        ) : v.ON_NOTICE > 0 ? (
+                          <Badge tone="warn">on notice</Badge>
                         ) : v.PENDING > 0 ? (
                           <span className="text-xs text-ink-500">{v.PENDING} pending</span>
                         ) : (

@@ -4,7 +4,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { Badge, PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { displayName, formatDateTime, toDateTimeLocal } from "@/lib/format";
+import { displayName, formatDate, formatDateTime, toDateTimeLocal } from "@/lib/format";
 import { formatBytes } from "@/lib/uploads";
 import {
   deleteAssignment,
@@ -33,6 +33,9 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
         include: { _count: { select: { questions: true, attempts: true } } },
       },
       enrollments: { include: { user: true } },
+      days: { orderBy: { dayNo: "asc" } },
+      staff: { orderBy: { position: "asc" } },
+      _count: { select: { days: true } },
     },
   });
   if (!course) notFound();
@@ -55,9 +58,16 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
           </span>
         }
         action={
-          <Link href={`/courses/${course.id}`} className="btn-secondary btn-sm">
-            View as coach
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {course._count.days > 0 && (
+              <Link href={`/admin/courses/${course.id}/register`} className="btn-primary btn-sm">
+                Attendance register
+              </Link>
+            )}
+            <Link href={`/courses/${course.id}`} className="btn-secondary btn-sm">
+              View as coach
+            </Link>
+          </div>
         }
       />
 
@@ -98,6 +108,83 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                 className="input"
               />
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="label" htmlFor="qualification">
+                  Qualification
+                </label>
+                <input
+                  id="qualification"
+                  name="qualification"
+                  defaultValue={course.qualification ?? ""}
+                  placeholder="B Diploma"
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="stream">
+                  Course name
+                </label>
+                <input
+                  id="stream"
+                  name="stream"
+                  defaultValue={course.stream ?? ""}
+                  placeholder="Metro / Regional"
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="location">
+                  Location
+                </label>
+                <input
+                  id="location"
+                  name="location"
+                  defaultValue={course.location ?? ""}
+                  placeholder="Sunshine Coast"
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="venue">
+                  Ground
+                </label>
+                <input
+                  id="venue"
+                  name="venue"
+                  defaultValue={course.venue ?? ""}
+                  placeholder="Noosa Lions FC"
+                  className="input"
+                />
+              </div>
+            </div>
+
+            <div className="sm:w-1/2">
+              <label className="label" htmlFor="passMark">
+                Pass mark
+              </label>
+              <input
+                id="passMark"
+                name="ratingThreshold"
+                type="number"
+                min={1}
+                max={5}
+                step={0.5}
+                defaultValue={course.ratingThreshold ?? ""}
+                placeholder="Not rated"
+                className="input"
+              />
+              <p className="hint">
+                The FQ rating a coach has to reach, out of 5 — 2.5 on every AFC/FA diploma. Leave
+                it blank and the course isn&apos;t rated; set it and anyone rated below it shows
+                up on{" "}
+                <Link href="/admin/support" className="font-medium text-maroon-700 hover:underline">
+                  post-course support
+                </Link>
+                .
+              </p>
+            </div>
+
             <label className="flex items-center gap-2 text-sm text-ink-700">
               <input
                 type="checkbox"
@@ -114,6 +201,56 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
         </section>
 
         {/* ------------------------------- Roster ------------------------------ */}
+        {course.days.length > 0 && (
+          <section className="card card-pad">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-ink-900">Delivery days</h2>
+                <p className="text-sm text-ink-500">
+                  {course.days.length} days
+                  {course.staff.length > 0 && ` · ${course.staff.length} on the course team`}
+                </p>
+              </div>
+              <Link
+                href={`/admin/courses/${course.id}/register`}
+                className="btn-secondary btn-sm"
+              >
+                Open the register
+              </Link>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-3">
+              {course.days.map((day) => (
+                <div key={day.id} className="rounded-lg border border-ink-200 px-3 py-2">
+                  <p className="text-xs font-semibold text-ink-700">Day {day.dayNo}</p>
+                  <p className="text-xs text-ink-500">
+                    {day.weekday ? `${day.weekday}, ` : ""}
+                    {formatDate(day.date)}
+                  </p>
+                  {day.startTime && (
+                    <p className="text-xs text-ink-400">
+                      {day.startTime}–{day.endTime ?? ""}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {course.staff.length > 0 && (
+              <div className="mt-4 border-t border-ink-200 pt-3">
+                <p className="section-title mb-2">Course team</p>
+                <ul className="flex flex-wrap gap-2">
+                  {course.staff.map((member) => (
+                    <li key={member.id} className="badge bg-ink-100 text-ink-700">
+                      {member.role} · {member.name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        )}
+
         <section className="card card-pad">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-ink-900">Roster</h2>

@@ -799,12 +799,14 @@ export async function verifyNonNegotiable(
 
   const resultId = String(formData.get("resultId") ?? "");
   const verdictRaw = String(formData.get("verdict") ?? "");
-  const verdict =
-    verdictRaw === "PASS" ? "PASS" : verdictRaw === "FAIL" ? "FAIL" : ("PENDING" as const);
+  const verdict = (
+    ["PASS", "FAIL", "ON_NOTICE"].includes(verdictRaw) ? verdictRaw : "PENDING"
+  ) as "PASS" | "FAIL" | "ON_NOTICE" | "PENDING";
 
   const result = await prisma.nonNegotiableResult.findUnique({
     where: { id: resultId },
-    include: { assessment: true, nonNegotiable: true },
+    // The cycle comes along so a notice can be checked against earlier seasons.
+    include: { assessment: { include: { cycle: true } }, nonNegotiable: true },
   });
   if (!result) return { status: "error", message: "That check no longer exists." };
 
@@ -816,13 +818,70 @@ export async function verifyNonNegotiable(
   }
 
   const adminNote = String(formData.get("adminNote") ?? "").trim() || null;
-  if (verdict === "FAIL" && !adminNote) {
-    // A failure costs the club its whole shield. It doesn't go on the record
-    // without a reason the club can read and act on.
-    return { status: "error", message: "A failed check needs a note explaining why." };
+  if ((verdict === "FAIL" || verdict === "ON_NOTICE") && !adminNote) {
+    // A failure costs the club its whole shield, and a notice is a warning the
+    // club has one season to act on. Neither goes on the record without a
+    // reason the club can read.
+    return {
+      status: "error",
+      message:
+        verdict === "ON_NOTICE"
+          ? "A notice needs a note saying what the club has to put right this season."
+          : "A failed check needs a note explaining why.",
+    };
   }
 
   const threshold = result.nonNegotiable.kind === "SHIELD_THRESHOLD";
+
+  // On Notice is FQ's verdict on the three Shield Threshold standards only. The
+  // six gates are documents that are either submitted or aren't, and there is
+  // nothing to put a club on notice about.
+  if (verdict === "ON_NOTICE" && !threshold) {
+    return {
+      status: "error",
+      message: "On notice only applies to the Shield Threshold standards, not to a gate check.",
+    };
+  }
+
+  if (verdict === "ON_NOTICE") {
+    // FQ allows one notice a year. A second is repeated non-compliance, and
+    // checkEligibility would refuse both — better to refuse the second here,
+    // where the Unit can still choose which one it means.
+    const others = await prisma.nonNegotiableResult.count({
+      where: {
+        assessmentId: result.assessmentId,
+        verdict: "ON_NOTICE",
+        id: { not: resultId },
+      },
+    });
+    if (others > 0) {
+      return {
+        status: "error",
+        message:
+          "This club is already on notice for another standard, and FQ allows one a year. " +
+          "Resolve that one first, or record this as met or not met.",
+      };
+    }
+
+    const lastSeason = await prisma.nonNegotiableResult.findFirst({
+      where: {
+        verdict: "ON_NOTICE",
+        nonNegotiableId: result.nonNegotiableId,
+        assessment: {
+          clubId: result.assessment.clubId,
+          cycle: { year: { lt: result.assessment.cycle.year } },
+        },
+      },
+    });
+    if (lastSeason) {
+      return {
+        status: "error",
+        message:
+          "This club was already on notice for this standard in a previous season. " +
+          "FQ allows that once — a second is repeated non-compliance, so it has to be recorded as not met.",
+      };
+    }
+  }
 
   // THRESHOLD_LEVELS rather than every shield: FQ sets its threshold standards
   // per shield, and Development Committed is a badge, not a shield — there is
@@ -830,13 +889,18 @@ export async function verifyNonNegotiable(
   const levelRaw = String(formData.get("shieldMet") ?? "");
   const shieldMet = THRESHOLD_LEVELS.find((s) => s === levelRaw) ?? null;
 
-  if (threshold && verdict === "PASS" && shieldMet === null) {
+  const keepsLevel = verdict === "PASS" || verdict === "ON_NOTICE";
+
+  if (threshold && keepsLevel && shieldMet === null) {
     // Passing a threshold check without saying which bar was met would leave
     // the cap open, and an open cap silently awards whatever the score earned —
     // the one outcome these checks exist to prevent.
     return {
       status: "error",
-      message: "Say which shield's standard the club met before recording this one as passed.",
+      message:
+        verdict === "ON_NOTICE"
+          ? "Say which shield's standard the notice lets the club keep."
+          : "Say which shield's standard the club met before recording this one as passed.",
     };
   }
 
@@ -846,7 +910,7 @@ export async function verifyNonNegotiable(
   // indistinguishable from arithmetic. This is the same bargain the reconcile
   // screen strikes when the CDU departs from the assessors' median.
   const derived = result.shieldMetDerived;
-  const departing = threshold && verdict === "PASS" && derived !== null && shieldMet !== derived;
+  const departing = threshold && keepsLevel && derived !== null && shieldMet !== derived;
   const overrideReason = String(formData.get("overrideReason") ?? "").trim() || null;
 
   if (departing && !overrideReason) {
@@ -863,7 +927,7 @@ export async function verifyNonNegotiable(
       adminNote,
       // A gate check has no level, and a level left behind on a check that has
       // been reset to unverified would go on capping the shield invisibly.
-      shieldMet: threshold && verdict === "PASS" ? shieldMet : null,
+      shieldMet: threshold && keepsLevel ? shieldMet : null,
       overrideReason: departing ? overrideReason : null,
       verifiedById: verdict === "PENDING" ? null : cdu.id,
       verifiedAt: verdict === "PENDING" ? null : new Date(),
@@ -871,7 +935,10 @@ export async function verifyNonNegotiable(
   });
 
   revalidatePath(`/cda/cdu/assessments/${result.assessmentId}`, "layout");
-  return { status: "ok", message: `${result.nonNegotiable.code} marked ${verdict.toLowerCase()}.` };
+  return {
+    status: "ok",
+    message: `${result.nonNegotiable.code} marked ${verdict.toLowerCase().replace("_", " ")}.`,
+  };
 }
 
 /* -------------------------------------------------------------------------- */

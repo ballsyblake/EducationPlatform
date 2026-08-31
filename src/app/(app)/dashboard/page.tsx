@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { TaskList } from "@/components/task-list";
 import { EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
+import { formatHours, makeUpBalance } from "@/lib/attendance";
 import { isAdmin, requireUser } from "@/lib/auth";
 import { getGradingQueueCounts, getTasksForCoach, summarizeTasks } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
+import { getSupportCasesForCoach, getSupportQueueCount } from "@/lib/support";
+import { stageOf } from "@/lib/support-rubric";
 
 export const metadata = { title: "Dashboard" };
 
@@ -12,6 +15,24 @@ export default async function DashboardPage() {
   const tasks = await getTasksForCoach(user.id);
   const summary = summarizeTasks(tasks);
   const queue = isAdmin(user) ? await getGradingQueueCounts() : null;
+  const supportQueue = isAdmin(user) ? await getSupportQueueCount() : 0;
+
+  // A coach's open support case outranks everything else on this page: it has a
+  // date attached and it is the one thing here they can fall behind on without
+  // an overdue badge telling them.
+  const supportCases = await getSupportCasesForCoach(user.id);
+  const openCase = supportCases.find((c) => c.status === "IN_PROGRESS") ?? null;
+
+  // Hours owed, for the same reason: a coach who missed a day usually finds out
+  // it still counts against them months later, when somebody goes to sign off
+  // their qualification.
+  const owed = isAdmin(user)
+    ? []
+    : await prisma.attendanceMakeUp.findMany({
+        where: { status: { in: ["OWED", "ARRANGED"] }, enrollment: { userId: user.id } },
+        include: { enrollment: { select: { courseId: true, course: { select: { title: true } } } } },
+      });
+  const owedMinutes = owed.reduce((sum, m) => sum + makeUpBalance(m), 0);
 
   const upNext = tasks
     .filter((t) => t.state === "not_started" || t.state === "in_progress")
@@ -39,6 +60,61 @@ export default async function DashboardPage() {
             : "You're all caught up."
         }
       />
+
+      {openCase && (
+        <Link
+          href={`/support/${openCase.id}`}
+          className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-maroon-300 bg-maroon-50 px-5 py-4 transition-colors hover:bg-maroon-100"
+        >
+          <div>
+            <p className="font-semibold text-maroon-800">
+              Post-course support · {openCase.course.title}
+            </p>
+            <p className="text-sm text-maroon-700">{stageOf(openCase).next}</p>
+          </div>
+          <span className="text-sm font-semibold whitespace-nowrap text-maroon-800">Open →</span>
+        </Link>
+      )}
+
+      {owedMinutes > 0 && (
+        <Link
+          href={`/courses/${owed[0].enrollment.courseId}`}
+          className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-highlight-orange/40 bg-status-orange-bg px-5 py-4 transition-colors"
+        >
+          <div>
+            <p className="font-semibold text-status-orange-fg">
+              {formatHours(owedMinutes)} to make up
+            </p>
+            <p className="text-sm text-status-orange-fg">
+              Time missed on {owed[0].enrollment.course.title}
+              {owed.length > 1 && ` and ${owed.length - 1} other`}. Your educator can tell you
+              where to sit it.
+            </p>
+          </div>
+          <span className="text-sm font-semibold whitespace-nowrap text-status-orange-fg">
+            See your register →
+          </span>
+        </Link>
+      )}
+
+      {supportQueue > 0 && (
+        <Link
+          href="/admin/support"
+          className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-maroon-300 bg-maroon-50 px-5 py-4 transition-colors hover:bg-maroon-100"
+        >
+          <div>
+            <p className="font-semibold text-maroon-800">
+              {supportQueue} session deliver{supportQueue === 1 ? "y" : "ies"} to assess
+            </p>
+            <p className="text-sm text-maroon-700">
+              Film that has come in, and observations still to be written up.
+            </p>
+          </div>
+          <span className="text-sm font-semibold whitespace-nowrap text-maroon-800">
+            Open support →
+          </span>
+        </Link>
+      )}
 
       {queue && queue.total > 0 && (
         <Link

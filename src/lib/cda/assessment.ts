@@ -18,6 +18,7 @@ import {
   scoreStarDomain,
   scoreTechnicalDomain,
   shieldFor,
+  tierOf,
   type AreaResult,
   type AssessorStar,
   type CriterionAgreement,
@@ -163,6 +164,26 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
       ? await prisma.tier.findUnique({ where: { id: assessment.tierId } })
       : null) ?? (await prisma.tier.findFirst({ orderBy: { position: "asc" } }));
   const tierId = tier?.id ?? null;
+  const assessmentTier = tierOf(tier?.code);
+
+  // Which threshold checks this club was already on notice for last season.
+  // FQ allows a notice to stand once; the same check twice running is repeated
+  // non-compliance, and checkEligibility reads it as a failure. Looked up here
+  // because the scoring module is pure and has no history to consult.
+  const onNoticeLastCycle = new Set(
+    (
+      await prisma.nonNegotiableResult.findMany({
+        where: {
+          verdict: "ON_NOTICE",
+          assessment: {
+            clubId: assessment.clubId,
+            cycle: { year: assessment.cycle.year - 1 },
+          },
+        },
+        select: { nonNegotiable: { select: { code: true } } },
+      })
+    ).map((r) => r.nonNegotiable.code),
+  );
 
   const criteria = await prisma.criterion.findMany({
     where: {
@@ -285,6 +306,7 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     verdict: r.verdict,
     kind: r.nonNegotiable.kind,
     shieldMet: r.shieldMet,
+    onNoticeLastCycle: onNoticeLastCycle.has(r.nonNegotiable.code),
   }));
 
   const live = computeRating(
@@ -297,6 +319,7 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     assessment.cycle,
     nonNegotiables,
     assessment.licenceCompliant,
+    assessmentTier,
   );
 
   // Once locked, the stored numbers are the answer. Recomputing would let a
@@ -312,7 +335,7 @@ export async function loadAssessment(id: string): Promise<AssessmentOverview> {
     // than stored: the thresholds belong to this assessment's own cycle, so
     // this is the same arithmetic that ran at lock, and it is what lets the
     // report still explain a cap months after publication.
-    const provisional = shieldFor(assessment.finalPercent!, assessment.cycle);
+    const provisional = shieldFor(assessment.finalPercent!, assessment.cycle, assessmentTier);
 
     return {
       ...live,

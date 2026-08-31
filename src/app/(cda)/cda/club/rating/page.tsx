@@ -68,14 +68,21 @@ export default async function ClubRatingPage() {
     orderBy: { cycle: { year: "desc" } },
   });
 
-  const failed = assessment.nonNegotiables.filter(
-    (n) => n.verdict === "FAIL" && n.nonNegotiable.kind !== "SHIELD_THRESHOLD",
-  );
-
   // The macro-area grades and the Unit's paragraph on each — the part of the
   // report a club can actually act on. A domain percentage says Delivery was
   // 63%; this says match day was the problem and training wasn't.
   const overview = await loadAssessment(assessment.id);
+
+  // Everything holding the shield back, in the club's own words: a failed gate,
+  // and a notice FQ's limits refused. A refused notice reads as a failure, and
+  // a club told it has no shield with nothing listed underneath has been given
+  // a verdict without a reason.
+  const blocking = new Set(
+    [...overview.rating.eligibility.failed, ...overview.rating.eligibility.noticesRefused].map(
+      (n) => n.code,
+    ),
+  );
+  const failed = assessment.nonNegotiables.filter((n) => blocking.has(n.nonNegotiable.code));
 
   const review = await prisma.reviewRequest.findUnique({
     where: { assessmentId: assessment.id },

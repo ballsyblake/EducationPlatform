@@ -49,7 +49,21 @@ function safeName(name: string) {
   return base.replace(/[^\w.\- ]+/g, "_").slice(0, 180) || "upload";
 }
 
-export async function storeUpload(file: File, opts: { submissionId?: string } = {}) {
+/**
+ * The ceiling for a coach's photo.
+ *
+ * The browser downscales before uploading, so anything arriving near this is a
+ * client that didn't — a scripted post, or an old browser without canvas. The
+ * limit is what a 512px JPEG can plausibly weigh with room to spare, not what
+ * a phone camera produces, because a register showing twenty-five of these
+ * pulls every one of them on every load.
+ */
+export const MAX_PHOTO_BYTES = 400 * 1024;
+
+export async function storeUpload(
+  file: File,
+  opts: { submissionId?: string; supportAttemptId?: string } = {},
+) {
   assertAllowed(file);
 
   const bytes = Buffer.from(await file.arrayBuffer());
@@ -68,6 +82,7 @@ export async function storeUpload(file: File, opts: { submissionId?: string } = 
       size: bytes.byteLength,
       data: bytes,
       submissionId: opts.submissionId,
+      supportAttemptId: opts.supportAttemptId,
     },
   });
 }

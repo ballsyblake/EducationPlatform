@@ -4,7 +4,11 @@ import { useActionState, useState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, EmptyState, FormError, FormSuccess } from "@/components/ui";
 import { DOMAIN_LABELS } from "@/lib/cda/rubric";
-import { REVIEWABLE_DOMAINS, REVIEW_MAX_ITEMS, REVIEW_QUOTAS, checkQuota } from "@/lib/cda/review";
+import {
+  REVIEWABLE_DOMAINS,
+  checkQuota,
+  type ReviewAllowance,
+} from "@/lib/cda/review";
 import { formatDate } from "@/lib/format";
 import { submitReviewRequest, type ClubFormState } from "../actions";
 import type { Domain } from "@prisma-client";
@@ -34,17 +38,24 @@ export function RequestForm({
   canRequest,
   deadline,
   daysLeft,
+  allowance,
 }: {
   candidates: ReviewCandidate[];
   canRequest: boolean;
   deadline: Date | null;
   daysLeft: number | null;
+  allowance: ReviewAllowance;
 }) {
   const [state, formAction] = useActionState(submitReviewRequest, initialState);
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [technical, setTechnical] = useState("");
 
   const chosen = candidates.filter((c) => (comments[c.criterionId] ?? "").trim().length > 0);
-  const quota = checkQuota(chosen.map((c) => c.domain));
+  const wantsTechnical = technical.trim().length > 0;
+  const quota = checkQuota(
+    { domains: chosen.map((c) => c.domain), technical: wantsTechnical },
+    allowance,
+  );
 
   if (!canRequest) {
     return (
@@ -70,8 +81,8 @@ export function RequestForm({
           <div>
             <p className="section-title">Selected</p>
             <p className="mt-1 text-2xl font-bold tabular-nums text-ink-900">
-              {chosen.length}
-              <span className="text-base font-normal text-ink-500"> / {REVIEW_MAX_ITEMS}</span>
+              {quota.total}
+              <span className="text-base font-normal text-ink-500"> / {allowance.maxItems}</span>
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -79,12 +90,34 @@ export function RequestForm({
               const left = quota.remaining[d] ?? 0;
               return (
                 <Badge key={d} tone={left < 0 ? "bad" : left === 0 ? "warn" : "muted"}>
-                  {DOMAIN_LABELS[d]}: {Math.max(left, 0)} of {REVIEW_QUOTAS[d]} left
+                  {DOMAIN_LABELS[d]}: {Math.max(left, 0)} of {allowance.quotas[d]} left
                 </Badge>
               );
             })}
           </div>
         </div>
+
+        {allowance.technical && (
+          <div className="mt-4 border-t border-ink-200 pt-3">
+            <label className="label" htmlFor="technicalComment">
+              Technical Staff Qualifications score
+            </label>
+            <textarea
+              id="technicalComment"
+              name="technicalComment"
+              rows={3}
+              value={technical}
+              onChange={(e) => setTechnical(e.target.value)}
+              placeholder="Say which qualification you believe was read wrongly, and where the evidence sits on the Club Hub. Leave blank if you're not putting this up."
+              className="input text-sm"
+            />
+            <p className="hint">
+              One review of this score is allowed, and it counts towards your total. The score is
+              computed from your staff register, so what the Unit re-reads is how a qualification
+              was recognised.
+            </p>
+          </div>
+        )}
 
         {deadline && (
           <p className="mt-3 text-xs text-ink-500">

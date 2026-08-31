@@ -22,7 +22,7 @@ export type DeclarationData = {
   shieldMet: Shield | null;
   declared: boolean | null;
   note: string;
-  verdict: "PENDING" | "PASS" | "FAIL";
+  verdict: "PENDING" | "PASS" | "FAIL" | "ON_NOTICE";
   adminNote: string | null;
   evidence: { id: string; filename: string }[];
 };
@@ -53,12 +53,13 @@ export function Declaration({ item, editable }: { item: DeclarationData; editabl
             {item.verdict === "FAIL" && (
               <Badge tone="bad">{threshold ? "No standard met" : "Verified — fail"}</Badge>
             )}
+            {item.verdict === "ON_NOTICE" && <Badge tone="warn">On notice</Badge>}
             {item.verdict === "PENDING" && declared !== "" && (
               <Badge tone="muted">Awaiting FQ verification</Badge>
             )}
             {declared === "" && <Badge tone="warn">Not answered</Badge>}
             {threshold &&
-              item.verdict === "PASS" &&
+              (item.verdict === "PASS" || item.verdict === "ON_NOTICE") &&
               (item.shieldMet && item.shieldMet !== "NONE" ? (
                 <ShieldBadge shield={item.shieldMet} size="sm" />
               ) : (
@@ -66,6 +67,13 @@ export function Declaration({ item, editable }: { item: DeclarationData; editabl
               ))}
           </div>
           <h3 className="mt-1 font-semibold text-ink-900">{item.title}</h3>
+          {item.verdict === "ON_NOTICE" && (
+            <p className="mt-2 rounded-lg bg-status-orange-bg px-3 py-2 text-xs text-status-orange-fg">
+              You keep this standard for this season, and have until the next assessment to meet
+              it. Football Queensland allows one notice a year, and not on the same standard twice
+              — next season this has to be met.
+            </p>
+          )}
           <p className="mt-1 text-sm text-ink-600">{item.description}</p>
           {item.evidenceHint && (
             <p className="mt-2 text-xs text-ink-500">

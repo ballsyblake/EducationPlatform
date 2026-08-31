@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { EmptyState, PageHeader, StatTile } from "@/components/ui";
+import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { getTasksForCoach, summarizeTasks } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
 import { band, percentage } from "@/lib/grading";
+import { courseResultsFor, getSupportCasesForCoach } from "@/lib/support";
+import { VERDICT_LABEL } from "@/lib/support-rubric";
 
 export const metadata = { title: "Grades & Feedback" };
 
@@ -12,6 +14,13 @@ export default async function GradesPage() {
   const user = await requireUser();
   const tasks = await getTasksForCoach(user.id);
   const summary = summarizeTasks(tasks);
+
+  const [courseResults, supportCases] = await Promise.all([
+    courseResultsFor(user.id),
+    getSupportCasesForCoach(user.id),
+  ]);
+
+  const caseByCourse = new Map(supportCases.map((c) => [c.courseId, c]));
 
   const [submissions, attempts] = await Promise.all([
     prisma.submission.findMany({
@@ -94,6 +103,55 @@ export default async function GradesPage() {
           tone={summary.outstanding ? "warn" : "good"}
         />
       </div>
+
+      {courseResults.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-lg font-semibold text-ink-900">Where each course stands</h2>
+          <div className="card divide-y divide-ink-200">
+            {courseResults.map((result) => {
+              const verdict = VERDICT_LABEL[result.verdict];
+              const supportCase = caseByCourse.get(result.courseId);
+              return (
+                <div
+                  key={result.courseId}
+                  className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-ink-900">{result.courseTitle}</p>
+                    <p className="mt-0.5 text-xs text-ink-500">
+                      {result.band
+                        ? result.band.faRating
+                        : "Not rated yet"}
+                      {result.threshold !== null && ` · pass mark ${result.threshold}`}
+                    </p>
+                    {supportCase && (
+                      <Link
+                        href={`/support/${supportCase.id}`}
+                        className="mt-1 inline-block text-xs font-medium text-maroon-700 hover:underline"
+                      >
+                        {supportCase.status === "SUCCESSFUL"
+                          ? "Passed through post-course support →"
+                          : "Post-course support →"}
+                      </Link>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge tone={supportCase?.status === "SUCCESSFUL" ? "good" : verdict.tone}>
+                      {supportCase?.status === "SUCCESSFUL" ? "Passed on delivery" : verdict.label}
+                    </Badge>
+                    <p className="text-lg font-bold text-ink-900">
+                      {result.rating === null ? "—" : result.rating.toFixed(1)}
+                      {result.rating !== null && (
+                        <span className="text-sm font-normal text-ink-500"> / 5</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {entries.length ? (
         <div className="space-y-3">

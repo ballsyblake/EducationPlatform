@@ -3,6 +3,7 @@ import { Badge, PageHeader, StatTile } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { getGradingQueueCounts } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
+import { getSupportQueueCount } from "@/lib/support";
 import { CreateCourseForm } from "./create-course-form";
 
 export const metadata = { title: "Manage" };
@@ -10,7 +11,7 @@ export const metadata = { title: "Manage" };
 export default async function AdminPage() {
   await requireAdmin();
 
-  const [courses, queue, coachCount] = await Promise.all([
+  const [courses, queue, coachCount, supportQueue, openCases] = await Promise.all([
     prisma.course.findMany({
       orderBy: [{ published: "desc" }, { createdAt: "desc" }],
       include: {
@@ -19,6 +20,8 @@ export default async function AdminPage() {
     }),
     getGradingQueueCounts(),
     prisma.user.count({ where: { role: "COACH", active: true } }),
+    getSupportQueueCount(),
+    prisma.supportCase.count({ where: { status: "IN_PROGRESS" } }),
   ]);
 
   return (
@@ -28,7 +31,7 @@ export default async function AdminPage() {
         subtitle="Courses, coursework, and the staff who see them."
       />
 
-      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-5">
         <StatTile label="Courses" value={courses.length} />
         <StatTile label="Active coaches" value={coachCount} />
         <StatTile
@@ -41,6 +44,16 @@ export default async function AdminPage() {
           label="Published"
           value={courses.filter((c) => c.published).length}
           hint="Visible to coaches"
+        />
+        <StatTile
+          label="In support"
+          value={openCases}
+          tone={supportQueue ? "warn" : "muted"}
+          hint={
+            supportQueue
+              ? `${supportQueue} deliver${supportQueue === 1 ? "y" : "ies"} to assess`
+              : "Open post-course cases"
+          }
         />
       </div>
 
