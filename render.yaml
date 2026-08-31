@@ -69,6 +69,25 @@ services:
       - key: FQ_IMPORT_2026
         sync: false
 
+      # Set to "1" to load the 2026 B Diploma registers on the next boot: three
+      # courses, 27 delivery days, 87 coaches with their attendance in hours,
+      # 11 course staff and 90 assessed practical deliveries, from the three
+      # register workbooks FQ supplied.
+      #
+      # Same shape as FQ_IMPORT_2026 and for the same reason — no shell on the
+      # free plan. Add it, save (which redeploys), watch the logs for
+      # "[courses] imported in Ns", then remove it.
+      #
+      # Safe to leave set by accident: it records that it ran and skips itself
+      # afterwards. Set it to "force" to re-run over a previous import after an
+      # importer fix — every write is an upsert, and a re-run does not disturb
+      # transfers, enrolment windows or make-ups recorded by an educator since.
+      #
+      # It opens no support cases and mails nobody: the accounts it creates have
+      # no password and no sign-in token.
+      - key: B_DIPLOMA_IMPORT_2026
+        sync: false
+
 # Deliberately not listed here, so Render only prompts for what's required:
 #
 #   APP_URL   Only needed for a custom domain. Otherwise the app falls back to

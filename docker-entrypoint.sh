@@ -59,5 +59,12 @@ if [ -n "${FQ_IMPORT_2026}" ]; then
   ./node_modules/.bin/tsx scripts/import-season.ts &
 fi
 
+# The B Diploma registers, when B_DIPLOMA_IMPORT_2026 is set. Same shape and
+# same reason: real people's assessment history, loaded on purpose, beside the
+# server rather than in front of it.
+if [ -n "${B_DIPLOMA_IMPORT_2026}" ]; then
+  ./node_modules/.bin/tsx scripts/import-courses.ts &
+fi
+
 echo "[boot] starting server on port ${PORT:-3000}"
 exec ./node_modules/.bin/next start --port "${PORT:-3000}" --hostname 0.0.0.0
