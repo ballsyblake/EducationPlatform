@@ -171,32 +171,6 @@ export async function deleteDelivery(
 }
 
 /**
- * The register's own Comments column: what the course makes of the coach, in
- * one place, separate from any one session they delivered.
- */
-export async function saveCoachComment(
-  _prev: DeliveryState,
-  formData: FormData,
-): Promise<DeliveryState> {
-  const actor = await requireStaff();
-
-  const enrollment = await prisma.enrollment.findUnique({
-    where: { id: text(formData, "enrollmentId") },
-    select: { id: true, courseId: true },
-  });
-  if (!enrollment) return { status: "error", message: "That coach isn't on this course." };
-  await assertCourseStaff(actor, enrollment.courseId);
-
-  await prisma.enrollment.update({
-    where: { id: enrollment.id },
-    data: { registerComments: text(formData, "comments") || null },
-  });
-
-  revalidateFor(enrollment.courseId);
-  return { status: "ok", message: "Comment saved." };
-}
-
-/**
  * Everywhere a write-up shows up: the assessor's page, the register it feeds,
  * the coach's own course page, and the staff lists that count deliveries.
  */

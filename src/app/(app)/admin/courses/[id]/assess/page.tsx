@@ -6,6 +6,7 @@ import { isAdmin, requireStaff } from "@/lib/auth";
 import { dayMinutes, formatHours, summariseAttendance, withinWindow } from "@/lib/attendance";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate } from "@/lib/format";
+import { DEFAULT_RATING_THRESHOLD } from "@/lib/support-rubric";
 import {
   CoachPanel,
   DayAttendance,
@@ -116,6 +117,8 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
       catchUp: e.track === "CATCH_UP",
       hours: formatHours(summary.effectiveMinutes),
       hoursOf: formatHours(summary.requiredMinutes),
+      rating: e.rating,
+      outcome: e.outcome,
       comments: e.registerComments,
       deliveries: e.deliveries.map((d) => ({
         id: d.id,
@@ -136,7 +139,9 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
   const me = displayName(user);
   const assessors = [...new Set([me, ...course.staff.map((s) => s.name)])];
 
+  const threshold = course.ratingThreshold ?? DEFAULT_RATING_THRESHOLD;
   const written = coaches.reduce((sum, c) => sum + c.deliveries.length, 0);
+  const rated = coaches.filter((c) => c.rating !== null).length;
 
   return (
     <>
@@ -152,7 +157,7 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
             </span>
             <span>
               · {roster.length} coach{roster.length === 1 ? "" : "es"} · {written} deliver
-              {written === 1 ? "y" : "ies"} written up
+              {written === 1 ? "y" : "ies"} written up · {rated} rated
             </span>
           </span>
         }
@@ -188,7 +193,9 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
         <p className="mb-3 text-sm text-ink-500">
           Open a coach to write up a delivery you watched, or to leave a general comment about how
           they are going. The write-up is theirs to read on their own course page; the comment
-          stays on the register, with the course team.
+          stays on the register, with the course team. Their course rating — the judgement across
+          everything they delivered — is set in the same place at the end of the course, and moves
+          the outcome with it.
         </p>
         {coaches.length === 0 ? (
           <EmptyState
@@ -203,6 +210,7 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
                 coach={coach}
                 assessors={assessors}
                 defaultAssessor={me}
+                threshold={threshold}
               />
             ))}
           </div>

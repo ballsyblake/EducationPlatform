@@ -45,7 +45,7 @@ for the accounts that are in both.
 - A photo of each coach, taken on the phone from the register, so whoever assesses their delivery in Block 3 knows who is who
 - A coaches list: every coach and where they stand on each course — hours, rating, outcome — filterable by course and outcome, searchable by name or club
 - The attendance register: nine delivery days, the roster, catch-ups, the CET team, and the results block — one screen per course
-- An assessor's course page: take the roll for one day, write up a coach's delivery on the register's own form, and leave a general comment — the three things done on the grass, and nothing else
+- An assessor's course page: take the roll for one day, write up a coach's delivery on the register's own form, leave a general comment, and rate them at the end of the course — what is done on the grass, and nothing else
 - An hours desk: who is short, what they owe, and where it is being made up — across every course at once
 - A post-course support desk: who was rated below the pass mark, who is booked in, whose film is waiting to be reviewed
 - A staff progress dashboard — completion, overdue counts, and averages per coach, filterable by course
@@ -170,13 +170,21 @@ on from Manage, and the only one they need on the day:
   The rating is optional, because better than half the write-ups on the 2026
   registers carry feedback and no session mark — and a coach's course rating is
   a judgement across everything they delivered, never an average of it.
-- **Say how the coach is going.** One general comment per coach, which is the
-  register's Comments column. It stays with the course team; the delivery
-  write-up is the part the coach reads.
+- **Say how the coach is going, and rate them at the end.** One card per coach
+  carrying the register's Comments column and, once the course is over, the
+  course rating — the judgement across everything they delivered, never an
+  average of their sessions. The outcome is not asked for: it follows the
+  rating, passed at or above the course's mark and post-course support below
+  it, and an enrolment already withdrawn or transferred keeps the outcome it
+  has. The comment stays with the course team; the delivery write-up is the
+  part the coach reads.
 
 Everything else a course carries — moves and part intakes, the hours ledger, the
-results block, the course settings — is the program's paperwork rather than the
-assessor's, and stays on the register, one link away.
+rest of the results block, the course settings — is the program's paperwork
+rather than the assessor's, and stays on the register, one link away. The
+register's own results table still sets attendance met, the journal and
+readiness, and still rates a whole course on one screen; the assessor's page
+rates one coach where their write-ups already are.
 
 ### Seeing across the registers
 

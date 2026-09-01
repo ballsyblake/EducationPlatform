@@ -139,6 +139,79 @@ export async function saveStaffAttendance(
 }
 
 /**
+ * The result block for one coach: the course rating, and the register's own
+ * comment about them.
+ *
+ * The same two decisions the whole-course table below makes, on the page an
+ * assessor already has open — because the rating is settled at the end of the
+ * course, one coach at a time, by the person who watched them, and asking them
+ * to move to a twenty-five-row spreadsheet to record it is asking them to do it
+ * later.
+ *
+ * The outcome follows the rating rather than being asked for: the rubric says a
+ * coach at or above the pass mark has passed and one below it goes to
+ * post-course support, and there is no third answer for this form to offer.
+ * Withdrawn and transferred are left alone — leaving a course is not a
+ * judgement about a delivery, and neither is moving to another intake.
+ */
+export async function saveCoachResult(
+  _prev: RegisterState,
+  formData: FormData,
+): Promise<RegisterState> {
+  const actor = await requireStaff();
+
+  const enrollment = await prisma.enrollment.findUnique({
+    where: { id: text(formData, "enrollmentId") },
+    select: {
+      id: true,
+      courseId: true,
+      outcome: true,
+      course: { select: { ratingThreshold: true } },
+    },
+  });
+  if (!enrollment) return { status: "error", message: "That coach isn't on this course." };
+  await assertCourseStaff(actor, enrollment.courseId);
+
+  const rawRating = text(formData, "rating");
+  let rating: number | null = null;
+  if (rawRating) {
+    const parsed = Number(rawRating);
+    if (!MARKS.has(parsed)) {
+      return { status: "error", message: "Ratings run from 1 to 5 in half steps." };
+    }
+    rating = parsed;
+  }
+
+  const threshold = enrollment.course.ratingThreshold ?? DEFAULT_RATING_THRESHOLD;
+  const settled = enrollment.outcome === "WITHDRAWN" || enrollment.outcome === "TRANSFERRED";
+  const outcome: CourseOutcome = settled
+    ? enrollment.outcome
+    : rating === null
+      ? "IN_PROGRESS"
+      : rating >= threshold
+        ? "PASSED"
+        : "POST_COURSE_SUPPORT";
+
+  await prisma.enrollment.update({
+    where: { id: enrollment.id },
+    data: {
+      rating,
+      outcome,
+      registerComments: text(formData, "comments") || null,
+    },
+  });
+
+  revalidatePath(`/admin/courses/${enrollment.courseId}/assess`);
+  revalidatePath(`/admin/courses/${enrollment.courseId}/register`);
+  revalidatePath("/admin/support");
+  revalidatePath("/admin/progress");
+  revalidatePath("/admin/coaches");
+  revalidatePath("/grades");
+  revalidatePath(`/courses/${enrollment.courseId}`);
+  return { status: "ok", message: "Saved." };
+}
+
+/**
  * Saves the register's result block — the rating, the outcome and the notes
  * beside them — for every coach on a course at once.
  *

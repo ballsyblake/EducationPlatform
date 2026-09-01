@@ -5,14 +5,13 @@ import { Avatar } from "@/components/avatar";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, FormError, FormSuccess } from "@/components/ui";
 import { formatHours } from "@/lib/attendance";
-import { bandFor, RATING_SCALE } from "@/lib/support-rubric";
+import { bandFor, RATING_SCALE, VERDICT_LABEL } from "@/lib/support-rubric";
+import { deleteDelivery, saveDelivery, type DeliveryState } from "../../../actions/deliveries";
 import {
-  deleteDelivery,
-  saveCoachComment,
-  saveDelivery,
-  type DeliveryState,
-} from "../../../actions/deliveries";
-import { saveAttendance, type RegisterState } from "../../../actions/register";
+  saveAttendance,
+  saveCoachResult,
+  type RegisterState,
+} from "../../../actions/register";
 
 const idleRegister: RegisterState = { status: "idle" };
 const idleDelivery: DeliveryState = { status: "idle" };
@@ -340,6 +339,9 @@ export type CoachEntry = {
   /// Hours sat, and the hours the course has run for them so far.
   hours: string;
   hoursOf: string;
+  /// The course rating, settled at the end of the course. Null until then.
+  rating: number | null;
+  outcome: string;
   comments: string | null;
   deliveries: DeliveryEntry[];
 };
@@ -357,13 +359,19 @@ export function CoachPanel({
   coach,
   assessors,
   defaultAssessor,
+  threshold,
 }: {
   coach: CoachEntry;
   assessors: string[];
   defaultAssessor: string;
+  threshold: number;
 }) {
+  // The course rating if there is one, and the last session mark until there
+  // is. One badge either way: two ratings on one line, a whole course apart in
+  // what they mean, is a line nobody can read at a glance.
   const latest = coach.deliveries.filter((d) => d.rating !== null).at(-1);
-  const band = bandFor(latest?.rating);
+  const rating = coach.rating ?? latest?.rating ?? null;
+  const band = bandFor(rating);
 
   return (
     <details className="group">
@@ -376,13 +384,19 @@ export function CoachPanel({
           </span>
           <span className="block truncate text-xs text-ink-500">
             {coach.subtitle ? `${coach.subtitle} · ` : ""}
-            {coach.hours} of {coach.hoursOf}
+            {/* A catch-up has no requirement of its own, and neither has a
+                course nobody has taken the roll on yet: "16 h of 0" is not a
+                shortfall, it is a denominator that doesn't exist. */}
+            {coach.hoursOf === "0" ? `${coach.hours} sat` : `${coach.hours} of ${coach.hoursOf}`}
             {coach.comments ? " · commented on" : ""}
           </span>
         </span>
         <span className="flex items-center gap-2">
-          {latest?.rating != null && (
-            <Badge tone={band?.tone ?? "muted"}>{latest.rating.toFixed(1)}</Badge>
+          {rating !== null && (
+            <Badge tone={band?.tone ?? "muted"}>
+              {rating.toFixed(1)}
+              {coach.rating === null && <span className="font-normal"> · session</span>}
+            </Badge>
           )}
           <Badge tone={coach.deliveries.length ? "ok" : "muted"}>
             {coach.deliveries.length} deliver{coach.deliveries.length === 1 ? "y" : "ies"}
@@ -413,7 +427,7 @@ export function CoachPanel({
           />
         </div>
 
-        <CommentForm coach={coach} />
+        <CoachResultForm coach={coach} threshold={threshold} />
       </div>
     </details>
   );
@@ -654,13 +668,65 @@ function DeliveryForm({
   );
 }
 
-/** The register's Comments column — the course's word on the coach. */
-function CommentForm({ coach }: { coach: CoachEntry }) {
-  const [state, formAction] = useActionState(saveCoachComment, idleDelivery);
+/**
+ * The course's word on the coach: the comment, written whenever there is
+ * something to say, and the rating, settled at the end.
+ *
+ * One card and one save for both, because they are the same column of the same
+ * register and an assessor closing a course writes them in the same breath. The
+ * outcome is not asked for — it follows the rating, and the form says which one
+ * it is about to record before anything is saved.
+ */
+function CoachResultForm({ coach, threshold }: { coach: CoachEntry; threshold: number }) {
+  const [state, formAction] = useActionState(saveCoachResult, idleRegister);
+  const [rating, setRating] = useState<string>(coach.rating?.toString() ?? "");
+
+  const value = rating ? Number(rating) : null;
+  const band = bandFor(value);
+  // Withdrawn and transferred are somebody's decision about the enrolment, not
+  // a judgement about a delivery, so the rating leaves them where they are.
+  const settled = coach.outcome === "WITHDRAWN" || coach.outcome === "TRANSFERRED";
+  const verdict = settled
+    ? { label: coach.outcome === "WITHDRAWN" ? "Withdrawn" : "Transferred", tone: "muted" as const }
+    : value === null
+      ? VERDICT_LABEL.in_progress
+      : value >= threshold
+        ? VERDICT_LABEL.passed
+        : VERDICT_LABEL.needs_support;
 
   return (
     <form action={formAction} className="card card-pad space-y-3">
       <input type="hidden" name="enrollmentId" value={coach.id} />
+
+      <div className="sm:w-1/2">
+        <label className="label" htmlFor={`course-rating-${coach.id}`}>
+          Course rating
+        </label>
+        <span className="flex items-center gap-2">
+          <select
+            id={`course-rating-${coach.id}`}
+            name="rating"
+            value={rating}
+            onChange={(e) => setRating(e.target.value)}
+            className="input"
+          >
+            <option value="">Not rated</option>
+            {RATING_SCALE.map((mark) => (
+              <option key={mark} value={mark}>
+                {mark.toFixed(1)}
+              </option>
+            ))}
+          </select>
+          <Badge tone={verdict.tone}>{verdict.label}</Badge>
+        </span>
+        <p className="hint">
+          {band
+            ? `${band.faRating}. ${band.definition}`
+            : `Set at the end of the course: a judgement across everything they delivered, not an
+               average of their sessions. Pass mark ${threshold}.`}
+        </p>
+      </div>
+
       <label className="block">
         <span className="label">General comment</span>
         <textarea
@@ -675,12 +741,19 @@ function CommentForm({ coach }: { coach: CoachEntry }) {
           their result.
         </p>
       </label>
+
       <div className="flex flex-wrap items-center gap-3">
         <SubmitButton className="btn-secondary btn-sm" pendingLabel="Saving…">
-          Save comment
+          Save rating &amp; comment
         </SubmitButton>
         <FormError message={state.status === "error" ? state.message : null} />
         <FormSuccess message={state.status === "ok" ? state.message : null} />
+        {!settled && value !== null && value < threshold && (
+          <p className="text-xs text-ink-500">
+            Below the pass mark — they show up as a candidate on the support desk, and referring
+            them is a decision somebody makes after the conversation.
+          </p>
+        )}
       </div>
     </form>
   );
