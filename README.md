@@ -68,6 +68,20 @@ Three roles on this side of the app, and the middle one is the point.
 | Add accounts, change roles, deactivate | | | ✓ |
 | The Club Development portal | | | only with the `cdu` grant |
 
+**The navigation shows only what an account can use.** Courses and Grades &
+Feedback need an enrolment — an admin who has never been enrolled has no courses
+and no grades of their own, and two tabs leading to an empty state are two tabs.
+The five course-scoped staff tabs need a seat on a course team; Manage stays
+regardless, because it is the one page that explains its own emptiness ("you
+aren't rostered onto a course yet") rather than leaving a new educator on a
+dashboard with no way forward. Support appears for a coach once they have a
+case, and Club Development on the `cdu` grant.
+
+The conditions are all stable properties of the account — enrolled, rostered, in
+the Unit — and never a count of outstanding work. A tab that vanished whenever
+its queue emptied would be worse than a quiet one: an educator would learn where
+Grading lives, come back on a clear morning, and find it gone.
+
 **An educator's courses** are the ones they are rostered onto as `CourseStaff` —
 the CET1–CET5 seats the registers already record. Everything they can reach is
 filtered to those courses: the grading queue, the support desk, the hours desk,
@@ -711,6 +725,19 @@ If you do set `APP_URL`, it has to be right before you invite anyone — it's th
 base of every sign-in link. Get it wrong and you can just fix it and redeploy: a
 fresh link is printed whenever an admin has no active session.
 
+**Locked out?** Set `ADMIN_LINK=1` and save. The next boot prints a fresh
+sign-in link for every `ADMIN_EMAILS` address, whatever the database thinks
+about their sessions. Remove it once you're in.
+
+A link is normally only printed for an admin with **no live session**, so that a
+working credential doesn't land in the deploy log every time the service
+restarts. The trap is that a session row lives for sixty idle days: an admin who
+cleared their cookies, changed browser or lost the laptop stays locked out for
+two months while every redeploy reports *"has an active session; no link
+needed"*. The check can only ask whether a session row exists; only you know
+whether you can actually get in. `ADMIN_LINK=reset` also ends those sessions,
+for when the device is gone rather than merely forgotten.
+
 **What "free" costs you.** Render free instances sleep after 15 minutes idle, so
 the first visit after a quiet spell takes 30–60 seconds to load. Subsequent
 requests are normal. Free instances also get 750 hours/month, which one service
@@ -754,6 +781,7 @@ runner refuses to start if an already-applied migration file has been edited.
 | `MAX_UPLOAD_MB` | –        | Per-file upload cap. Defaults to 10                                  |
 | `FQ_IMPORT_2026` | –       | Set to `1` to load the 2026 CDA season on the next boot; `force` re-runs |
 | `B_DIPLOMA_IMPORT_2026` | – | Set to `1` to load the 2026 B Diploma registers on the next boot; `force` re-runs |
+| `ADMIN_LINK`    | –        | Set to `1` to print a fresh admin sign-in link on the next boot; `reset` also ends their sessions |
 | `DATA_DIR`      | –        | Only for local SQLite. Disk mount point, defaults to `/data`          |
 
 Set `APP_URL` correctly before inviting anyone. It's the base of every sign-in

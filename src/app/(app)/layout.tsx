@@ -6,8 +6,20 @@ import { homePathFor, isAdmin, isCdu, isStaff, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, initials } from "@/lib/format";
 
-const COACH_LINKS: NavLink[] = [
-  { href: "/dashboard", label: "Dashboard" },
+/**
+ * The bar is built from what an account *is*, not from what happens to be in
+ * each page today.
+ *
+ * A tab that vanished whenever its queue emptied would be worse than a quiet
+ * one: an educator would learn where Grading lives, come back on a clear
+ * morning, and find it gone. So the conditions here are stable properties —
+ * enrolled on a course, rostered onto one, in the Unit — and never a count of
+ * outstanding work.
+ */
+const DASHBOARD: NavLink = { href: "/dashboard", label: "Dashboard" };
+
+/** Only for somebody who is actually on a course as a coach. */
+const ENROLLED_LINKS: NavLink[] = [
   { href: "/courses", label: "Courses" },
   { href: "/grades", label: "Grades & Feedback" },
 ];
@@ -15,15 +27,10 @@ const COACH_LINKS: NavLink[] = [
 const SUPPORT_LINK: NavLink = { href: "/support", label: "Support" };
 
 /**
- * What an educator runs: the courses they are rostered onto, and everything
- * that happens on them.
- *
- * Manage is on the list because for an educator it is a list of their own
- * courses with no create form — the way into a register, which is the page they
- * live on.
+ * Where staff work. Every one of these is scoped to the viewer's courses, so
+ * for an educator with no seat on any course they are six empty pages.
  */
-const EDUCATOR_LINKS: NavLink[] = [
-  { href: "/admin", label: "Manage" },
+const COURSE_LINKS: NavLink[] = [
   { href: "/admin/coaches", label: "Coaches" },
   { href: "/admin/grading", label: "Grading" },
   { href: "/admin/support", label: "Support" },
@@ -31,8 +38,16 @@ const EDUCATOR_LINKS: NavLink[] = [
   { href: "/admin/progress", label: "Progress" },
 ];
 
-/** Everything an educator has, plus the accounts. */
-const ADMIN_LINKS: NavLink[] = [...EDUCATOR_LINKS, { href: "/admin/people", label: "Staff" }];
+/**
+ * Manage, which every staff account keeps even with no courses.
+ *
+ * The one tab that explains itself when it is empty — "you aren't rostered onto
+ * a course yet" — so a new educator lands somewhere that tells them what is
+ * missing rather than on a Dashboard with no way forward.
+ */
+const MANAGE: NavLink = { href: "/admin", label: "Manage" };
+
+const STAFF_LINK: NavLink = { href: "/admin/people", label: "Staff" };
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
@@ -43,20 +58,34 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const home = homePathFor(user);
   if (home !== "/dashboard") redirect(home);
 
-  // A coach only gets a Support tab once they have a case. Most coaches never
-  // will, and a permanent tab labelled "Support" reads as an accusation to
-  // everyone who doesn't need it.
-  const hasSupport = isStaff(user)
-    ? false
-    : (await prisma.supportCase.count({ where: { userId: user.id } })) > 0;
+  const [enrolments, seats, cases] = await Promise.all([
+    // Matches what /courses actually lists, unpublished courses included in
+    // neither — otherwise the tab appears and the page is empty anyway.
+    prisma.enrollment.count({ where: { userId: user.id, course: { published: true } } }),
+    // A seat on a course team. Admins run every course and need no seat.
+    isAdmin(user)
+      ? Promise.resolve(1)
+      : isStaff(user)
+        ? prisma.courseStaff.count({ where: { userId: user.id } })
+        : Promise.resolve(0),
+    // A coach only gets a Support tab once they have a case. Most coaches never
+    // will, and a permanent tab labelled "Support" reads as an accusation to
+    // everyone who doesn't need it.
+    isStaff(user) ? Promise.resolve(0) : prisma.supportCase.count({ where: { userId: user.id } }),
+  ]);
 
-  const links = isAdmin(user)
-    ? [...COACH_LINKS, ...ADMIN_LINKS]
-    : isStaff(user)
-      ? [...COACH_LINKS, ...EDUCATOR_LINKS]
-      : hasSupport
-        ? [...COACH_LINKS, SUPPORT_LINK]
-        : COACH_LINKS;
+  const links = [
+    DASHBOARD,
+    // An admin who has never been enrolled has no courses of their own and no
+    // grades of their own, and two tabs that lead to an empty state are two
+    // tabs. They appear on their own the day the account is enrolled in
+    // something — an educator sitting their own diploma is not unusual.
+    ...(enrolments > 0 ? ENROLLED_LINKS : []),
+    ...(cases > 0 ? [SUPPORT_LINK] : []),
+    ...(isStaff(user) ? [MANAGE] : []),
+    ...(seats > 0 ? COURSE_LINKS : []),
+    ...(isAdmin(user) ? [STAFF_LINK] : []),
+  ];
 
   return (
     <div className="min-h-screen">
