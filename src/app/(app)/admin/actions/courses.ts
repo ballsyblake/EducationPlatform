@@ -102,6 +102,11 @@ export async function setEnrollment(formData: FormData) {
   const userId = String(formData.get("userId"));
   const enrolled = formData.get("enrolled") === "true";
 
+  // The add-a-coach picker starts on a disabled placeholder, and a form
+  // submitted before anybody is chosen posts an empty id. Nothing to do rather
+  // than a foreign-key error.
+  if (!userId) return;
+
   if (enrolled) {
     await prisma.enrollment.upsert({
       where: { userId_courseId: { userId, courseId } },
