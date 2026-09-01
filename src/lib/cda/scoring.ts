@@ -649,7 +649,7 @@ export type AssessorStar = {
   comment: string | null;
 };
 
-export type AgreementLevel = "UNSCORED" | "AGREED" | "MINOR" | "MAJOR";
+export type AgreementLevel = "UNSCORED" | "AGREED" | "PARTIAL" | "MINOR" | "MAJOR";
 
 export type CriterionAgreement = {
   criterion: ScorableCriterion;
@@ -658,6 +658,8 @@ export type CriterionAgreement = {
   given: number[];
   spread: number;
   level: AgreementLevel;
+  /** Assessors holding this item who haven't scored it yet. */
+  outstanding: number;
   /** The median — what the CDU is offered as a starting point. */
   suggested: number | null;
   /** The reconciled score, once one exists. */
@@ -671,6 +673,17 @@ export type CriterionAgreement = {
  * sessions; a two-star gap means they saw different clubs. Only the second
  * kind is worth the CDU's attention, which is why they're separated rather
  * than both surfacing as "disagreement".
+ *
+ * Agreement needs two people to agree. A criterion carrying one score — because
+ * only one assessor holds it, or because the second hasn't scored yet — has a
+ * spread of zero for want of anything to differ from, and calling that "Agreed"
+ * would record one person's opinion as consensus and let the bulk accept sweep
+ * it in unread. It comes back PARTIAL instead, which is why the check is on how
+ * many scores there are rather than on the spread alone.
+ *
+ * A split with somebody still to score keeps its MINOR or MAJOR label: the
+ * disagreement is real whatever else arrives, and those are resolved one at a
+ * time regardless. Only the settled-looking ones need holding back.
  */
 export function assessAgreement(
   criterion: ScorableCriterion,
@@ -682,8 +695,19 @@ export function assessAgreement(
     .filter((s): s is number => s !== null)
     .sort((a, b) => a - b);
 
+  const outstanding = entries.filter((e) => e.stars === null).length;
+
   if (given.length === 0) {
-    return { criterion, entries, given, spread: 0, level: "UNSCORED", suggested: null, final };
+    return {
+      criterion,
+      entries,
+      given,
+      spread: 0,
+      level: "UNSCORED",
+      outstanding,
+      suggested: null,
+      final,
+    };
   }
 
   const spread = given[given.length - 1] - given[0];
@@ -694,14 +718,19 @@ export function assessAgreement(
   const suggested =
     given.length % 2 === 1 ? given[mid] : Math.round((given[mid - 1] + given[mid]) / 2);
 
-  const level: AgreementLevel = spread === 0 ? "AGREED" : spread === 1 ? "MINOR" : "MAJOR";
+  // Two independent scores at a minimum, and nobody assigned still to score.
+  const complete = given.length >= 2 && outstanding === 0;
 
-  return { criterion, entries, given, spread, level, suggested, final };
+  const level: AgreementLevel =
+    spread === 0 ? (complete ? "AGREED" : "PARTIAL") : spread === 1 ? "MINOR" : "MAJOR";
+
+  return { criterion, entries, given, spread, level, outstanding, suggested, final };
 }
 
 export const AGREEMENT_LABELS: Record<AgreementLevel, string> = {
   UNSCORED: "Not scored",
   AGREED: "Agreed",
+  PARTIAL: "Second opinion needed",
   MINOR: "1 star apart",
   MAJOR: "2+ stars apart",
 };

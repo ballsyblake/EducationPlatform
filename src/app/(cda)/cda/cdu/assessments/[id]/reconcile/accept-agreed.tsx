@@ -10,9 +10,12 @@ const initialState: CduFormState = { status: "idle" };
 export function AcceptAgreed({
   assessmentId,
   count,
+  partial,
 }: {
   assessmentId: string;
   count: number;
+  /** Criteria only one assessor has scored, which this deliberately skips. */
+  partial: number;
 }) {
   const [state, formAction] = useActionState(acceptAgreed, initialState);
 
@@ -24,6 +27,14 @@ export function AcceptAgreed({
           ? `${count} criteri${count === 1 ? "on has" : "a have"} the same rating from every assessor. Accepting them leaves you with only the ones that are actually split.`
           : "Every criterion the assessors agreed on has already been resolved."}
       </p>
+
+      {partial > 0 && (
+        <p className="mb-3 text-sm text-ink-600">
+          {partial} more {partial === 1 ? "is" : "are"} still waiting on another assessor&apos;s
+          score. One rating on its own reads as agreed because there is nothing to disagree with,
+          so {partial === 1 ? "it is" : "they are"} left for you to resolve one at a time.
+        </p>
+      )}
 
       <form action={formAction}>
         <input type="hidden" name="assessmentId" value={assessmentId} />
