@@ -84,11 +84,12 @@ export default async function AdminPage() {
                 <Link
                   key={course.id}
                   // Course settings are an admin's. An educator's way in is the
-                  // register, which is the page they actually work on.
+                  // course page they actually work on: the roll, the delivery
+                  // write-ups, and what the course makes of each coach.
                   href={
                     isAdmin(user)
                       ? `/admin/courses/${course.id}`
-                      : `/admin/courses/${course.id}/register`
+                      : `/admin/courses/${course.id}/assess`
                   }
                   className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 hover:bg-ink-50"
                 >
@@ -105,7 +106,7 @@ export default async function AdminPage() {
                     </p>
                   </div>
                   <span className="text-sm font-medium text-maroon-700">
-                    {isAdmin(user) ? "Manage →" : "Register →"}
+                    {isAdmin(user) ? "Manage →" : "Open →"}
                   </span>
                 </Link>
               ))}

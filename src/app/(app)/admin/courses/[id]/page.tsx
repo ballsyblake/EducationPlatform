@@ -75,9 +75,17 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
         action={
           <div className="flex flex-wrap gap-2">
             {course._count.days > 0 && (
-              <Link href={`/admin/courses/${course.id}/register`} className="btn-primary btn-sm">
-                Attendance register
-              </Link>
+              <>
+                <Link href={`/admin/courses/${course.id}/assess`} className="btn-primary btn-sm">
+                  Attendance &amp; feedback
+                </Link>
+                <Link
+                  href={`/admin/courses/${course.id}/register`}
+                  className="btn-secondary btn-sm"
+                >
+                  Attendance register
+                </Link>
+              </>
             )}
             <Link href={`/courses/${course.id}`} className="btn-secondary btn-sm">
               View as coach
@@ -226,12 +234,17 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                   {course.staff.length > 0 && ` · ${course.staff.length} on the course team`}
                 </p>
               </div>
-              <Link
-                href={`/admin/courses/${course.id}/register`}
-                className="btn-secondary btn-sm"
-              >
-                Open the register
-              </Link>
+              <span className="flex flex-wrap gap-2">
+                <Link href={`/admin/courses/${course.id}/assess`} className="btn-secondary btn-sm">
+                  Take the roll
+                </Link>
+                <Link
+                  href={`/admin/courses/${course.id}/register`}
+                  className="btn-secondary btn-sm"
+                >
+                  Open the register
+                </Link>
+              </span>
             </div>
 
             <div className="grid gap-2 sm:grid-cols-3">

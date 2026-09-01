@@ -93,6 +93,7 @@ export async function saveAttendance(
   await Promise.all(writes);
 
   revalidatePath(`/admin/courses/${courseId}/register`);
+  revalidatePath(`/admin/courses/${courseId}/assess`);
   revalidatePath(`/admin/make-ups`);
   revalidatePath(`/courses/${courseId}`);
   return { status: "ok", message: `Attendance saved — ${changed} marks.` };
