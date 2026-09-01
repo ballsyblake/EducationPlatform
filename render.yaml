@@ -88,6 +88,22 @@ services:
       - key: B_DIPLOMA_IMPORT_2026
         sync: false
 
+      # Locked out? Set this to "1" and save. The next boot prints a fresh
+      # sign-in link for every ADMIN_EMAILS address to the deploy log, whatever
+      # the database thinks about their sessions. Remove it once you're in.
+      #
+      # Normally a link is only printed for an admin with no live session, so a
+      # working credential doesn't land in the log on every deploy for no
+      # reason. But a session row lives for sixty idle days, so an admin who
+      # cleared their cookies or lost the laptop is locked out for two months
+      # while every redeploy reports "has an active session; no link needed".
+      # This is the way back in on a plan with no shell.
+      #
+      # "reset" also ends those sessions — for when the device is gone rather
+      # than merely forgotten.
+      - key: ADMIN_LINK
+        sync: false
+
 # Deliberately not listed here, so Render only prompts for what's required:
 #
 #   APP_URL   Only needed for a custom domain. Otherwise the app falls back to

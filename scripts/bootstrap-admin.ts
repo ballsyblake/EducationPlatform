@@ -7,6 +7,10 @@
  * nothing is ever deleted.
  *
  *   ADMIN_EMAILS="head.coach@yourprogram.com" npm run bootstrap:admin
+ *
+ * Locked out? Set ADMIN_LINK=1 in the environment and redeploy. That prints a
+ * fresh sign-in link whatever the session state says — see the note on
+ * `liveSession` below for why the default is silence.
  */
 import "dotenv/config";
 import { createHash, randomBytes } from "node:crypto";
@@ -15,6 +19,25 @@ import { PrismaClient } from "../generated/prisma/client.ts";
 import { createAdapter } from "../src/lib/adapter.ts";
 
 const INVITE_TTL_DAYS = Number(process.env.INVITE_LINK_TTL_DAYS ?? 7);
+
+/**
+ * Print a sign-in link even for an admin the database thinks is signed in.
+ *
+ * The way back in on a host with no shell. A session row lives for sixty idle
+ * days, so an admin who cleared their cookies, lost the laptop or signed in
+ * from a browser they no longer have stays locked out for two months while
+ * every redeploy cheerfully reports "has an active session; no link needed."
+ * The check answers "does a session row exist" when the question that matters
+ * is "can this person get in", and only they know the answer.
+ *
+ * `ADMIN_LINK=reset` also ends those sessions. Reach for it when the device is
+ * gone rather than merely forgotten — a session nobody can reach is not a
+ * session worth keeping alive.
+ */
+const LINK_ASKED = (process.env.ADMIN_LINK ?? "").trim().toLowerCase();
+const FORCE_LINK = LINK_ASKED === "1" || LINK_ASKED === "yes" || LINK_ASKED === "true" ||
+  LINK_ASKED === "reset";
+const RESET_SESSIONS = LINK_ASKED === "reset";
 
 /**
  * Mints a sign-in link the same way the app does. Duplicated rather than
@@ -104,21 +127,40 @@ export async function bootstrapAdmins(prisma: PrismaClient) {
     // to a previous deploy's log, so the one person who needed it couldn't see
     // it, and redeploying stayed silent. Issuing a new link retires the old one,
     // which is exactly right — the newest log always holds the link that works.
+    if (RESET_SESSIONS) {
+      const ended = await prisma.session.deleteMany({ where: { userId: existing.id } });
+      if (ended.count > 0) {
+        console.log(`[bootstrap] ADMIN_LINK=reset — ended ${ended.count} session(s) for ${email}.`);
+      }
+    }
+
     const liveSession = await prisma.session.findFirst({
       where: { userId: existing.id, expiresAt: { gt: new Date() } },
     });
 
-    if (liveSession) {
+    // Silence is the default on purpose: a working sign-in link in a deploy log
+    // is a credential in a place plenty of people can read, and printing one on
+    // every boot for an admin who is already signed in puts it there for no
+    // reason. ADMIN_LINK is the way to ask for it when it is actually needed.
+    if (liveSession && !FORCE_LINK) {
       console.log(`[bootstrap] ${email} has an active session; no link needed.`);
+      console.log("[bootstrap] Set ADMIN_LINK=1 and redeploy if you can't actually get in.");
       continue;
     }
 
     const link = await issueSignInLink(prisma, existing.id);
     console.log("[bootstrap] ---------------------------------------------");
-    console.log(`[bootstrap]  ${email} is not signed in. Sign in with:`);
+    console.log(
+      liveSession
+        ? `[bootstrap]  ADMIN_LINK is set — a fresh link for ${email}:`
+        : `[bootstrap]  ${email} is not signed in. Sign in with:`,
+    );
     console.log(`[bootstrap]  ${link}`);
     console.log(`[bootstrap]  Works once, valid for ${INVITE_TTL_DAYS} days.`);
     console.log(`[bootstrap]  This replaces any link from an earlier deploy.`);
+    if (FORCE_LINK) {
+      console.log("[bootstrap]  Remove ADMIN_LINK from the environment once you're in.");
+    }
     console.log("[bootstrap] ---------------------------------------------");
   }
 }
