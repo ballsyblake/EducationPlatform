@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
-import { requireAdmin } from "@/lib/auth";
+import { staffCourseIds } from "@/lib/access";
+import { requireStaff } from "@/lib/auth";
 import { getStaffProgress } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
 import { displayName, formatDateTime } from "@/lib/format";
@@ -13,20 +14,26 @@ export default async function ProgressPage({
 }: {
   searchParams: Promise<{ course?: string }>;
 }) {
-  await requireAdmin();
+  const user = await requireStaff();
+  const scope = await staffCourseIds(user);
+  const within = scope === null ? {} : { courseId: { in: scope } };
   const { course: courseFilter } = await searchParams;
 
   const [courses, rows, supportCases, enrollments] = await Promise.all([
     prisma.course.findMany({
+      where: scope === null ? {} : { id: { in: scope } },
       orderBy: { title: "asc" },
       select: { id: true, title: true, ratingThreshold: true },
     }),
-    getStaffProgress(courseFilter),
-    prisma.supportCase.findMany({ select: { userId: true, courseId: true, status: true } }),
+    getStaffProgress(courseFilter, scope),
+    prisma.supportCase.findMany({
+      where: within,
+      select: { userId: true, courseId: true, status: true },
+    }),
     // Where each coach stands on the register, which is the only place a
     // shortfall is recorded — coursework percentages don't decide it.
     prisma.enrollment.findMany({
-      where: courseFilter ? { courseId: courseFilter } : {},
+      where: courseFilter ? { courseId: courseFilter } : within,
       select: {
         userId: true,
         courseId: true,

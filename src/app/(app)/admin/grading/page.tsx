@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, EmptyState, PageHeader } from "@/components/ui";
-import { requireAdmin } from "@/lib/auth";
+import { staffCourseIds } from "@/lib/access";
+import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, formatDateTime } from "@/lib/format";
 import { formatBytes } from "@/lib/uploads";
@@ -15,7 +16,8 @@ export default async function GradingPage({
 }: {
   searchParams: Promise<{ assignment?: string; show?: string }>;
 }) {
-  await requireAdmin();
+  const user = await requireStaff();
+  const scope = await staffCourseIds(user);
   const { assignment: assignmentFilter, show } = await searchParams;
   const includeGraded = show === "all";
 
@@ -24,6 +26,7 @@ export default async function GradingPage({
       where: {
         status: includeGraded ? { in: ["SUBMITTED", "GRADED"] } : "SUBMITTED",
         ...(assignmentFilter ? { assignmentId: assignmentFilter } : {}),
+        ...(scope === null ? {} : { assignment: { courseId: { in: scope } } }),
       },
       include: {
         user: true,
@@ -33,7 +36,10 @@ export default async function GradingPage({
       orderBy: [{ status: "asc" }, { submittedAt: "asc" }],
     }),
     prisma.quizAttempt.findMany({
-      where: { status: "AWAITING_REVIEW" },
+      where: {
+        status: "AWAITING_REVIEW",
+        ...(scope === null ? {} : { quiz: { courseId: { in: scope } } }),
+      },
       include: {
         user: true,
         quiz: { include: { course: true } },

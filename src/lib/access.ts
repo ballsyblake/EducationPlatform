@@ -1,15 +1,16 @@
 import "server-only";
 
-import { notFound } from "next/navigation";
-import { isAdmin } from "@/lib/auth";
+import { notFound, redirect } from "next/navigation";
+import { homePathFor, isAdmin, isStaff } from "@/lib/auth";
 import { visibleEvidenceFor } from "@/lib/cda/access";
 import { prisma } from "@/lib/db";
 import type { User } from "@prisma-client";
 
 /**
- * Admins see every course; coaches only see published courses they're enrolled
- * in. Anything else is a 404 rather than a 403, so the app never reveals that a
- * course exists to someone who isn't on its roster.
+ * Admins see every course; educators see the ones they are rostered onto;
+ * coaches only see published courses they're enrolled in. Anything else is a
+ * 404 rather than a 403, so the app never reveals that a course exists to
+ * someone who isn't on its roster.
  */
 export async function requireCourseAccess(user: User, courseId: string) {
   const course = await prisma.course.findUnique({ where: { id: courseId } });
@@ -17,12 +18,77 @@ export async function requireCourseAccess(user: User, courseId: string) {
 
   if (isAdmin(user)) return course;
 
+  if (isStaff(user)) {
+    const rostered = await prisma.courseStaff.findFirst({
+      where: { courseId, userId: user.id },
+      select: { id: true },
+    });
+    if (rostered) return course;
+    // Falls through: an educator can also be enrolled on a course as a coach,
+    // and being on somebody else's roster is not a reason to lose that.
+  }
+
   const enrolled = await prisma.enrollment.findUnique({
     where: { userId_courseId: { userId: user.id, courseId } },
   });
   if (!enrolled || !course.published) notFound();
 
   return course;
+}
+
+/**
+ * The courses this account may act on as staff, or `null` for "every course".
+ *
+ * Null rather than a list of every id, because the two mean different things to
+ * a query: an admin's scope is the absence of a filter, and materialising it as
+ * ids would turn every page into a query that silently breaks the day somebody
+ * adds a course. Callers spread it — `where: { ...courseScope(ids) }`.
+ */
+export async function staffCourseIds(user: Pick<User, "id" | "role">): Promise<string[] | null> {
+  if (isAdmin(user)) return null;
+  if (!isStaff(user)) return [];
+
+  const seats = await prisma.courseStaff.findMany({
+    where: { userId: user.id },
+    select: { courseId: true },
+  });
+  return [...new Set(seats.map((s) => s.courseId))];
+}
+
+/** A Prisma `where` fragment for a course id column, given that scope. */
+export function courseScope(ids: string[] | null, column = "courseId") {
+  return ids === null ? {} : { [column]: { in: ids } };
+}
+
+/**
+ * Acting on one course as staff: an admin anywhere, an educator where they are
+ * rostered.
+ *
+ * Every action that writes to a register, a grade, a rating or a support case
+ * goes through this. `requireStaff` alone is not enough — it says the actor is
+ * staff somewhere, which is not the same as staff *here*, and the difference is
+ * the whole point of the role.
+ */
+export async function isCourseStaff(user: User, courseId: string): Promise<boolean> {
+  if (isAdmin(user)) return true;
+  if (!isStaff(user)) return false;
+  const rostered = await prisma.courseStaff.findFirst({
+    where: { courseId, userId: user.id },
+    select: { id: true },
+  });
+  return Boolean(rostered);
+}
+
+/**
+ * The same, as a gate.
+ *
+ * Redirects rather than returning an error, matching `requireAdmin`: an actor
+ * who is not staff on this course did not make a mistake worth explaining to
+ * them, and a message that says "you may not touch this course" confirms the
+ * course exists.
+ */
+export async function assertCourseStaff(user: User, courseId: string): Promise<void> {
+  if (!(await isCourseStaff(user, courseId))) redirect(homePathFor(user));
 }
 
 /** True when the user may read a stored file. */

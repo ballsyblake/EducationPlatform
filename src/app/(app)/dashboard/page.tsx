@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { TaskList } from "@/components/task-list";
 import { EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
+import { staffCourseIds } from "@/lib/access";
 import { formatHours, makeUpBalance } from "@/lib/attendance";
-import { isAdmin, requireUser } from "@/lib/auth";
+import { isAdmin, isStaff, requireUser } from "@/lib/auth";
 import { getGradingQueueCounts, getTasksForCoach, summarizeTasks } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
 import { getSupportCasesForCoach, getSupportQueueCount } from "@/lib/support";
@@ -14,8 +15,11 @@ export default async function DashboardPage() {
   const user = await requireUser();
   const tasks = await getTasksForCoach(user.id);
   const summary = summarizeTasks(tasks);
-  const queue = isAdmin(user) ? await getGradingQueueCounts() : null;
-  const supportQueue = isAdmin(user) ? await getSupportQueueCount() : 0;
+  // Both queues are scoped: an educator is shown what is waiting on them, not
+  // what is waiting on the program.
+  const scope = isStaff(user) ? await staffCourseIds(user) : [];
+  const queue = isStaff(user) ? await getGradingQueueCounts(scope) : null;
+  const supportQueue = isStaff(user) ? await getSupportQueueCount(new Date(), scope) : 0;
 
   // A coach's open support case outranks everything else on this page: it has a
   // date attached and it is the one thing here they can fall behind on without
@@ -26,7 +30,7 @@ export default async function DashboardPage() {
   // Hours owed, for the same reason: a coach who missed a day usually finds out
   // it still counts against them months later, when somebody goes to sign off
   // their qualification.
-  const owed = isAdmin(user)
+  const owed = isStaff(user)
     ? []
     : await prisma.attendanceMakeUp.findMany({
         where: { status: { in: ["OWED", "ARRANGED"] }, enrollment: { userId: user.id } },

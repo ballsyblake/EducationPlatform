@@ -19,6 +19,18 @@ enum Role {
   ADMIN
   COACH
 
+  /// Coach education's own assessor — FQ calls them the Coach Education Team.
+  ///
+  /// Marks the register, rates practical deliveries, grades coursework and runs
+  /// post-course support, on the courses they are rostered onto and no others.
+  /// Cannot create, publish or delete a course, cannot author coursework,
+  /// cannot manage accounts, and has no business in the club development
+  /// portal at all.
+  ///
+  /// Deliberately not called ASSESSOR: that word is taken, by somebody who
+  /// assesses clubs rather than coaches. Two products, two jobs, two names.
+  EDUCATOR
+
   /// CDA: a club's designated administrator. Sees only their own club.
   CLUB
 
@@ -62,6 +74,18 @@ model User {
   /// rather than prevented: see the assessment's audit trail, which flags a
   /// line item whose reconciled score was settled by one of its own assessors.
   assesses Boolean @default(false)
+
+  /// Whether this account is in the Club Development Unit.
+  ///
+  /// Its own grant rather than a consequence of being an ADMIN. Promoting
+  /// somebody to admin in Coach Education used to hand them every club's
+  /// assessment, evidence and scores as a side effect — two products sharing an
+  /// account system, and one role standing in for both. It is granted on
+  /// purpose now, and the migration that introduced it gave it to every admin
+  /// who already had it so nobody lost access on the deploy.
+  ///
+  /// Only meaningful on an ADMIN: `requireCdu` checks both.
+  cdu Boolean @default(false)
 
   /// A head-and-shoulders photo, so an educator on the grass knows who is who.
   ///

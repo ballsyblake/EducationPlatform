@@ -7,7 +7,8 @@ import {
   makeUpBalance,
   summariseAttendance,
 } from "@/lib/attendance";
-import { requireAdmin } from "@/lib/auth";
+import { staffCourseIds } from "@/lib/access";
+import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate } from "@/lib/format";
 
@@ -27,12 +28,15 @@ export default async function MakeUpsPage({
 }: {
   searchParams: Promise<{ show?: string }>;
 }) {
-  await requireAdmin();
+  const user = await requireStaff();
+  const scope = await staffCourseIds(user);
+  const within =
+    scope === null ? {} : { enrollment: { courseId: { in: scope } } };
   const { show } = await searchParams;
   const includeSettled = show === "all";
 
   const makeUps = await prisma.attendanceMakeUp.findMany({
-    where: includeSettled ? {} : { status: { in: ["OWED", "ARRANGED"] } },
+    where: includeSettled ? within : { status: { in: ["OWED", "ARRANGED"] }, ...within },
     orderBy: [{ status: "asc" }, { openedAt: "asc" }],
     include: {
       courseDay: true,
@@ -47,7 +51,10 @@ export default async function MakeUpsPage({
   // it. These are the ones nobody has looked at yet, which is the whole reason
   // to have a desk rather than nine registers.
   const enrollments = await prisma.enrollment.findMany({
-    where: { outcome: { not: "WITHDRAWN" } },
+    where: {
+      outcome: { not: "WITHDRAWN" },
+      ...(scope === null ? {} : { courseId: { in: scope } }),
+    },
     include: {
       user: true,
       attendance: true,

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BrandLogo } from "@/components/brand";
 import { NavLinks, type NavLink } from "@/components/nav";
-import { homePathFor, isAdmin, requireUser } from "@/lib/auth";
+import { homePathFor, isAdmin, isCdu, isStaff, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, initials } from "@/lib/format";
 
@@ -14,15 +14,25 @@ const COACH_LINKS: NavLink[] = [
 
 const SUPPORT_LINK: NavLink = { href: "/support", label: "Support" };
 
-const ADMIN_LINKS: NavLink[] = [
+/**
+ * What an educator runs: the courses they are rostered onto, and everything
+ * that happens on them.
+ *
+ * Manage is on the list because for an educator it is a list of their own
+ * courses with no create form — the way into a register, which is the page they
+ * live on.
+ */
+const EDUCATOR_LINKS: NavLink[] = [
   { href: "/admin", label: "Manage" },
   { href: "/admin/coaches", label: "Coaches" },
   { href: "/admin/grading", label: "Grading" },
   { href: "/admin/support", label: "Support" },
   { href: "/admin/make-ups", label: "Hours" },
   { href: "/admin/progress", label: "Progress" },
-  { href: "/admin/people", label: "Staff" },
 ];
+
+/** Everything an educator has, plus the accounts. */
+const ADMIN_LINKS: NavLink[] = [...EDUCATOR_LINKS, { href: "/admin/people", label: "Staff" }];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
@@ -36,15 +46,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // A coach only gets a Support tab once they have a case. Most coaches never
   // will, and a permanent tab labelled "Support" reads as an accusation to
   // everyone who doesn't need it.
-  const hasSupport = isAdmin(user)
+  const hasSupport = isStaff(user)
     ? false
     : (await prisma.supportCase.count({ where: { userId: user.id } })) > 0;
 
   const links = isAdmin(user)
     ? [...COACH_LINKS, ...ADMIN_LINKS]
-    : hasSupport
-      ? [...COACH_LINKS, SUPPORT_LINK]
-      : COACH_LINKS;
+    : isStaff(user)
+      ? [...COACH_LINKS, ...EDUCATOR_LINKS]
+      : hasSupport
+        ? [...COACH_LINKS, SUPPORT_LINK]
+        : COACH_LINKS;
 
   return (
     <div className="min-h-screen">
@@ -64,8 +76,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             {/* The only way into the club development portal from this side, so
                 it sits with the navigation and is never hidden at any width.
                 Outlined rather than filled: it leaves this product entirely
-                rather than moving between pages within it. */}
-            {isAdmin(user) && (
+                rather than moving between pages within it.
+
+                Shown on the Club Development Unit grant, not on being an admin.
+                An admin who runs coach education and was never put in the Unit
+                has no business there and is not offered the door. */}
+            {isCdu(user) && (
               <Link
                 href="/cda"
                 className="shrink-0 rounded-lg border border-white/40 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-white hover:bg-maroon-700"

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
-import { requireAdmin } from "@/lib/auth";
+import { staffCourseIds } from "@/lib/access";
+import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate, relativeDue } from "@/lib/format";
 import {
@@ -25,16 +26,18 @@ export default async function SupportPage({
 }: {
   searchParams: Promise<{ show?: string }>;
 }) {
-  const admin = await requireAdmin();
+  const admin = await requireStaff();
+  const scope = await staffCourseIds(admin);
+  const within = scope === null ? {} : { courseId: { in: scope } };
   const { show } = await searchParams;
   const includeClosed = show === "all";
 
   const [queue, overdue, candidates, cases, educators, coaches, courses] = await Promise.all([
-    getSupportQueue(),
-    getOverdueVideos(),
-    getReferralCandidates(),
+    getSupportQueue(new Date(), scope),
+    getOverdueVideos(new Date(), scope),
+    getReferralCandidates(scope),
     prisma.supportCase.findMany({
-      where: includeClosed ? {} : { status: "IN_PROGRESS" },
+      where: includeClosed ? within : { status: "IN_PROGRESS", ...within },
       include: {
         user: true,
         course: true,
@@ -44,14 +47,18 @@ export default async function SupportPage({
       orderBy: [{ status: "asc" }, { openedAt: "desc" }],
     }),
     prisma.user.findMany({
-      where: { role: "ADMIN", active: true },
+      // Educators run support cases; that is most of what the role is for.
+      where: { role: { in: ["ADMIN", "EDUCATOR"] }, active: true },
       orderBy: [{ name: "asc" }, { email: "asc" }],
     }),
     prisma.user.findMany({
       where: { role: "COACH", active: true },
       orderBy: [{ name: "asc" }, { email: "asc" }],
     }),
-    prisma.course.findMany({ orderBy: { title: "asc" } }),
+    prisma.course.findMany({
+      where: scope === null ? {} : { id: { in: scope } },
+      orderBy: { title: "asc" },
+    }),
   ]);
 
   const educatorOptions = educators.map((e) => ({ id: e.id, label: displayName(e) }));

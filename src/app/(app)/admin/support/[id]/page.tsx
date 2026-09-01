@@ -4,7 +4,8 @@ import { embedUrl } from "@/components/material-list";
 import { SubmitButton } from "@/components/submit-button";
 import { Avatar } from "@/components/avatar";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
-import { requireAdmin } from "@/lib/auth";
+import { assertCourseStaff } from "@/lib/access";
+import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate, formatDateTime, relativeDue } from "@/lib/format";
 import { courseResultsFor, getSupportCase } from "@/lib/support";
@@ -37,15 +38,18 @@ const CASE_STATUS: Record<string, { label: string; tone: "ok" | "good" | "bad" |
 };
 
 export default async function SupportCasePage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
+  const user = await requireStaff();
   const { id } = await params;
 
   const supportCase = await getSupportCase(id);
   if (!supportCase) notFound();
+  // A case belongs to a course, and the course decides who may open it.
+  await assertCourseStaff(user, supportCase.courseId);
 
   const [educators, results, enrollment] = await Promise.all([
     prisma.user.findMany({
-      where: { role: "ADMIN", active: true },
+      // Educators run support cases; that is most of what the role is for.
+      where: { role: { in: ["ADMIN", "EDUCATOR"] }, active: true },
       orderBy: [{ name: "asc" }, { email: "asc" }],
     }),
     courseResultsFor(supportCase.userId),

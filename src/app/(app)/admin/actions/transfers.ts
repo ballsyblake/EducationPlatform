@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth";
+import { assertCourseStaff } from "@/lib/access";
+import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export type TransferState = { status: "idle" | "ok" | "error"; message?: string };
@@ -39,7 +40,7 @@ export async function setEnrolmentWindow(
   _prev: TransferState,
   formData: FormData,
 ): Promise<TransferState> {
-  await requireAdmin();
+  const actor = await requireStaff();
 
   const enrollmentId = text(formData, "enrollmentId");
   if (!enrollmentId) return { status: "error", message: "Pick a coach first." };
@@ -49,6 +50,7 @@ export async function setEnrolmentWindow(
     select: { id: true, courseId: true },
   });
   if (!enrollment) return { status: "error", message: "Enrolment not found." };
+  await assertCourseStaff(actor, enrollment.courseId);
 
   const rawJoined = text(formData, "joinedAt");
   const rawLeft = text(formData, "leftAt");
@@ -93,7 +95,7 @@ export async function transferEnrolment(
   _prev: TransferState,
   formData: FormData,
 ): Promise<TransferState> {
-  const admin = await requireAdmin();
+  const admin = await requireStaff();
 
   const enrollmentId = text(formData, "enrollmentId");
   if (!enrollmentId) return { status: "error", message: "Pick the coach who moved." };
@@ -106,6 +108,13 @@ export async function transferEnrolment(
     },
   });
   if (!origin) return { status: "error", message: "Enrolment not found." };
+  // Staff on the course they are leaving, which is the register this is being
+  // done from. Deliberately not also on the destination: a coach moving to
+  // another intake is precisely a coach leaving the course you run for one you
+  // don't, and requiring a seat on both would make the commonest move
+  // impossible for the person who knows about it.
+  await assertCourseStaff(admin, origin.courseId);
+
   if (origin.transferredToId) {
     return { status: "error", message: "This enrolment has already been transferred." };
   }
@@ -223,7 +232,7 @@ export async function undoTransfer(
   _prev: TransferState,
   formData: FormData,
 ): Promise<TransferState> {
-  await requireAdmin();
+  const actor = await requireStaff();
 
   const enrollmentId = text(formData, "enrollmentId");
   const origin = await prisma.enrollment.findUnique({
@@ -231,6 +240,7 @@ export async function undoTransfer(
     select: { id: true, courseId: true, outcome: true, transferredToId: true },
   });
   if (!origin) return { status: "error", message: "Enrolment not found." };
+  await assertCourseStaff(actor, origin.courseId);
   if (!origin.transferredToId) {
     return { status: "error", message: "That enrolment hasn't been transferred." };
   }

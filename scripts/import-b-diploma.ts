@@ -290,12 +290,14 @@ export async function importBDiploma(prisma: PrismaClient, { dry = false } = {})
     // ---- Course staff -----------------------------------------------------
     for (const member of course.staff) {
       const email = staffEmail(member.name);
-      // An educator is an admin: they run courses in this product, and the CDA
-      // importer creates them the same way. Existing accounts are left alone —
-      // an import must never quietly change somebody's role.
+      // An educator is an EDUCATOR: they mark registers and rate deliveries on
+      // the courses they are rostered onto, and nothing else. They used to be
+      // created as admins, which also handed them every club's assessment in
+      // the other product. Existing accounts are left alone — an import must
+      // never quietly change somebody's role, in either direction.
       const user = await prisma.user.upsert({
         where: { email },
-        create: { email, name: member.name, role: "ADMIN", title: "Coach Education" },
+        create: { email, name: member.name, role: "EDUCATOR", title: "Coach Education" },
         update: { name: member.name },
       });
 

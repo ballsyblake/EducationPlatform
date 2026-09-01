@@ -10,6 +10,25 @@ import { SignInLinkForm } from "./sign-in-link-form";
 
 export const metadata = { title: "Staff" };
 
+/**
+ * The roles somebody can be moved to, and what each of them means.
+ *
+ * An educator marks registers and rates deliveries on the courses they are
+ * rostered onto. An admin does that everywhere and also owns the courses and
+ * the accounts. Neither is the Club Development Unit — that is a separate
+ * grant, offered below on an admin only.
+ */
+const ROLE_MOVES = [
+  { from: "COACH", action: "make_coach", label: "Make coach", confirm: undefined },
+  { from: "EDUCATOR", action: "make_educator", label: "Make educator", confirm: undefined },
+  {
+    from: "ADMIN",
+    action: "make_admin",
+    label: "Make admin",
+    confirm: "Make this account an admin? They'll be able to create and delete courses and manage every account.",
+  },
+] as const;
+
 export default async function PeoplePage() {
   const admin = await requireAdmin();
   const emailEnabled = magicLinkAvailable();
@@ -24,7 +43,7 @@ export default async function PeoplePage() {
   // The two products share an account system and nothing else. Portal accounts
   // are managed at /cda/cdu, where deactivating one also ends its session.
   const users = await prisma.user.findMany({
-    where: { role: { in: ["COACH", "ADMIN"] } },
+    where: { role: { in: ["COACH", "EDUCATOR", "ADMIN"] } },
     orderBy: [{ active: "desc" }, { role: "asc" }, { name: "asc" }, { email: "asc" }],
     include: {
       _count: { select: { enrollments: true, submissions: true, quizAttempts: true } },
@@ -59,6 +78,8 @@ export default async function PeoplePage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium text-ink-900">{user.name ?? user.email}</p>
                       {user.role === "ADMIN" && <Badge tone="info">Admin</Badge>}
+                      {user.role === "EDUCATOR" && <Badge tone="ok">Educator</Badge>}
+                      {user.cdu && <Badge tone="muted">Club Development Unit</Badge>}
                       {!user.active && <Badge tone="bad">Deactivated</Badge>}
                       {user.id === admin.id && <Badge tone="muted">You</Badge>}
                       {!user.sessions[0] && user.active && (
@@ -94,17 +115,47 @@ export default async function PeoplePage() {
 
                     {user.id !== admin.id && (
                       <>
-                        <form action={updateStaffMember}>
-                          <input type="hidden" name="userId" value={user.id} />
-                          <input
-                            type="hidden"
-                            name="action"
-                            value={user.role === "ADMIN" ? "make_coach" : "make_admin"}
-                          />
-                          <SubmitButton className="btn-secondary btn-sm" pendingLabel="…">
-                            {user.role === "ADMIN" ? "Make coach" : "Make admin"}
-                          </SubmitButton>
-                        </form>
+                        {/* Three roles, so a toggle no longer says it. Each
+                            button names the role it moves them to, and the one
+                            they already hold isn't offered. */}
+                        {ROLE_MOVES.filter((m) => m.from !== user.role).map((move) => (
+                          <form key={move.action} action={updateStaffMember}>
+                            <input type="hidden" name="userId" value={user.id} />
+                            <input type="hidden" name="action" value={move.action} />
+                            <SubmitButton
+                              className="btn-secondary btn-sm"
+                              pendingLabel="…"
+                              confirm={move.confirm}
+                            >
+                              {move.label}
+                            </SubmitButton>
+                          </form>
+                        ))}
+
+                        {/* The Club Development Unit, granted on purpose rather
+                            than inherited from being an admin. Offered only on
+                            an admin, because nobody else can hold it. */}
+                        {user.role === "ADMIN" && (
+                          <form action={updateStaffMember}>
+                            <input type="hidden" name="userId" value={user.id} />
+                            <input
+                              type="hidden"
+                              name="action"
+                              value={user.cdu ? "revoke_cdu" : "grant_cdu"}
+                            />
+                            <SubmitButton
+                              className="btn-secondary btn-sm"
+                              pendingLabel="…"
+                              confirm={
+                                user.cdu
+                                  ? "Take this account out of the Club Development Unit? They'll be signed out, and lose every club's assessment and evidence."
+                                  : undefined
+                              }
+                            >
+                              {user.cdu ? "Remove from the Unit" : "Add to the Unit"}
+                            </SubmitButton>
+                          </form>
+                        )}
 
                         <form action={updateStaffMember}>
                           <input type="hidden" name="userId" value={user.id} />

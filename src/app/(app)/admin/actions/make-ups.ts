@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { assertCourseStaff } from "@/lib/access";
 import { dayMinutes, formatHours } from "@/lib/attendance";
-import { requireAdmin } from "@/lib/auth";
+import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import type { MakeUpStatus } from "@prisma-client";
 
@@ -48,7 +49,7 @@ export async function openMakeUp(
   _prev: MakeUpState,
   formData: FormData,
 ): Promise<MakeUpState> {
-  const admin = await requireAdmin();
+  const admin = await requireStaff();
 
   const enrollmentId = text(formData, "enrollmentId");
   const enrollment = await prisma.enrollment.findUnique({
@@ -61,6 +62,7 @@ export async function openMakeUp(
     },
   });
   if (!enrollment) return { status: "error", message: "Enrolment not found." };
+  await assertCourseStaff(admin, enrollment.courseId);
 
   const rawDayId = text(formData, "courseDayId");
   const day = rawDayId ? enrollment.course.days.find((d) => d.id === rawDayId) : undefined;
@@ -110,7 +112,7 @@ export async function settleMakeUp(
   _prev: MakeUpState,
   formData: FormData,
 ): Promise<MakeUpState> {
-  await requireAdmin();
+  const actor = await requireStaff();
 
   const id = text(formData, "id");
   const makeUp = await prisma.attendanceMakeUp.findUnique({
@@ -123,6 +125,7 @@ export async function settleMakeUp(
     },
   });
   if (!makeUp) return { status: "error", message: "That make-up no longer exists." };
+  await assertCourseStaff(actor, makeUp.enrollment.courseId);
 
   const status = text(formData, "status") as MakeUpStatus;
   if (!STATUSES.includes(status)) {
@@ -167,13 +170,14 @@ export async function deleteMakeUp(
   _prev: MakeUpState,
   formData: FormData,
 ): Promise<MakeUpState> {
-  await requireAdmin();
+  const actor = await requireStaff();
   const id = text(formData, "id");
   const makeUp = await prisma.attendanceMakeUp.findUnique({
     where: { id },
     select: { status: true, enrollment: { select: { courseId: true } } },
   });
   if (!makeUp) return { status: "error", message: "That make-up no longer exists." };
+  await assertCourseStaff(actor, makeUp.enrollment.courseId);
   if (makeUp.status === "COMPLETED") {
     return {
       status: "error",

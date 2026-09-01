@@ -138,13 +138,30 @@ export type StaffProgressRow = {
   tasks: TaskItem[];
 };
 
-/** Per-coach rollup for the admin progress dashboard. */
-export async function getStaffProgress(courseId?: string): Promise<StaffProgressRow[]> {
+/**
+ * Per-coach rollup for the admin progress dashboard.
+ *
+ * `scope` is the courses the viewer may see, or null for every course — an
+ * educator is staff on the courses they are rostered onto and nowhere else, and
+ * a dashboard that quietly showed them the whole program would make the role
+ * decorative.
+ */
+export async function getStaffProgress(
+  courseId?: string,
+  scope: string[] | null = null,
+): Promise<StaffProgressRow[]> {
+  const within = (id: string) => scope === null || scope.includes(id);
+  if (courseId && !within(courseId)) return [];
+
   const coaches = await prisma.user.findMany({
     where: {
       role: "COACH",
       active: true,
-      ...(courseId ? { enrollments: { some: { courseId } } } : {}),
+      ...(courseId
+        ? { enrollments: { some: { courseId } } }
+        : scope === null
+          ? {}
+          : { enrollments: { some: { courseId: { in: scope } } } }),
     },
     orderBy: [{ name: "asc" }, { email: "asc" }],
     select: { id: true, name: true, email: true, title: true },
@@ -153,7 +170,7 @@ export async function getStaffProgress(courseId?: string): Promise<StaffProgress
   const rows = await Promise.all(
     coaches.map(async (user) => {
       const all = await getTasksForCoach(user.id);
-      const tasks = courseId ? all.filter((t) => t.courseId === courseId) : all;
+      const tasks = all.filter((t) => (courseId ? t.courseId === courseId : within(t.courseId)));
       return { user, tasks, summary: summarizeTasks(tasks) };
     }),
   );
@@ -161,11 +178,21 @@ export async function getStaffProgress(courseId?: string): Promise<StaffProgress
   return rows;
 }
 
-/** Counts of work waiting on a human grader. */
-export async function getGradingQueueCounts() {
+/** Counts of work waiting on a human grader, within the viewer's courses. */
+export async function getGradingQueueCounts(scope: string[] | null = null) {
   const [submissions, attempts] = await Promise.all([
-    prisma.submission.count({ where: { status: "SUBMITTED" } }),
-    prisma.quizAttempt.count({ where: { status: "AWAITING_REVIEW" } }),
+    prisma.submission.count({
+      where: {
+        status: "SUBMITTED",
+        ...(scope === null ? {} : { assignment: { courseId: { in: scope } } }),
+      },
+    }),
+    prisma.quizAttempt.count({
+      where: {
+        status: "AWAITING_REVIEW",
+        ...(scope === null ? {} : { quiz: { courseId: { in: scope } } }),
+      },
+    }),
   ]);
   return { submissions, attempts, total: submissions + attempts };
 }

@@ -65,8 +65,13 @@ export async function bootstrapAdmins(prisma: PrismaClient) {
     if (!existing) {
       // A brand-new instance has no mail server yet, so the only way in is a
       // link printed here for whoever is watching the deploy.
+      // Also in the Club Development Unit. Unit membership is its own grant
+      // now, and a fresh deploy has to have somebody who can reach the portal:
+      // club and assessor accounts are created from /cda/cdu, which only the
+      // Unit can open, so an instance whose first admin is outside it has no
+      // way into that product at all.
       const user = await prisma.user.create({
-        data: { email, role: "ADMIN", title: "Program Admin" },
+        data: { email, role: "ADMIN", cdu: true, title: "Program Admin" },
       });
       const link = await issueSignInLink(prisma, user.id);
       console.log(`[bootstrap] Created admin ${email}`);
@@ -78,11 +83,13 @@ export async function bootstrapAdmins(prisma: PrismaClient) {
       continue;
     }
 
-    // Re-enable and re-promote, so ADMIN_EMAILS is always a way back in.
-    if (existing.role !== "ADMIN" || !existing.active) {
+    // Re-enable and re-promote, so ADMIN_EMAILS is always a way back in — to
+    // both products, for the same reason as above. This is the documented way
+    // out of a locked-out instance and it has to reopen every door.
+    if (existing.role !== "ADMIN" || !existing.cdu || !existing.active) {
       await prisma.user.update({
         where: { email },
-        data: { role: "ADMIN", active: true },
+        data: { role: "ADMIN", cdu: true, active: true },
       });
       console.log(`[bootstrap] Restored admin access for ${email}`);
     } else {
