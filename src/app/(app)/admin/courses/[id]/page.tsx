@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Avatar } from "@/components/avatar";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
@@ -40,11 +41,25 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
   });
   if (!course) notFound();
 
-  const coaches = await prisma.user.findMany({
-    where: { active: true },
-    orderBy: [{ role: "asc" }, { name: "asc" }, { email: "asc" }],
-  });
+  // The roster is the people on the course, in the order a person reads a list
+  // of names. It used to be every active account in the instance with an
+  // Enroll button beside each — a hundred rows, ninety-nine of them noise, and
+  // among them the club administrators and assessors who belong to the other
+  // product entirely and could never sensibly sit a diploma.
+  const roster = course.enrollments
+    .map((e) => ({ ...e, label: displayName(e.user) }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  // Adding somebody is now a picker rather than a directory: only accounts that
+  // could actually be enrolled, and only the ones that aren't already.
   const enrolledIds = new Set(course.enrollments.map((e) => e.userId));
+  const addable = (
+    await prisma.user.findMany({
+      where: { active: true, role: { in: ["COACH", "EDUCATOR"] } },
+      orderBy: [{ name: "asc" }, { email: "asc" }],
+      select: { id: true, name: true, email: true, title: true, role: true },
+    })
+  ).filter((u) => !enrolledIds.has(u.id));
 
   return (
     <>
@@ -253,57 +268,97 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
 
         <section className="card card-pad">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-ink-900">Roster</h2>
+            <div>
+              <h2 className="text-lg font-semibold text-ink-900">Roster</h2>
+              <p className="text-xs text-ink-500">
+                {roster.length
+                  ? `${roster.length} coach${roster.length === 1 ? "" : "es"} on this course`
+                  : "Nobody on this course yet"}
+              </p>
+            </div>
             <form action={enrollAllCoaches}>
               <input type="hidden" name="courseId" value={course.id} />
-              <SubmitButton className="btn-secondary btn-sm" pendingLabel="Enrolling…">
+              <SubmitButton
+                className="btn-secondary btn-sm"
+                pendingLabel="Enrolling…"
+                confirm="Enrol every active coach in the system on this course?"
+              >
                 Enroll all coaches
               </SubmitButton>
             </form>
           </div>
 
-          {coaches.length ? (
+          {roster.length ? (
             <ul className="divide-y divide-ink-200">
-              {coaches.map((coach) => {
-                const enrolled = enrolledIds.has(coach.id);
-                return (
-                  <li key={coach.id} className="flex items-center justify-between gap-3 py-2.5">
+              {roster.map((entry) => (
+                <li key={entry.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Avatar user={entry.user} size="sm" />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-ink-900">
-                        {displayName(coach)}
-                        {coach.role === "ADMIN" && (
-                          <span className="ml-2 text-xs font-normal text-ink-500">admin</span>
+                        {entry.label}
+                        {entry.track === "CATCH_UP" && (
+                          <span className="ml-2 text-xs font-normal text-ink-500">catch-up</span>
                         )}
                       </p>
                       <p className="truncate text-xs text-ink-500">
-                        {coach.title ? `${coach.title} · ` : ""}
-                        {coach.email}
+                        {entry.clubName ? `${entry.clubName} · ` : ""}
+                        {entry.user.email}
                       </p>
                     </div>
-                    <form action={setEnrollment}>
-                      <input type="hidden" name="courseId" value={course.id} />
-                      <input type="hidden" name="userId" value={coach.id} />
-                      <input type="hidden" name="enrolled" value={enrolled ? "false" : "true"} />
-                      <SubmitButton
-                        className={enrolled ? "btn-secondary btn-sm" : "btn-primary btn-sm"}
-                        pendingLabel="…"
-                      >
-                        {enrolled ? "Remove" : "Enroll"}
-                      </SubmitButton>
-                    </form>
-                  </li>
-                );
-              })}
+                  </div>
+                  <form action={setEnrollment}>
+                    <input type="hidden" name="courseId" value={course.id} />
+                    <input type="hidden" name="userId" value={entry.userId} />
+                    <input type="hidden" name="enrolled" value="false" />
+                    <SubmitButton
+                      className="btn-secondary btn-sm"
+                      pendingLabel="…"
+                      confirm={`Remove ${entry.label} from this course? Their attendance and result go with them.`}
+                    >
+                      Remove
+                    </SubmitButton>
+                  </form>
+                </li>
+              ))}
             </ul>
           ) : (
             <p className="text-sm text-ink-500">
-              No staff yet.{" "}
+              Nobody is enrolled yet. Add somebody below, or{" "}
               <Link href="/admin/people" className="font-medium text-maroon-700 hover:underline">
-                Add coaches
+                create their account first
               </Link>
               .
             </p>
           )}
+
+          {/* One row rather than a list of everybody. A course register is read
+              far more often than it is edited, and the edit does not need to be
+              the loudest thing on the page. */}
+          <form
+            action={setEnrollment}
+            className="mt-4 flex flex-wrap items-end gap-2 border-t border-ink-200 pt-4"
+          >
+            <input type="hidden" name="courseId" value={course.id} />
+            <input type="hidden" name="enrolled" value="true" />
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-ink-600">Add a coach</span>
+              <select name="userId" defaultValue="" className="input min-w-64 px-2 py-1 text-sm">
+                <option value="" disabled>
+                  {addable.length ? "Pick an account" : "Everybody is already enrolled"}
+                </option>
+                {addable.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {displayName(u)}
+                    {u.role === "EDUCATOR" ? " (educator)" : ""} — {u.email}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <SubmitButton className="btn-primary btn-sm" pendingLabel="Enrolling…" disabled={!addable.length}>
+              Enroll
+            </SubmitButton>
+          </form>
         </section>
 
         {/* ----------------------------- Assignments --------------------------- */}
