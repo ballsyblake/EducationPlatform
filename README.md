@@ -68,6 +68,20 @@ Three roles on this side of the app, and the middle one is the point.
 | Add accounts, change roles, deactivate | | | ✓ |
 | The Club Development portal | | | only with the `cdu` grant |
 
+**The navigation shows only what an account can use.** Courses and Grades &
+Feedback need an enrolment — an admin who has never been enrolled has no courses
+and no grades of their own, and two tabs leading to an empty state are two tabs.
+The five course-scoped staff tabs need a seat on a course team; Manage stays
+regardless, because it is the one page that explains its own emptiness ("you
+aren't rostered onto a course yet") rather than leaving a new educator on a
+dashboard with no way forward. Support appears for a coach once they have a
+case, and Club Development on the `cdu` grant.
+
+The conditions are all stable properties of the account — enrolled, rostered, in
+the Unit — and never a count of outstanding work. A tab that vanished whenever
+its queue emptied would be worse than a quiet one: an educator would learn where
+Grading lives, come back on a clear morning, and find it gone.
+
 **An educator's courses** are the ones they are rostered onto as `CourseStaff` —
 the CET1–CET5 seats the registers already record. Everything they can reach is
 filtered to those courses: the grading queue, the support desk, the hours desk,
