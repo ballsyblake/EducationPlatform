@@ -10,10 +10,11 @@ import {
   LEAGUE_BANDS,
   boardCycles,
   loadLeaderboard,
+  type ScoreBasis,
   type Standing,
 } from "@/lib/cda/leaderboard";
 import { DOMAIN_LABELS, SHIELD_SHORT_LABELS } from "@/lib/cda/rubric";
-import { pct } from "@/lib/cda/scoring";
+import { HARMONISED_DOMAINS, pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import type { Domain } from "@prisma-client";
 
@@ -67,6 +68,7 @@ export default async function LeaderboardPage({
     zone?: string;
     tier?: string;
     view?: string;
+    score?: string;
   }>;
 }) {
   const user = await requireCdaUser();
@@ -80,6 +82,7 @@ export default async function LeaderboardPage({
     zone: zoneParam,
     tier: tierParam,
     view: viewParam,
+    score: scoreParam,
   } = await searchParams;
   const cycles = await boardCycles();
 
@@ -98,7 +101,10 @@ export default async function LeaderboardPage({
   const cycle = cycles.find((c) => c.id === cycleParam) ?? cycles[0];
   const sort: Sort = SORTS.includes(sortParam as Sort) ? (sortParam as Sort) : "rank";
 
-  const board = await loadLeaderboard(cycle.id);
+  const scoreBasis: ScoreBasis = scoreParam === "harmonised" ? "HARMONISED" : "RAW";
+  const harmonisedView = scoreBasis === "HARMONISED";
+
+  const board = await loadLeaderboard(cycle.id, scoreBasis);
   const cdu = isCdu(user);
 
   /* ------------------------------- scoping -------------------------------- */
@@ -160,6 +166,7 @@ export default async function LeaderboardPage({
     zone?: string | null;
     tier?: string | null;
     view?: string | null;
+    score?: string | null;
   }) => {
     const q = new URLSearchParams();
     q.set("cycle", params.cycle ?? cycle.id);
@@ -171,6 +178,9 @@ export default async function LeaderboardPage({
     if (t) q.set("tier", t);
     const v = params.view === undefined ? (byPool ? "pool" : undefined) : params.view;
     if (v) q.set("view", v);
+    const sc =
+      params.score === undefined ? (harmonisedView ? "harmonised" : undefined) : params.score;
+    if (sc) q.set("score", sc);
     return `/cda/leaderboard?${q.toString()}`;
   };
 
@@ -260,6 +270,49 @@ export default async function LeaderboardPage({
       )}
 
       <div className="mb-6 space-y-4">
+        {board.harmonisable > 0 && (
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold tracking-wide text-ink-500 uppercase">
+                Score
+              </span>
+              {[
+                { value: null, label: "This season" },
+                { value: "harmonised", label: "Harmonised" },
+              ].map((o) => (
+                <Link
+                  key={o.label}
+                  href={href({ score: o.value })}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                    harmonisedView === (o.value === "harmonised")
+                      ? "bg-maroon-600 text-white"
+                      : "border border-ink-300 bg-white text-ink-700 hover:bg-ink-100"
+                  }`}
+                >
+                  {o.label}
+                </Link>
+              ))}
+            </div>
+            <p className="mt-1.5 max-w-3xl text-xs text-ink-500">
+              {harmonisedView ? (
+                <>
+                  {HARMONISED_DOMAINS.map((d) => DOMAIN_LABELS[d]).join(" and ")} pooled across{" "}
+                  {board.priorCycle?.year} and {board.cycle.year} — every point scored across both
+                  seasons over every point available — with the places, leagues and changes drawn
+                  from that. {board.harmonisable} of {board.standings.length}{" "}
+                  ranked clubs have a season to pool with; the rest keep this one&apos;s score.
+                </>
+              ) : (
+                <>
+                  This season&apos;s assessment alone. Planning evidence is retained between seasons
+                  for some pools, so the harmonised board is the one a league allocation is drawn
+                  from.
+                </>
+              )}
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-semibold tracking-wide text-ink-500 uppercase">View</span>
           {[
@@ -358,6 +411,7 @@ export default async function LeaderboardPage({
                       cdu={cdu}
                       priorYear={board.priorCycle?.year}
                       place={byPool ? r.poolRank : r.rank}
+                      harmonised={harmonisedView}
                     />
                   </Fragment>
                 ))}
@@ -546,13 +600,23 @@ function Row({
   cdu,
   priorYear,
   place,
+  harmonised,
 }: {
   row: Standing;
   cdu: boolean;
   priorYear?: number;
   /** Overall rank, or the rank within the pool when the board is grouped. */
   place: number | null;
+  /** Show the two-season figure rather than this season's alone. */
+  harmonised: boolean;
 }) {
+  // What this row is showing: the harmonised figure where the board is on that
+  // basis and the club has one, this season's otherwise. Read once so the
+  // number, the bar, the percentage and the ranking can never disagree.
+  const showHarmonised = harmonised && row.harmonised !== null;
+  const percent = showHarmonised ? row.harmonised!.percent : row.current.percent;
+  const total = showHarmonised ? row.harmonised!.total : (row.points?.total ?? null);
+
   // The Unit's assessment page has the reconciliation and the lock; an
   // assessor has no business on it and is sent to what they may read instead.
   const target = cdu
@@ -581,17 +645,27 @@ function Row({
 
       <td className="px-3 py-3 text-right whitespace-nowrap">
         <span className="font-semibold tabular-nums text-ink-900">
-          {row.points ? points(row.points.total.earned) : pct(row.current.percent, 1)}
+          {total ? points(total.earned) : pct(percent, 1)}
         </span>
-        {row.points && (
-          <span className="tabular-nums text-ink-400"> / {row.points.total.available}</span>
-        )}
+        {total && <span className="tabular-nums text-ink-400"> / {total.available}</span>}
         <div className="mt-1 flex items-center justify-end gap-2">
           <div className="w-16">
-            <ProgressBar value={row.current.percent} />
+            <ProgressBar value={percent} />
           </div>
-          <span className="text-xs tabular-nums text-ink-600">{pct(row.current.percent, 1)}</span>
+          <span className="text-xs tabular-nums text-ink-600">{pct(percent, 1)}</span>
         </div>
+        {/* The adjustment, never only the adjusted number: a club asked why it
+            sits where it does is owed the size of the correction. */}
+        {harmonised && row.harmonised && (
+          <p className="text-xs text-ink-500">
+            {row.harmonised.diff >= 0 ? "+" : "−"}
+            {Math.abs(row.harmonised.diff).toFixed(1)} on {points(row.points!.total.earned)}
+            {row.harmonised.basis === "MEAN" && " · mean"}
+          </p>
+        )}
+        {harmonised && !row.harmonised && (
+          <p className="text-xs text-ink-400">this season only</p>
+        )}
       </td>
 
       <td className="px-3 py-3 text-right whitespace-nowrap">
@@ -632,28 +706,34 @@ function Row({
         )}
       </td>
 
-      {DOMAIN_ORDER.map((d) => (
-        <td key={d} className="px-3 py-3 text-right whitespace-nowrap">
-          <span
-            className="font-medium tabular-nums text-ink-900"
-            title={
-              row.points
-                ? `${points(row.points.domains[d].earned)} of ${
-                    row.points.domains[d].available
-                  } points`
-                : undefined
-            }
-          >
-            {row.points ? points(row.points.domains[d].earned) : "—"}
-          </span>
-          <div className="mt-0.5 flex items-center justify-end gap-1.5">
-            <span className="text-xs tabular-nums text-ink-600">
-              {pct(row.current.domains[d], 0)}
+      {DOMAIN_ORDER.map((d) => {
+        const swap = harmonised ? row.harmonised?.domains[d] : undefined;
+        const earned = swap ? swap.points : row.points?.domains[d].earned;
+        return (
+          <td key={d} className="px-3 py-3 text-right whitespace-nowrap">
+            <span
+              className="font-medium tabular-nums text-ink-900"
+              title={
+                row.points
+                  ? `${points(row.points.domains[d].earned)} of ${
+                      row.points.domains[d].available
+                    } points this season${
+                      swap ? `, ${points(swap.points)} pooled across both` : ""
+                    }`
+                  : undefined
+              }
+            >
+              {earned === undefined ? "—" : points(earned)}
             </span>
-            <Delta value={row.movement?.domains[d] ?? null} />
-          </div>
-        </td>
-      ))}
+            <div className="mt-0.5 flex items-center justify-end gap-1.5">
+              <span className="text-xs tabular-nums text-ink-600">
+                {pct(swap ? swap.percent : row.current.domains[d], 0)}
+              </span>
+              <Delta value={row.movement?.domains[d] ?? null} />
+            </div>
+          </td>
+        );
+      })}
 
       <td className="px-3 py-3 text-right">
         <ShieldBadge shield={row.shield} size="sm" short />

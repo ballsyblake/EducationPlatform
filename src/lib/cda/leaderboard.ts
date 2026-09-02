@@ -3,14 +3,17 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { ASSESSED_DOMAINS } from "@/lib/cda/rubric";
 import {
+  HARMONISED_DOMAINS,
   SHIELD_ORDER,
   assessAgreement,
   computeRating,
   scoreStarDomain,
   scoreTechnicalDomain,
   tierOf,
+  harmonise,
   type CriterionOutcome,
   type DomainPoints,
+  type HarmonisedDomain,
   type ScorableCriterion,
 } from "@/lib/cda/scoring";
 import type { Domain, Shield } from "@prisma-client";
@@ -77,6 +80,28 @@ export type PointsBreakdown = {
   total: DomainPoints;
 };
 
+/**
+ * A club's result with the retained-evidence domains averaged across two
+ * seasons — Football Queensland's "harmonised" score.
+ *
+ * A separate figure rather than a correction to the first one. Both are real:
+ * the raw score is what this season's assessment found, the harmonised score is
+ * what the club is placed on when part of that assessment rested on last
+ * season's paperwork. FQ keeps two leaderboards for exactly this reason, and
+ * allocates the leagues from the harmonised one.
+ */
+export type Harmonised = {
+  /** Only the domains in HARMONISED_DOMAINS appear. */
+  domains: Partial<Record<Domain, HarmonisedDomain>>;
+  /** The whole rating, with those domains' points swapped in. */
+  total: DomainPoints;
+  percent: number;
+  /** MEAN anywhere in the calculation makes the whole figure a MEAN. */
+  basis: "POOLED" | "MEAN";
+  /** Harmonised total minus raw total, in points. */
+  diff: number;
+};
+
 export type Standing = {
   assessmentId: string;
   clubId: string;
@@ -103,6 +128,8 @@ export type Standing = {
    * than as an absence.
    */
   points: PointsBreakdown | null;
+  /** Null with no prior season to average against, or nothing to average. */
+  harmonised: Harmonised | null;
   shield: Shield | null;
   eligible: boolean;
   /** Line items settled by the Unit, out of the ones this club is assessed on. */
@@ -133,7 +160,19 @@ export type CohortAverages = {
   domains: Record<Domain, number>;
 };
 
+/**
+ * Which score the board is ranked on.
+ *
+ * Not a display toggle — it changes the places, and therefore the league bands
+ * and the movement. FQ ranks the league allocation on the harmonised board, so
+ * both have to be available and it has to be obvious which one is on screen.
+ */
+export type ScoreBasis = "RAW" | "HARMONISED";
+
 export type Leaderboard = {
+  basis: ScoreBasis;
+  /** How many ranked clubs actually carry a harmonised figure. */
+  harmonisable: number;
   cycle: { id: string; year: number; name: string };
   priorCycle: { id: string; year: number; name: string } | null;
   standings: Standing[];
@@ -209,7 +248,10 @@ export function leagueFor(rank: number | null): number | null {
  * `cycleId` is passed rather than looked up so the Unit can read a closed
  * season's board without it silently becoming the current one.
  */
-export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
+export async function loadLeaderboard(
+  cycleId: string,
+  scoreBasis: ScoreBasis = "RAW",
+): Promise<Leaderboard> {
   const cycle = await prisma.cycle.findUniqueOrThrow({ where: { id: cycleId } });
 
   // Last season, by year rather than by "the previous row": cycles are unique
@@ -217,8 +259,18 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
   // comparing 2026 against 2024.
   const priorCycle = await prisma.cycle.findFirst({ where: { year: cycle.year - 1 } });
 
-  const [assessments, criteria, tiers, finals, scores, staff, checks, priorNotices, priorRows] =
-    await Promise.all([
+  const [
+    assessments,
+    criteria,
+    tiers,
+    finals,
+    scores,
+    staff,
+    checks,
+    priorNotices,
+    priorFinals,
+    priorRows,
+  ] = await Promise.all([
       prisma.clubAssessment.findMany({
         where: { cycleId },
         select: {
@@ -287,6 +339,24 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
         },
         select: { assessment: { select: { clubId: true } }, nonNegotiable: { select: { code: true } } },
       }),
+      // Last season's points, from the criteria it was actually settled on.
+      // Reconstructed from the reconciled scores rather than from today's
+      // catalogue: the catalogue is not versioned per cycle, and the whole
+      // reason harmonisation exists is that a domain's points move between
+      // seasons — Planning was 350 in 2024, 326 in 2025 and 272 in 2026. Asking
+      // this year's catalogue what last year was worth would answer 272 every
+      // time and quietly turn the pooling back into a plain average.
+      priorCycle
+        ? prisma.finalScore.findMany({
+            where: { assessment: { cycleId: priorCycle.id } },
+            select: {
+              assessmentId: true,
+              stars: true,
+              assessment: { select: { clubId: true } },
+              criterion: { select: { domain: true, weight: true, maxScore: true } },
+            },
+          })
+        : Promise.resolve([]),
       priorCycle
         ? prisma.clubAssessment.findMany({
             where: { cycleId: priorCycle.id, lockedAt: { not: null }, finalPercent: { not: null } },
@@ -336,6 +406,25 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
   const noticedLastCycle = new Set(
     priorNotices.map((n) => `${n.assessment.clubId}:${n.nonNegotiable.code}`),
   );
+
+  // Keyed by club rather than by assessment: this season's row is what needs
+  // the lookup, and it knows the club, not last season's assessment id.
+  const priorPoints = new Map<string, Record<Domain, DomainPoints>>();
+  for (const f of priorFinals) {
+    const clubId = f.assessment.clubId;
+    const forClub =
+      priorPoints.get(clubId) ??
+      ({
+        TECHNICAL: { earned: 0, available: 0 },
+        PLANNING: { earned: 0, available: 0 },
+        DELIVERY: { earned: 0, available: 0 },
+        OUTCOMES: { earned: 0, available: 0 },
+      } as Record<Domain, DomainPoints>);
+
+    forClub[f.criterion.domain].earned += f.stars * f.criterion.weight;
+    forClub[f.criterion.domain].available += f.criterion.maxScore * f.criterion.weight;
+    priorPoints.set(clubId, forClub);
+  }
 
   /* -------------------------- prior season, ranked ------------------------- */
 
@@ -473,6 +562,46 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
         ? { domains: points, total: { earned: rating.earned, available: rating.available } }
         : null;
 
+    // Averaged across the two seasons for the retained-evidence domains, then
+    // folded back into the total: the rest of the rating is untouched, so the
+    // harmonised total is the raw one plus the adjustment those domains made.
+    let harmonised: Harmonised | null = null;
+    if (prior && breakdown) {
+      const domains: Partial<Record<Domain, HarmonisedDomain>> = {};
+      let diff = 0;
+      let pooled = true;
+
+      for (const d of HARMONISED_DOMAINS) {
+        const last = priorPoints.get(a.clubId)?.[d];
+        const h = harmonise(
+          breakdown.domains[d],
+          last && last.available > 0 ? last : { percent: prior.domains[d] },
+        );
+        domains[d] = h;
+        diff += h.diff;
+        if (h.basis === "MEAN") pooled = false;
+      }
+
+      const earned = breakdown.total.earned + diff;
+      harmonised = {
+        domains,
+        total: { earned, available: breakdown.total.available },
+        percent:
+          breakdown.total.available === 0 ? 0 : (earned / breakdown.total.available) * 100,
+        basis: pooled ? "POOLED" : "MEAN",
+        diff,
+      };
+    }
+
+    // Movement follows the basis. FQ's league sheet reports Mitchelton at
+    // +5.46% against 2025 where the raw board says +6.36%: on the harmonised
+    // board the change is the harmonised score's change, or the two columns
+    // would describe different clubs.
+    const shown =
+      scoreBasis === "HARMONISED" && harmonised
+        ? { percent: harmonised.percent, domains: harmonisedDomains(current, harmonised) }
+        : current;
+
     return {
       assessmentId: a.id,
       clubId: a.clubId,
@@ -485,6 +614,7 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
       basis: frozen ? "FROZEN" : "PROVISIONAL",
       current,
       points: breakdown,
+      harmonised,
       shield,
       eligible: frozen ? a.eligible === true : rating.eligibility.eligible,
       settled,
@@ -497,9 +627,9 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
       prior,
       movement: prior
         ? {
-            percent: current.percent - prior.percent,
+            percent: shown.percent - prior.percent,
             domains: Object.fromEntries(
-              DOMAINS.map((d) => [d, current.domains[d] - prior.domains[d]]),
+              DOMAINS.map((d) => [d, shown.domains[d] - prior.domains[d]]),
             ) as Record<Domain, number>,
             rank: null,
             shield: shieldRank(shield) - shieldRank(prior.shield),
@@ -523,7 +653,17 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
   const ranked = rows.filter(isRanked);
   const unscored = rows.filter((r) => !isRanked(r));
 
-  const ranks = rankBy(ranked, (r) => r.current.percent);
+  // One value decides places, league bands, pool places and rank movement, so
+  // switching the basis moves all four together rather than relabelling a
+  // ranking that was drawn on the other one. A club with nothing to harmonise
+  // is ranked on its raw score, which is what FQ's own harmonised sheet does
+  // with the clubs whose pool kept its full assessment.
+  const rankValue = (r: Standing) =>
+    scoreBasis === "HARMONISED"
+      ? (r.harmonised?.percent ?? r.current.percent)
+      : r.current.percent;
+
+  const ranks = rankBy(ranked, rankValue);
   for (const row of ranked) {
     row.rank = ranks.get(row) ?? null;
     row.league = leagueFor(row.rank);
@@ -540,7 +680,7 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
   const pools = new Set(ranked.map((r) => r.poolId));
   for (const poolId of pools) {
     const members = ranked.filter((r) => r.poolId === poolId);
-    const within = rankBy(members, (r) => r.current.percent);
+    const within = rankBy(members, rankValue);
     for (const row of members) row.poolRank = within.get(row) ?? null;
   }
 
@@ -548,7 +688,16 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
 
   /* ------------------------------- cohort --------------------------------- */
 
-  const average = averageOf(ranked.map((r) => r.current));
+  // Averaged over what the board is showing, not over the raw scores it isn't:
+  // a cohort average that disagreed with the column above it would be read as
+  // an error in one of them.
+  const average = averageOf(
+    ranked.map((r) =>
+      scoreBasis === "HARMONISED" && r.harmonised
+        ? { percent: r.harmonised.percent, domains: harmonisedDomains(r.current, r.harmonised) }
+        : r.current,
+    ),
+  );
   // Last season's average over the clubs on this board that have both figures,
   // so "the cohort moved 3 points" is a statement about the same clubs rather
   // than about two different populations.
@@ -558,6 +707,8 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
     : null;
 
   return {
+    basis: scoreBasis,
+    harmonisable: ranked.filter((r) => r.harmonised !== null).length,
     cycle: { id: cycle.id, year: cycle.year, name: cycle.name },
     priorCycle: priorCycle
       ? { id: priorCycle.id, year: priorCycle.year, name: priorCycle.name }
@@ -571,6 +722,16 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
     declined: comparableRows.filter((r) => r.movement!.percent < 0).length,
     comparable: comparableRows.length,
   };
+}
+
+/** This season's percentages with the harmonised domains' own swapped in. */
+function harmonisedDomains(current: Scores, h: Harmonised): Record<Domain, number> {
+  const domains = { ...current.domains };
+  for (const d of HARMONISED_DOMAINS) {
+    const swap = h.domains[d];
+    if (swap) domains[d] = swap.percent;
+  }
+  return domains;
 }
 
 function pointsOf(result: { earned: number; available: number }): DomainPoints {

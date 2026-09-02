@@ -639,6 +639,84 @@ export function computeRating(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Harmonisation                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Which domains are scored across two seasons rather than one.
+ *
+ * Planning, and only Planning, because it is the only domain whose evidence is
+ * retained. Football Queensland does not re-assess every pool's Planning
+ * documents every year — their own cycle table runs "All / Retained +5 / All"
+ * across the pools and seasons — so in a retained year a club's Planning score
+ * rests partly on paperwork assessed last season. Delivery is observed at
+ * training and on match day, Outcomes are counted from registrations, and
+ * Technical is read off the staff register; all three are taken fresh every
+ * year and have nothing to harmonise against.
+ *
+ * A list rather than a constant so the Unit's decision is in one place if the
+ * retained-evidence cycle ever covers another domain.
+ */
+export const HARMONISED_DOMAINS: Domain[] = ["PLANNING"];
+
+export type HarmonisedDomain = {
+  /** The two seasons taken together. */
+  percent: number;
+  /** That ratio expressed in this season's points, which is what a total needs. */
+  points: number;
+  /** Harmonised points minus what this season alone scored. Usually negative. */
+  diff: number;
+  /**
+   * POOLED is Football Queensland's arithmetic and needs both seasons' points.
+   * MEAN is the fallback for a season imported as a percentage alone.
+   */
+  basis: "POOLED" | "MEAN";
+};
+
+/**
+ * Averages a domain across two seasons.
+ *
+ * Not the mean of the two percentages, which is the obvious reading and the
+ * wrong one. FQ pools the raw counts — every point scored across both seasons
+ * over every point available across both — so a season assessed on more points
+ * carries more of the result. Their sheet has Mitchelton at (276 + 252) of
+ * (326 + 272), which is 88.29%; the mean of 84.66% and 92.65% is 88.66%. The
+ * gap runs to half a percentage point across their clubs, which is wider than
+ * the gaps between adjacent places on the board, so it decides positions.
+ *
+ * The pooling matters because the two seasons are not the same size: Planning
+ * was worth 350 points in 2024, 326 in 2025 and 272 in 2026. Averaging the
+ * percentages would silently weight a 272-point season equally with a 350-point
+ * one.
+ *
+ * `prior` therefore wants both of last season's numbers. Given only a
+ * percentage — which is all a season imported from FQ's own records leaves
+ * behind — the two are weighted equally and `basis` says so, because a number
+ * that came from a different formula must not be presented as though it didn't.
+ */
+export function harmonise(
+  current: DomainPoints,
+  prior: DomainPoints | { percent: number },
+): HarmonisedDomain {
+  const priorPoints = "available" in prior && prior.available > 0 ? prior : null;
+
+  const percent = priorPoints
+    ? ((priorPoints.earned + current.earned) / (priorPoints.available + current.available)) * 100
+    : (("percent" in prior ? prior.percent : 0) +
+        (current.available === 0 ? 0 : (current.earned / current.available) * 100)) /
+      2;
+
+  const points = (percent / 100) * current.available;
+
+  return {
+    percent,
+    points,
+    diff: points - current.earned,
+    basis: priorPoints ? "POOLED" : "MEAN",
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Assessor agreement                                                         */
 /* -------------------------------------------------------------------------- */
 
