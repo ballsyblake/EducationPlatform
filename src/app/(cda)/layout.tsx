@@ -27,10 +27,15 @@ const ASSESSOR_LINKS: NavLink[] = [
   { href: "/cda/assess", label: "My line items" },
   { href: "/cda/progress", label: "My progress" },
   { href: "/cda/clubs", label: "My clubs" },
+  // Locked ratings only, for the clubs they already reach — the page itself
+  // enforces that. An assessor seeing a live standing for a club they are
+  // still scoring is the anchor the evidence screens exist to avoid.
+  { href: "/cda/leaderboard", label: "Leaderboard" },
 ];
 
 const CDU_LINKS: NavLink[] = [
   { href: "/cda/cdu", label: "Cycle" },
+  { href: "/cda/leaderboard", label: "Leaderboard" },
   { href: "/cda/cdu/progress", label: "Progress" },
   { href: "/cda/cdu/clubs", label: "Clubs" },
   { href: "/cda/cdu/assessors", label: "Assessors" },
