@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Delta, RankDelta } from "@/components/cda/delta";
@@ -5,7 +6,12 @@ import { ShieldBadge } from "@/components/cda/shield";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { isCdu } from "@/lib/auth";
 import { ambassadorClubIds, requireCdaUser } from "@/lib/cda/access";
-import { boardCycles, loadLeaderboard, type Standing } from "@/lib/cda/leaderboard";
+import {
+  LEAGUE_BANDS,
+  boardCycles,
+  loadLeaderboard,
+  type Standing,
+} from "@/lib/cda/leaderboard";
 import { DOMAIN_LABELS, SHIELD_SHORT_LABELS } from "@/lib/cda/rubric";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
@@ -55,7 +61,13 @@ type Sort = (typeof SORTS)[number];
 export default async function LeaderboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ cycle?: string; sort?: string; zone?: string; tier?: string }>;
+  searchParams: Promise<{
+    cycle?: string;
+    sort?: string;
+    zone?: string;
+    tier?: string;
+    view?: string;
+  }>;
 }) {
   const user = await requireCdaUser();
   // A club has its own rating page, and the point of that page is its own
@@ -67,6 +79,7 @@ export default async function LeaderboardPage({
     sort: sortParam,
     zone: zoneParam,
     tier: tierParam,
+    view: viewParam,
   } = await searchParams;
   const cycles = await boardCycles();
 
@@ -125,7 +138,11 @@ export default async function LeaderboardPage({
   const tier = tierParam && tiers.includes(tierParam) ? tierParam : null;
   if (tier) rows = rows.filter((r) => r.tier === tier);
 
-  const sorted = sortRows(rows, sort);
+  // Football Queensland keeps two boards of the same data: one overall, which
+  // is what the league allocation is drawn from, and one per pool, which is how
+  // a pool's own assessors read the clubs they scored against each other.
+  const byPool = viewParam === "pool";
+  const sorted = byPool ? sortPools(rows) : sortRows(rows, sort);
 
   /* ------------------------------- insights ------------------------------- */
 
@@ -142,6 +159,7 @@ export default async function LeaderboardPage({
     sort?: string;
     zone?: string | null;
     tier?: string | null;
+    view?: string | null;
   }) => {
     const q = new URLSearchParams();
     q.set("cycle", params.cycle ?? cycle.id);
@@ -151,6 +169,8 @@ export default async function LeaderboardPage({
     if (z) q.set("zone", z);
     const t = params.tier === undefined ? tier : params.tier;
     if (t) q.set("tier", t);
+    const v = params.view === undefined ? (byPool ? "pool" : undefined) : params.view;
+    if (v) q.set("view", v);
     return `/cda/leaderboard?${q.toString()}`;
   };
 
@@ -239,162 +259,207 @@ export default async function LeaderboardPage({
         </div>
       )}
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-[1fr_20rem]">
-        <div className="min-w-0 space-y-4">
-          {tiers.length > 1 && (
-            <FilterRow
-              label="Tier"
-              options={tiers}
-              active={tier}
-              hrefFor={(t) => href({ tier: t })}
-              note="Tiers are scored on different line items and awarded differently — pick one to compare like with like."
-            />
-          )}
-
-          {zones.length > 1 && (
-            <FilterRow
-              label="Zone"
-              options={zones}
-              active={zone}
-              hrefFor={(z) => href({ zone: z })}
-            />
-          )}
-
-          {sorted.length === 0 ? (
-            <EmptyState
-              title="Nothing to show yet"
-              description={
-                cdu
-                  ? "No club in this cycle has a score."
-                  : "None of the clubs you assess has a locked rating in this cycle yet."
-              }
-            />
-          ) : (
-            <div className="card overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-ink-200 text-left">
-                    <Th>#</Th>
-                    <Th href={href({ sort: "club" })} active={sort === "club"}>
-                      Club
-                    </Th>
-                    <Th href={href({ sort: "rank" })} active={sort === "rank"} align="right">
-                      Overall
-                    </Th>
-                    <Th href={href({ sort: "movement" })} active={sort === "movement"} align="right">
-                      Change
-                    </Th>
-                    {DOMAIN_ORDER.map((d) => (
-                      <Th
-                        key={d}
-                        href={href({ sort: d.toLowerCase() as Sort })}
-                        active={sort === (d.toLowerCase() as Sort)}
-                        align="right"
-                        title={DOMAIN_LABELS[d]}
-                      >
-                        {DOMAIN_SHORT[d]}
-                      </Th>
-                    ))}
-                    <Th align="right">Shield</Th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-ink-100">
-                  {sorted.map((r) => (
-                    <Row key={r.assessmentId} row={r} cdu={cdu} priorYear={board.priorCycle?.year} />
-                  ))}
-                </tbody>
-              </table>
-
-              <p className="border-t border-ink-200 px-5 py-2.5 text-xs text-ink-500">
-                Change is percentage points against the same club&apos;s
-                {board.priorCycle ? ` ${board.priorCycle.year}` : " previous"} result. A club with
-                no comparable result shows a dash rather than a zero. Places are counted across the
-                whole cycle, so a filtered view keeps the gaps — and a Tier 2 percentage is a
-                different measurement from a Tier 1 one, not a lower or higher version of it.
-              </p>
-            </div>
-          )}
-
-          {unscored.length > 0 && (
-            <div className="card card-pad">
-              <h2 className="mb-1 font-semibold text-ink-900">Not yet scored</h2>
-              <p className="mb-3 text-sm text-ink-600">
-                Nothing has been scored for {unscored.length === 1 ? "this club" : "these clubs"},
-                so {unscored.length === 1 ? "it is" : "they are"} left out of the ranking rather
-                than placed last on nothing.
-              </p>
-              <ul className="flex flex-wrap gap-2">
-                {unscored.map((r) => (
-                  <li key={r.assessmentId}>
-                    <Badge tone="muted">
-                      {r.club}
-                      {r.zone ? ` · ${r.zone}` : ""}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+      <div className="mb-6 space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold tracking-wide text-ink-500 uppercase">View</span>
+          {[
+            { value: null, label: "Overall" },
+            { value: "pool", label: "By pool" },
+          ].map((v) => (
+            <Link
+              key={v.label}
+              href={href({ view: v.value })}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                byPool === (v.value === "pool")
+                  ? "bg-maroon-600 text-white"
+                  : "border border-ink-300 bg-white text-ink-700 hover:bg-ink-100"
+              }`}
+            >
+              {v.label}
+            </Link>
+          ))}
         </div>
 
-        <aside className="space-y-4">
-          <div className="card">
-            <div className="border-b border-ink-200 px-5 py-3">
-              <h2 className="font-semibold text-ink-900">Where the cohort moved</h2>
-              <p className="text-xs text-ink-500">
-                Averages across the ranked clubs, per domain.
-              </p>
-            </div>
+        {tiers.length > 1 && (
+          <FilterRow
+            label="Tier"
+            options={tiers}
+            active={tier}
+            hrefFor={(t) => href({ tier: t })}
+            note="Tiers are scored on different line items and awarded differently — pick one to compare like with like."
+          />
+        )}
+
+        {zones.length > 1 && (
+          <FilterRow
+            label="Zone"
+            options={zones}
+            active={zone}
+            hrefFor={(z) => href({ zone: z })}
+          />
+        )}
+
+        {sorted.length === 0 ? (
+          <EmptyState
+            title="Nothing to show yet"
+            description={
+              cdu
+                ? "No club in this cycle has a score."
+                : "None of the clubs you assess has a locked rating in this cycle yet."
+            }
+          />
+        ) : (
+          <div className="card overflow-x-auto">
             <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-ink-200 text-left">
+                  <Th>#</Th>
+                  <Th href={href({ sort: "club" })} active={sort === "club"}>
+                    Club
+                  </Th>
+                  <Th href={href({ sort: "rank" })} active={sort === "rank"} align="right">
+                    Overall
+                  </Th>
+                  <Th href={href({ sort: "movement" })} active={sort === "movement"} align="right">
+                    Change
+                  </Th>
+                  <Th align="right" title="Indicative, from the overall rank">
+                    League
+                  </Th>
+                  {DOMAIN_ORDER.map((d) => (
+                    <Th
+                      key={d}
+                      href={href({ sort: d.toLowerCase() as Sort })}
+                      active={sort === (d.toLowerCase() as Sort)}
+                      align="right"
+                      title={DOMAIN_LABELS[d]}
+                    >
+                      {DOMAIN_SHORT[d]}
+                    </Th>
+                  ))}
+                  <Th align="right">Shield</Th>
+                </tr>
+              </thead>
               <tbody className="divide-y divide-ink-100">
-                {DOMAIN_ORDER.map((d) => (
-                  <tr key={d}>
-                    <td className="px-5 py-2.5 text-ink-700">{DOMAIN_LABELS[d]}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-ink-900">
-                      {pct(board.average.domains[d], 0)}
-                    </td>
-                    <td className="px-5 py-2.5 text-right">
-                      <Delta
-                        value={
-                          board.priorAverage
-                            ? board.average.domains[d] - board.priorAverage.domains[d]
-                            : null
-                        }
-                      />
-                    </td>
-                  </tr>
+                {sorted.map((r, i) => (
+                  <Fragment key={r.assessmentId}>
+                    {byPool && r.pool !== sorted[i - 1]?.pool && (
+                      <tr>
+                        <td
+                          colSpan={10}
+                          className="bg-ink-50 px-3 py-1.5 text-xs font-semibold text-ink-600"
+                        >
+                          {r.pool ? `Pool ${r.pool}` : "No pool"}
+                        </td>
+                      </tr>
+                    )}
+                    <Row
+                      row={r}
+                      cdu={cdu}
+                      priorYear={board.priorCycle?.year}
+                      place={byPool ? r.poolRank : r.rank}
+                    />
+                  </Fragment>
                 ))}
               </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-ink-200 bg-ink-50">
-                  <td className="px-5 py-2.5 font-semibold text-ink-900">Overall</td>
-                  <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-ink-900">
-                    {pct(board.average.percent, 0)}
-                  </td>
-                  <td className="px-5 py-2.5 text-right">
-                    <Delta value={cohortDelta} />
-                  </td>
-                </tr>
-              </tfoot>
             </table>
+
             <p className="border-t border-ink-200 px-5 py-2.5 text-xs text-ink-500">
-              A domain that moved everywhere is a marking or a program story, not a club one.
+              Points are the season&apos;s currency and the percentage is derived from them;
+              only the percentage survives a change of year, because the points available move
+              between cycles. Change is percentage points against the same club&apos;s
+              {board.priorCycle ? ` ${board.priorCycle.year}` : " previous"} result, and a club
+              with no comparable result shows a dash rather than a zero. League is indicative —
+              the top {LEAGUE_BANDS[0]} by rank, then {LEAGUE_BANDS[1]}, then {LEAGUE_BANDS[2]} —
+              and the Unit sets the real allocation. Places are counted across the whole cycle,
+              so a filtered view keeps the gaps, and a Tier 2 percentage is a different
+              measurement from a Tier 1 one rather than a lower version of it.
             </p>
           </div>
+        )}
 
-          {movers.length > 0 && (
-            <div className="card">
-              <div className="border-b border-ink-200 px-5 py-3">
-                <h2 className="font-semibold text-ink-900">Biggest movers</h2>
-                <p className="text-xs text-ink-500">
-                  On {board.priorCycle?.year ?? "last cycle"}, in percentage points.
-                </p>
-              </div>
-              <MoverList title="Up" rows={risers} keep={(m) => m > 0} />
-              <MoverList title="Down" rows={fallers} keep={(m) => m < 0} />
+        {unscored.length > 0 && (
+          <div className="card card-pad">
+            <h2 className="mb-1 font-semibold text-ink-900">Not yet scored</h2>
+            <p className="mb-3 text-sm text-ink-600">
+              Nothing has been scored for {unscored.length === 1 ? "this club" : "these clubs"},
+              so {unscored.length === 1 ? "it is" : "they are"} left out of the ranking rather
+              than placed last on nothing.
+            </p>
+            <ul className="flex flex-wrap gap-2">
+              {unscored.map((r) => (
+                <li key={r.assessmentId}>
+                  <Badge tone="muted">
+                    {r.club}
+                    {r.zone ? ` · ${r.zone}` : ""}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Below the board rather than beside it: ten columns of points,
+          percentages and deltas need the width more than a sidebar does,
+          and these two panels read as the board's footnotes anyway. */}
+      <div className="mb-6 grid gap-4 lg:grid-cols-2">
+        <div className="card">
+          <div className="border-b border-ink-200 px-5 py-3">
+            <h2 className="font-semibold text-ink-900">Where the cohort moved</h2>
+            <p className="text-xs text-ink-500">
+              Averages across the ranked clubs, per domain.
+            </p>
+          </div>
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-ink-100">
+              {DOMAIN_ORDER.map((d) => (
+                <tr key={d}>
+                  <td className="px-5 py-2.5 text-ink-700">{DOMAIN_LABELS[d]}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-ink-900">
+                    {pct(board.average.domains[d], 0)}
+                  </td>
+                  <td className="px-5 py-2.5 text-right">
+                    <Delta
+                      value={
+                        board.priorAverage
+                          ? board.average.domains[d] - board.priorAverage.domains[d]
+                          : null
+                      }
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-ink-200 bg-ink-50">
+                <td className="px-5 py-2.5 font-semibold text-ink-900">Overall</td>
+                <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-ink-900">
+                  {pct(board.average.percent, 0)}
+                </td>
+                <td className="px-5 py-2.5 text-right">
+                  <Delta value={cohortDelta} />
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+          <p className="border-t border-ink-200 px-5 py-2.5 text-xs text-ink-500">
+            A domain that moved everywhere is a marking or a program story, not a club one.
+          </p>
+        </div>
+
+        {movers.length > 0 && (
+          <div className="card">
+            <div className="border-b border-ink-200 px-5 py-3">
+              <h2 className="font-semibold text-ink-900">Biggest movers</h2>
+              <p className="text-xs text-ink-500">
+                On {board.priorCycle?.year ?? "last cycle"}, in percentage points.
+              </p>
             </div>
-          )}
-        </aside>
+            <MoverList title="Up" rows={risers} keep={(m) => m > 0} />
+            <MoverList title="Down" rows={fallers} keep={(m) => m < 0} />
+          </div>
+        )}
       </div>
     </>
   );
@@ -471,14 +536,22 @@ function Th({
   );
 }
 
+/** Points as FQ writes them: whole where they are whole, one place where not. */
+function points(n: number) {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
 function Row({
   row,
   cdu,
   priorYear,
+  place,
 }: {
   row: Standing;
   cdu: boolean;
   priorYear?: number;
+  /** Overall rank, or the rank within the pool when the board is grouped. */
+  place: number | null;
 }) {
   // The Unit's assessment page has the reconciliation and the lock; an
   // assessor has no business on it and is sent to what they may read instead.
@@ -488,7 +561,7 @@ function Row({
 
   return (
     <tr className={row.basis === "PROVISIONAL" ? "bg-ink-50/40" : undefined}>
-      <td className="px-3 py-3 text-right tabular-nums font-semibold text-ink-500">{row.rank}</td>
+      <td className="px-3 py-3 text-right tabular-nums font-semibold text-ink-500">{place}</td>
 
       <td className="px-3 py-3">
         <Link href={target} className="font-medium text-ink-900 hover:text-maroon-700">
@@ -507,9 +580,17 @@ function Row({
       </td>
 
       <td className="px-3 py-3 text-right whitespace-nowrap">
-        <span className="font-semibold tabular-nums text-ink-900">{pct(row.current.percent, 1)}</span>
-        <div className="mt-1 w-20 ml-auto">
-          <ProgressBar value={row.current.percent} />
+        <span className="font-semibold tabular-nums text-ink-900">
+          {row.points ? points(row.points.total.earned) : pct(row.current.percent, 1)}
+        </span>
+        {row.points && (
+          <span className="tabular-nums text-ink-400"> / {row.points.total.available}</span>
+        )}
+        <div className="mt-1 flex items-center justify-end gap-2">
+          <div className="w-16">
+            <ProgressBar value={row.current.percent} />
+          </div>
+          <span className="text-xs tabular-nums text-ink-600">{pct(row.current.percent, 1)}</span>
         </div>
       </td>
 
@@ -529,10 +610,46 @@ function Row({
         </div>
       </td>
 
+      <td className="px-3 py-3 text-right whitespace-nowrap">
+        {row.league === null ? (
+          <span className="text-ink-300">—</span>
+        ) : (
+          <>
+            <span className="tabular-nums text-ink-800">League {row.league}</span>
+            {row.priorLeague !== null && row.priorLeague !== row.league && (
+              // Promotion and relegation is what the ranking is actually read
+              // for, so a crossing is called out rather than left to be worked
+              // out from two rank numbers.
+              <p
+                className={`text-xs font-medium ${
+                  row.league < row.priorLeague ? "text-status-green-fg" : "text-maroon-700"
+                }`}
+              >
+                {row.league < row.priorLeague ? "up" : "down"} from {row.priorLeague}
+              </p>
+            )}
+          </>
+        )}
+      </td>
+
       {DOMAIN_ORDER.map((d) => (
         <td key={d} className="px-3 py-3 text-right whitespace-nowrap">
-          <span className="tabular-nums text-ink-800">{pct(row.current.domains[d], 0)}</span>
-          <div className="mt-0.5">
+          <span
+            className="font-medium tabular-nums text-ink-900"
+            title={
+              row.points
+                ? `${points(row.points.domains[d].earned)} of ${
+                    row.points.domains[d].available
+                  } points`
+                : undefined
+            }
+          >
+            {row.points ? points(row.points.domains[d].earned) : "—"}
+          </span>
+          <div className="mt-0.5 flex items-center justify-end gap-1.5">
+            <span className="text-xs tabular-nums text-ink-600">
+              {pct(row.current.domains[d], 0)}
+            </span>
             <Delta value={row.movement?.domains[d] ?? null} />
           </div>
         </td>
@@ -580,6 +697,22 @@ function MoverList({
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * The per-pool board: pools in name order, clubs by their place within each.
+ *
+ * Deliberately not sortable by domain. The point of this view is the order
+ * inside a pool, and a sort that cut across the groupings would leave the
+ * headings meaning nothing.
+ */
+function sortPools(rows: Standing[]): Standing[] {
+  return [...rows].sort(
+    (a, b) =>
+      (a.pool ?? "\uffff").localeCompare(b.pool ?? "\uffff") ||
+      (a.poolRank ?? 0) - (b.poolRank ?? 0) ||
+      a.club.localeCompare(b.club),
   );
 }
 

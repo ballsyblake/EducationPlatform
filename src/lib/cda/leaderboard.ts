@@ -55,6 +55,28 @@ export type Movement = {
   shield: number;
 };
 
+/**
+ * Football Queensland's own board is denominated in points, not percentages.
+ *
+ * Their 2026 sheet reads "Moreton City Excelsior — 1112.67", with Planning 250,
+ * Delivery 436, Outcomes 184 and Technical 242.67 beside it, out of a Tier 1
+ * maximum of 1314. The percentage is derived from those and shown second, which
+ * is the right way round: a club asking where to spend next season's effort
+ * needs to know Delivery carries 490 of the 1314 points available, and no
+ * percentage column can tell them that.
+ *
+ * Points do not survive a change of year, though, and FQ's own sheet is the
+ * proof: the 2025 maximum was 1260 and the 2026 maximum is 1314, with Planning
+ * dropping from 326 to 272 and Delivery rising from 424 to 490. So points are
+ * the within-season currency and percentages are the across-season one — which
+ * is exactly how their "Percentage Diff" columns work, and they are percentage
+ * points on the percentage, not a relative change on the total.
+ */
+export type PointsBreakdown = {
+  domains: Record<Domain, DomainPoints>;
+  total: DomainPoints;
+};
+
 export type Standing = {
   assessmentId: string;
   clubId: string;
@@ -72,6 +94,15 @@ export type Standing = {
    */
   basis: "FROZEN" | "PROVISIONAL";
   current: Scores;
+  /**
+   * The same result in points.
+   *
+   * Null for a result imported as a percentage with no line items behind it —
+   * a season that predates the portal has a rating and no scoresheet, and
+   * printing "0 / 1314" beside its 79.7% would read as a catastrophe rather
+   * than as an absence.
+   */
+  points: PointsBreakdown | null;
   shield: Shield | null;
   eligible: boolean;
   /** Line items settled by the Unit, out of the ones this club is assessed on. */
@@ -81,6 +112,17 @@ export type Standing = {
   applicable: number;
   /** Null until this club has a score of any kind. */
   rank: number | null;
+  /**
+   * Place within the club's own pool.
+   *
+   * FQ keeps both boards and reads them for different things: the overall one
+   * decides the league allocation, the per-pool one is how a pool's assessors
+   * see the clubs they actually scored against each other.
+   */
+  poolRank: number | null;
+  /** Indicative FQ Academy League band, from the overall rank. See leagueFor. */
+  league: number | null;
+  priorLeague: number | null;
   prior: (Scores & { shield: Shield | null; rank: number | null }) | null;
   movement: Movement | null;
 };
@@ -133,6 +175,33 @@ function rankBy<T>(rows: T[], value: (row: T) => number): Map<T, number> {
 }
 
 const shieldRank = (s: Shield | null) => (s === null ? -1 : SHIELD_ORDER.indexOf(s));
+
+/**
+ * How many clubs sit in each FQ Academy League, in rank order.
+ *
+ * Ten, ten, ten and then everyone else, which is the shape of Football
+ * Queensland's own 2027 allocation sheet — four columns of roughly ten clubs,
+ * ordered by total score.
+ *
+ * What comes out of `leagueFor` is indicative and is labelled that way
+ * everywhere it is shown. FQ's sheet carries a Notes column with entries like
+ * "reggie up" and rows reserved for secondary licences, screening clubs and
+ * regional clubs; the final allocation is a decision the Unit makes with the
+ * ranking in front of them, not a formula. This says where a club's rank puts
+ * it, which is the question the board is opened to answer.
+ */
+export const LEAGUE_BANDS = [10, 10, 10];
+
+/** Which league band a place falls in. 1-based; the last band is open-ended. */
+export function leagueFor(rank: number | null): number | null {
+  if (rank === null) return null;
+  let seen = 0;
+  for (const [i, size] of LEAGUE_BANDS.entries()) {
+    seen += size;
+    if (rank <= seen) return i + 1;
+  }
+  return LEAGUE_BANDS.length + 1;
+}
 
 /**
  * Builds the board for one cycle.
@@ -396,6 +465,14 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
     const prior = priorFor.get(a.clubId) ?? null;
     const shield = frozen ? (a.eligible ? a.finalShield : null) : rating.shield;
 
+    // Live, always — the same rule the assessment page freezes under. The
+    // percentages are what the club was told; the points describe the
+    // catalogue as it stands, and are shown as supporting detail beside them.
+    const breakdown: PointsBreakdown | null =
+      scored > 0
+        ? { domains: points, total: { earned: rating.earned, available: rating.available } }
+        : null;
+
     return {
       assessmentId: a.id,
       clubId: a.clubId,
@@ -407,12 +484,16 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
       status: a.status,
       basis: frozen ? "FROZEN" : "PROVISIONAL",
       current,
+      points: breakdown,
       shield,
       eligible: frozen ? a.eligible === true : rating.eligibility.eligible,
       settled,
       scored,
       applicable: applicable.length,
       rank: null,
+      poolRank: null,
+      league: null,
+      priorLeague: null,
       prior,
       movement: prior
         ? {
@@ -445,11 +526,22 @@ export async function loadLeaderboard(cycleId: string): Promise<Leaderboard> {
   const ranks = rankBy(ranked, (r) => r.current.percent);
   for (const row of ranked) {
     row.rank = ranks.get(row) ?? null;
+    row.league = leagueFor(row.rank);
+    row.priorLeague = leagueFor(row.prior?.rank ?? null);
     if (row.movement && row.prior?.rank != null && row.rank != null) {
       // Positive is upward, so the sign matches the arrow: rank 8 to rank 3 is
       // five places gained, not minus five.
       row.movement.rank = row.prior.rank - row.rank;
     }
+  }
+
+  // Ranked again within each pool. Computed here rather than at the call site
+  // so a filtered view can't renumber a pool and imply a club has moved up it.
+  const pools = new Set(ranked.map((r) => r.poolId));
+  for (const poolId of pools) {
+    const members = ranked.filter((r) => r.poolId === poolId);
+    const within = rankBy(members, (r) => r.current.percent);
+    for (const row of members) row.poolRank = within.get(row) ?? null;
   }
 
   ranked.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.club.localeCompare(b.club));
