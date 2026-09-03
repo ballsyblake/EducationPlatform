@@ -997,6 +997,11 @@ export async function resolveCriterion(
  * click through those one at a time to reach the handful that are genuinely
  * split is how the disagreements get rubber-stamped along with everything else.
  * Anything with a spread is deliberately left alone.
+ *
+ * So is anything only one assessor has scored. `assessAgreement` grades those
+ * PARTIAL rather than AGREED precisely so they miss this filter: a lone score
+ * has nothing to agree with, and sweeping it in would write one person's
+ * opinion into the club's rating as though two had reached it.
  */
 export async function acceptAgreed(
   _prev: CduFormState,

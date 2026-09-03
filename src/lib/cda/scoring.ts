@@ -639,6 +639,84 @@ export function computeRating(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Harmonisation                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Which domains are scored across two seasons rather than one.
+ *
+ * Planning, and only Planning, because it is the only domain whose evidence is
+ * retained. Football Queensland does not re-assess every pool's Planning
+ * documents every year — their own cycle table runs "All / Retained +5 / All"
+ * across the pools and seasons — so in a retained year a club's Planning score
+ * rests partly on paperwork assessed last season. Delivery is observed at
+ * training and on match day, Outcomes are counted from registrations, and
+ * Technical is read off the staff register; all three are taken fresh every
+ * year and have nothing to harmonise against.
+ *
+ * A list rather than a constant so the Unit's decision is in one place if the
+ * retained-evidence cycle ever covers another domain.
+ */
+export const HARMONISED_DOMAINS: Domain[] = ["PLANNING"];
+
+export type HarmonisedDomain = {
+  /** The two seasons taken together. */
+  percent: number;
+  /** That ratio expressed in this season's points, which is what a total needs. */
+  points: number;
+  /** Harmonised points minus what this season alone scored. Usually negative. */
+  diff: number;
+  /**
+   * POOLED is Football Queensland's arithmetic and needs both seasons' points.
+   * MEAN is the fallback for a season imported as a percentage alone.
+   */
+  basis: "POOLED" | "MEAN";
+};
+
+/**
+ * Averages a domain across two seasons.
+ *
+ * Not the mean of the two percentages, which is the obvious reading and the
+ * wrong one. FQ pools the raw counts — every point scored across both seasons
+ * over every point available across both — so a season assessed on more points
+ * carries more of the result. Their sheet has Mitchelton at (276 + 252) of
+ * (326 + 272), which is 88.29%; the mean of 84.66% and 92.65% is 88.66%. The
+ * gap runs to half a percentage point across their clubs, which is wider than
+ * the gaps between adjacent places on the board, so it decides positions.
+ *
+ * The pooling matters because the two seasons are not the same size: Planning
+ * was worth 350 points in 2024, 326 in 2025 and 272 in 2026. Averaging the
+ * percentages would silently weight a 272-point season equally with a 350-point
+ * one.
+ *
+ * `prior` therefore wants both of last season's numbers. Given only a
+ * percentage — which is all a season imported from FQ's own records leaves
+ * behind — the two are weighted equally and `basis` says so, because a number
+ * that came from a different formula must not be presented as though it didn't.
+ */
+export function harmonise(
+  current: DomainPoints,
+  prior: DomainPoints | { percent: number },
+): HarmonisedDomain {
+  const priorPoints = "available" in prior && prior.available > 0 ? prior : null;
+
+  const percent = priorPoints
+    ? ((priorPoints.earned + current.earned) / (priorPoints.available + current.available)) * 100
+    : (("percent" in prior ? prior.percent : 0) +
+        (current.available === 0 ? 0 : (current.earned / current.available) * 100)) /
+      2;
+
+  const points = (percent / 100) * current.available;
+
+  return {
+    percent,
+    points,
+    diff: points - current.earned,
+    basis: priorPoints ? "POOLED" : "MEAN",
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Assessor agreement                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -649,7 +727,7 @@ export type AssessorStar = {
   comment: string | null;
 };
 
-export type AgreementLevel = "UNSCORED" | "AGREED" | "MINOR" | "MAJOR";
+export type AgreementLevel = "UNSCORED" | "AGREED" | "PARTIAL" | "MINOR" | "MAJOR";
 
 export type CriterionAgreement = {
   criterion: ScorableCriterion;
@@ -658,6 +736,8 @@ export type CriterionAgreement = {
   given: number[];
   spread: number;
   level: AgreementLevel;
+  /** Assessors holding this item who haven't scored it yet. */
+  outstanding: number;
   /** The median — what the CDU is offered as a starting point. */
   suggested: number | null;
   /** The reconciled score, once one exists. */
@@ -671,6 +751,17 @@ export type CriterionAgreement = {
  * sessions; a two-star gap means they saw different clubs. Only the second
  * kind is worth the CDU's attention, which is why they're separated rather
  * than both surfacing as "disagreement".
+ *
+ * Agreement needs two people to agree. A criterion carrying one score — because
+ * only one assessor holds it, or because the second hasn't scored yet — has a
+ * spread of zero for want of anything to differ from, and calling that "Agreed"
+ * would record one person's opinion as consensus and let the bulk accept sweep
+ * it in unread. It comes back PARTIAL instead, which is why the check is on how
+ * many scores there are rather than on the spread alone.
+ *
+ * A split with somebody still to score keeps its MINOR or MAJOR label: the
+ * disagreement is real whatever else arrives, and those are resolved one at a
+ * time regardless. Only the settled-looking ones need holding back.
  */
 export function assessAgreement(
   criterion: ScorableCriterion,
@@ -682,8 +773,19 @@ export function assessAgreement(
     .filter((s): s is number => s !== null)
     .sort((a, b) => a - b);
 
+  const outstanding = entries.filter((e) => e.stars === null).length;
+
   if (given.length === 0) {
-    return { criterion, entries, given, spread: 0, level: "UNSCORED", suggested: null, final };
+    return {
+      criterion,
+      entries,
+      given,
+      spread: 0,
+      level: "UNSCORED",
+      outstanding,
+      suggested: null,
+      final,
+    };
   }
 
   const spread = given[given.length - 1] - given[0];
@@ -694,14 +796,19 @@ export function assessAgreement(
   const suggested =
     given.length % 2 === 1 ? given[mid] : Math.round((given[mid - 1] + given[mid]) / 2);
 
-  const level: AgreementLevel = spread === 0 ? "AGREED" : spread === 1 ? "MINOR" : "MAJOR";
+  // Two independent scores at a minimum, and nobody assigned still to score.
+  const complete = given.length >= 2 && outstanding === 0;
 
-  return { criterion, entries, given, spread, level, suggested, final };
+  const level: AgreementLevel =
+    spread === 0 ? (complete ? "AGREED" : "PARTIAL") : spread === 1 ? "MINOR" : "MAJOR";
+
+  return { criterion, entries, given, spread, level, outstanding, suggested, final };
 }
 
 export const AGREEMENT_LABELS: Record<AgreementLevel, string> = {
   UNSCORED: "Not scored",
   AGREED: "Agreed",
+  PARTIAL: "Second opinion needed",
   MINOR: "1 star apart",
   MAJOR: "2+ stars apart",
 };

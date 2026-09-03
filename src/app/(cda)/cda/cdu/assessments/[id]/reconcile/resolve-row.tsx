@@ -28,6 +28,7 @@ export type ResolveRowData = {
 const LEVEL_TONE = {
   UNSCORED: "muted",
   AGREED: "good",
+  PARTIAL: "warn",
   MINOR: "warn",
   MAJOR: "bad",
 } as const;

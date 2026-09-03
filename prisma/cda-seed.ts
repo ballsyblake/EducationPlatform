@@ -1111,6 +1111,7 @@ export async function seedDemo(prisma: PrismaClient) {
   }
 
   await seedReviews(prisma, daysAgo, cdu?.id ?? null);
+  await seedPriorSeason(prisma, priorCycle);
 
   const assignmentCount = await prisma.criterionAssignment.count();
   console.log(
@@ -1119,6 +1120,114 @@ export async function seedDemo(prisma: PrismaClient) {
   );
   console.log("[cda] club sign-ins: " + CLUBS.map((c) => c.admin.email).join(", "));
   console.log("[cda] assessor sign-ins: " + ASSESSORS.map((a) => a.email).join(", "));
+}
+
+
+/**
+ * How far each club moved between the two demo cycles, in percentage points.
+ *
+ * Written down rather than randomised, because the leaderboard is a page about
+ * movement and a random walk shows nothing: it needs a club that clearly rose,
+ * one that clearly fell, one that held, one that gained a shield, and one with
+ * no comparison at all. Positive means the club improved on last season, so
+ * last season's figure is this season's minus the shift.
+ *
+ * Cairns is absent on purpose — a club new to the program this year, which is
+ * the case the board has to render as "no comparable result" rather than as a
+ * fall to zero.
+ */
+const PRIOR_SHIFT: Record<string, { overall: number; domains: Record<string, number> }> = {
+  // Delivery is the whole story here: the club put its coach development plan
+  // into practice and the observation areas moved with it.
+  "brisbane-cityside": {
+    overall: 4.2,
+    domains: { TECHNICAL: 1.5, PLANNING: 2.0, DELIVERY: 9.4, OUTCOMES: 1.1 },
+  },
+  // Lost two qualified staff, which is a Technical fall the other domains
+  // can't offset — the case for reading the domain columns rather than the
+  // total.
+  "redlands-united": {
+    overall: -3.6,
+    domains: { TECHNICAL: -11.2, PLANNING: 1.4, DELIVERY: -1.8, OUTCOMES: -0.6 },
+  },
+  "toowoomba-ranges": {
+    overall: 0,
+    domains: { TECHNICAL: 0.4, PLANNING: 3.1, DELIVERY: -2.6, OUTCOMES: -0.3 },
+  },
+  // Enough to cross a shield boundary, so the board has a row where the shield
+  // itself moved and not only the number.
+  "sunshine-coast-wanderers": {
+    overall: 6.5,
+    domains: { TECHNICAL: 4.8, PLANNING: 7.2, DELIVERY: 6.9, OUTCOMES: 5.4 },
+  },
+  "rockhampton-central": {
+    overall: -5.1,
+    domains: { TECHNICAL: -6.0, PLANNING: -4.4, DELIVERY: -5.8, OUTCOMES: -3.2 },
+  },
+  "mount-isa-rovers": {
+    overall: 2.4,
+    domains: { TECHNICAL: 0.9, PLANNING: 4.6, DELIVERY: 2.2, OUTCOMES: 1.7 },
+  },
+};
+
+/**
+ * Last season's results, as frozen rows.
+ *
+ * Written straight onto the frozen columns rather than assembled from line
+ * items and locked, which is also how a real prior season would arrive: FQ has
+ * been rating clubs for years, and what the portal can be given for those years
+ * is the result, not the evidence behind it. The columns are exactly what the
+ * app reads for a locked assessment, so the board compares like with like.
+ *
+ * Derived from what each club scores *this* season so the movements are the
+ * ones PRIOR_SHIFT describes, rather than two independent guesses that happen
+ * to differ.
+ */
+async function seedPriorSeason(prisma: PrismaClient, priorCycle: { id: string; year: number }) {
+  const { loadAssessment } = await import("../src/lib/cda/assessment.ts");
+  const { shieldFor, tierOf } = await import("../src/lib/cda/scoring.ts");
+
+  const clubs = await prisma.club.findMany({ select: { id: true, slug: true } });
+  const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n * 10) / 10));
+
+  for (const club of clubs) {
+    const shift = PRIOR_SHIFT[club.slug];
+    if (!shift) continue;
+
+    const current = await prisma.clubAssessment.findFirst({
+      where: { clubId: club.id, cycleId: { not: priorCycle.id } },
+      select: { id: true, tierId: true },
+    });
+    if (!current) continue;
+
+    const { rating } = await loadAssessment(current.id);
+    const percent = clamp(rating.percent - shift.overall);
+    const domain = (d: string) => clamp(rating.domains[d as never] - (shift.domains[d] ?? shift.overall));
+
+    const tier = tierOf(CLUB_TIER[club.slug]);
+    const shield = shieldFor(percent, priorCycle as never, tier);
+
+    await prisma.clubAssessment.create({
+      data: {
+        clubId: club.id,
+        cycleId: priorCycle.id,
+        tierId: current.tierId,
+        status: "CONFIRMED",
+        clubSubmittedAt: new Date(`${priorCycle.year}-04-19`),
+        lockedAt: new Date(`${priorCycle.year}-08-14`),
+        publishedAt: new Date(`${priorCycle.year}-08-20`),
+        licenceCompliant: true,
+        finalPercent: percent,
+        technicalPct: domain("TECHNICAL"),
+        planningPct: domain("PLANNING"),
+        deliveryPct: domain("DELIVERY"),
+        outcomesPct: domain("OUTCOMES"),
+        finalShield: shield,
+        eligible: true,
+        summary: `Confirmed rating for ${priorCycle.year}. Carried forward from Football Queensland's own record; the line items behind it predate the portal.`,
+      },
+    });
+  }
 }
 
 /**

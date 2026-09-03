@@ -13,6 +13,9 @@ export const metadata = { title: "Reconcile" };
 const FILTERS = [
   { value: "unresolved", label: "Unresolved" },
   { value: "split", label: "Split only" },
+  // A one-sided criterion looks settled and isn't, so it gets its own view
+  // rather than sitting unremarked among the rest of the unresolved.
+  { value: "partial", label: "Waiting on a score" },
   { value: "all", label: "All" },
 ] as const;
 
@@ -65,10 +68,14 @@ export default async function ReconcilePage({
     if (domain && !r.code.startsWith(domainPrefix(domain))) return false;
     if (filter === "unresolved") return r.final === null;
     if (filter === "split") return r.level === "MINOR" || r.level === "MAJOR";
+    if (filter === "partial") return r.level === "PARTIAL";
     return true;
   });
 
   const agreedUnresolved = rows.filter((r) => r.level === "AGREED" && r.final === null).length;
+  // Held back from the bulk accept because only one assessor's score stands
+  // behind them. Counted here so the panel can say why they were left.
+  const partial = rows.filter((r) => r.level === "PARTIAL" && r.final === null).length;
   const major = rows.filter((r) => r.level === "MAJOR").length;
   const minor = rows.filter((r) => r.level === "MINOR").length;
   const unresolved = rows.filter((r) => r.final === null).length;
@@ -158,7 +165,9 @@ export default async function ReconcilePage({
               description={
                 filter === "unresolved"
                   ? "Every criterion in this view has been resolved."
-                  : "No criteria match this filter."
+                  : filter === "partial"
+                    ? "Nothing here is waiting on another assessor's score."
+                    : "No criteria match this filter."
               }
             />
           ) : (
@@ -180,7 +189,9 @@ export default async function ReconcilePage({
         </div>
 
         <aside className="space-y-4">
-          {!locked && <AcceptAgreed assessmentId={id} count={agreedUnresolved} />}
+          {!locked && (
+            <AcceptAgreed assessmentId={id} count={agreedUnresolved} partial={partial} />
+          )}
           <DomainBreakdown rating={rating} provisional={!frozen} />
         </aside>
       </div>
