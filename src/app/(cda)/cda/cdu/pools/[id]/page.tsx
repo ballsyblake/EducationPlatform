@@ -4,10 +4,12 @@ import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/componen
 import { ASSESSOR_POOL_WHERE, requireCdu } from "@/lib/cda/access";
 import { tierScope } from "@/lib/cda/assessment";
 import { ASSESSED_DOMAINS, DOMAIN_LABELS } from "@/lib/cda/rubric";
+import { HARMONISED_DOMAINS } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
 import { AllocateRow, type AllocationRow } from "./allocate-row";
 import { FillGaps } from "./fill-gaps";
+import { RefreshedItems, type RefreshableItem } from "./refreshed-items";
 import { RetainedToggle } from "./retained-toggle";
 import type { Domain } from "@prisma-client";
 
@@ -37,6 +39,7 @@ export default async function PoolPage({
     include: {
       cycle: true,
       assessments: { include: { club: true }, orderBy: { club: { name: "asc" } } },
+      refreshedCriteria: { select: { id: true } },
     },
   });
   if (!pool) notFound();
@@ -72,6 +75,21 @@ export default async function PoolPage({
   const scored = new Map(
     scoreCounts.map((s) => [`${s.assessorId}:${s.criterionId}`, s._count._all]),
   );
+
+  // Drawn from the criteria already loaded for the allocation table rather than
+  // queried again, and only the domains harmonisation touches — an item nothing
+  // averages cannot be held out of the averaging.
+  const alreadyRefreshed = new Set(pool.refreshedCriteria.map((c) => c.id));
+  const refreshable: RefreshableItem[] = criteria
+    .filter((c) => HARMONISED_DOMAINS.includes(c.domain))
+    .map((c) => ({
+      id: c.id,
+      code: c.code,
+      title: c.title,
+      domain: c.domain,
+      points: c.maxScore * c.weight,
+      refreshed: alreadyRefreshed.has(c.id),
+    }));
 
   const clubCount = pool.assessments.length;
 
@@ -177,12 +195,22 @@ export default async function PoolPage({
 
       <FillGaps poolId={pool.id} missing={applicableCriteria.length - allocated} />
 
-      <div className="mb-6">
+      <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <RetainedToggle
           poolId={pool.id}
           retained={pool.retainedEvidence}
           published={pool.assessments.filter((a) => a.publishedAt !== null).length}
         />
+
+        {/* Only on a retained pool: "the items we read again anyway" is a
+            statement about a season that carried the rest over. */}
+        {pool.retainedEvidence && refreshable.length > 0 && (
+          <RefreshedItems
+            poolId={pool.id}
+            items={refreshable}
+            priorYear={pool.cycle.year - 1}
+          />
+        )}
       </div>
 
       {mixedTiers && (

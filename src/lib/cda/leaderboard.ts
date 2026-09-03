@@ -181,6 +181,8 @@ export type Leaderboard = {
   harmonisable: number;
   /** Pools that carried their evidence over, by name — what to say out loud. */
   retainedPools: string[];
+  /** Line items those pools read again anyway, held out of the pooling. */
+  refreshedItems: number;
   cycle: { id: string; year: number; name: string };
   priorCycle: { id: string; year: number; name: string } | null;
   standings: Standing[];
@@ -277,6 +279,7 @@ export async function loadLeaderboard(
     assessments,
     criteria,
     tiers,
+    refreshedByPool,
     finals,
     scores,
     staff,
@@ -322,6 +325,12 @@ export async function loadLeaderboard(
         orderBy: [{ position: "asc" }, { code: "asc" }],
       }),
       prisma.tier.findMany({ orderBy: { position: "asc" } }),
+      // The "+5": items a retained pool read again anyway. Only retained pools
+      // can have any, so this is a handful of rows at most.
+      prisma.pool.findMany({
+        where: { cycleId, retainedEvidence: true },
+        select: { id: true, refreshedCriteria: { select: { id: true } } },
+      }),
       prisma.finalScore.findMany({
         where: { assessment: { cycleId } },
         select: { assessmentId: true, criterionId: true, stars: true },
@@ -365,6 +374,7 @@ export async function loadLeaderboard(
             where: { assessment: { cycleId: priorCycle.id } },
             select: {
               assessmentId: true,
+              criterionId: true,
               stars: true,
               assessment: { select: { clubId: true } },
               criterion: { select: { domain: true, weight: true, maxScore: true } },
@@ -428,23 +438,30 @@ export async function loadLeaderboard(
     priorNotices.map((n) => `${n.assessment.clubId}:${n.nonNegotiable.code}`),
   );
 
-  // Keyed by club rather than by assessment: this season's row is what needs
-  // the lookup, and it knows the club, not last season's assessment id.
-  const priorPoints = new Map<string, Record<Domain, DomainPoints>>();
-  for (const f of priorFinals) {
-    const clubId = f.assessment.clubId;
-    const forClub =
-      priorPoints.get(clubId) ??
-      ({
-        TECHNICAL: { earned: 0, available: 0 },
-        PLANNING: { earned: 0, available: 0 },
-        DELIVERY: { earned: 0, available: 0 },
-        OUTCOMES: { earned: 0, available: 0 },
-      } as Record<Domain, DomainPoints>);
+  const refreshedFor = new Map(
+    refreshedByPool.map((p) => [p.id, new Set(p.refreshedCriteria.map((c) => c.id))]),
+  );
 
-    forClub[f.criterion.domain].earned += f.stars * f.criterion.weight;
-    forClub[f.criterion.domain].available += f.criterion.maxScore * f.criterion.weight;
-    priorPoints.set(clubId, forClub);
+  // Kept as rows rather than pre-summed by domain, because the re-read items
+  // have to come out of last season's side of the ratio too and which items
+  // those are depends on the club's pool. Summing first would throw away the
+  // criterion ids the exclusion needs.
+  const priorRowsByClub = new Map<string, typeof priorFinals>();
+  for (const f of priorFinals) {
+    const list = priorRowsByClub.get(f.assessment.clubId) ?? [];
+    list.push(f);
+    priorRowsByClub.set(f.assessment.clubId, list);
+  }
+
+  /** Last season's points in one domain, less anything re-read this season. */
+  function priorPointsFor(clubId: string, domain: Domain, skip: Set<string>): DomainPoints {
+    const points = { earned: 0, available: 0 };
+    for (const f of priorRowsByClub.get(clubId) ?? []) {
+      if (f.criterion.domain !== domain || skip.has(f.criterionId)) continue;
+      points.earned += f.stars * f.criterion.weight;
+      points.available += f.criterion.maxScore * f.criterion.weight;
+    }
+    return points;
   }
 
   /* -------------------------- prior season, ranked ------------------------- */
@@ -505,6 +522,17 @@ export async function loadLeaderboard(
     let settled = 0;
     let scored = 0;
 
+    // Which of this club's line items were read again despite the pool
+    // retaining. Empty for every pool that was assessed fresh, and for a
+    // retained pool that read nothing again.
+    const reread = refreshedFor.get(a.poolId ?? "") ?? new Set<string>();
+    const freshPoints: Record<Domain, DomainPoints> = {
+      TECHNICAL: { earned: 0, available: 0 },
+      PLANNING: { earned: 0, available: 0 },
+      DELIVERY: { earned: 0, available: 0 },
+      OUTCOMES: { earned: 0, available: 0 },
+    };
+
     const outcomes: CriterionOutcome[] = applicable.map((c) => {
       const key = `${a.id}:${c.id}`;
       const final = finalFor.get(key);
@@ -529,7 +557,14 @@ export async function loadLeaderboard(
         final ?? null,
       );
 
-      return { criterion: c as ScorableCriterion, stars: agreement.final ?? agreement.suggested };
+      const stars = agreement.final ?? agreement.suggested;
+
+      if (reread.has(c.id)) {
+        freshPoints[c.domain].earned += (stars ?? 0) * c.weight;
+        freshPoints[c.domain].available += c.maxScore * c.weight;
+      }
+
+      return { criterion: c as ScorableCriterion, stars };
     });
 
     const points: Record<Domain, DomainPoints> = {
@@ -599,10 +634,13 @@ export async function loadLeaderboard(
       let pooled = true;
 
       for (const d of HARMONISED_DOMAINS) {
-        const last = priorPoints.get(a.clubId)?.[d];
+        // Last season with the same items held out, so the ratio has the
+        // re-read items on neither side of it.
+        const last = priorPointsFor(a.clubId, d, reread);
         const h = harmonise(
           breakdown.domains[d],
-          last && last.available > 0 ? last : { percent: prior.domains[d] },
+          last.available > 0 ? last : { percent: prior.domains[d] },
+          freshPoints[d],
         );
         domains[d] = h;
         diff += h.diff;
@@ -740,6 +778,11 @@ export async function loadLeaderboard(
     retainedPools: [
       ...new Set(rows.filter((r) => r.retained && r.pool).map((r) => r.pool!)),
     ].sort(),
+    // Distinct across the retained pools: two pools re-reading the same item is
+    // one item read again, not two.
+    refreshedItems: new Set(
+      refreshedByPool.flatMap((p) => p.refreshedCriteria.map((c) => c.id)),
+    ).size,
     cycle: { id: cycle.id, year: cycle.year, name: cycle.name },
     priorCycle: priorCycle
       ? { id: priorCycle.id, year: priorCycle.year, name: priorCycle.name }

@@ -305,7 +305,16 @@ export default async function LeaderboardPage({
                   {HARMONISED_DOMAINS.map((d) => DOMAIN_LABELS[d]).join(" and ")} over from{" "}
                   {board.priorCycle?.year}, so those clubs are pooled across both seasons — every
                   point scored across the two over every point available — with their places,
-                  leagues and changes drawn from that.{" "}
+                  leagues and changes drawn from that.
+                  {board.refreshedItems > 0 && (
+                    <>
+                      {" "}
+                      The {board.refreshedItems} item
+                      {board.refreshedItems === 1 ? "" : "s"} they read again anyway
+                      {board.refreshedItems === 1 ? " is" : " are"} held out of the pooling and
+                      count at what they scored.
+                    </>
+                  )}{" "}
                   {board.harmonisable} of {board.standings.length}{" "}
                   ranked clubs. Every other pool was assessed fresh and keeps this
                   season&apos;s score.
@@ -732,7 +741,15 @@ function Row({
                   ? `${points(row.points.domains[d].earned)} of ${
                       row.points.domains[d].available
                     } points this season${
-                      swap ? `, ${points(swap.points)} pooled across both` : ""
+                      swap
+                        ? `, ${points(swap.points)} once pooled across both${
+                            swap.fresh.available > 0
+                              ? ` — ${points(swap.fresh.earned)} of ${
+                                  swap.fresh.available
+                                } from items read again, counted as scored`
+                              : ""
+                          }`
+                        : ""
                     }`
                   : undefined
               }

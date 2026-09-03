@@ -660,12 +660,20 @@ export function computeRating(
 export const HARMONISED_DOMAINS: Domain[] = ["PLANNING"];
 
 export type HarmonisedDomain = {
-  /** The two seasons taken together. */
+  /**
+   * The domain's harmonised percentage — its harmonised points over what was
+   * available this season. Equal to `pooled` when nothing was re-read, which is
+   * why the two were one field until the +5 items existed.
+   */
   percent: number;
-  /** That ratio expressed in this season's points, which is what a total needs. */
+  /** The two seasons taken together, over the part that was actually pooled. */
+  pooled: number;
+  /** The harmonised result in this season's points, which is what a total needs. */
   points: number;
   /** Harmonised points minus what this season alone scored. Usually negative. */
   diff: number;
+  /** The re-read items, which skipped the pooling and count at what they scored. */
+  fresh: DomainPoints;
   /**
    * POOLED is Football Queensland's arithmetic and needs both seasons' points.
    * MEAN is the fallback for a season imported as a percentage alone.
@@ -693,25 +701,49 @@ export type HarmonisedDomain = {
  * percentage — which is all a season imported from FQ's own records leaves
  * behind — the two are weighted equally and `basis` says so, because a number
  * that came from a different formula must not be presented as though it didn't.
+ *
+ * `fresh` is the part of this season that must not be averaged at all. FQ's
+ * cycle table reads "Retained +5", not "Retained": a pool that carried its
+ * Planning over still had a handful of items read from scratch, and those carry
+ * a finding that *replaces* last season's rather than one to be averaged with
+ * it. Averaging them would be the one thing harmonisation is meant to prevent —
+ * holding a club to evidence that has already been superseded. So they are
+ * lifted out of both sides of the ratio and added back at face value, and
+ * `prior` must arrive with those same items already excluded; this function
+ * cannot do that itself, because last season's points come in as a domain total
+ * with no line items left in it.
  */
 export function harmonise(
   current: DomainPoints,
   prior: DomainPoints | { percent: number },
+  /** Re-read this season, and so excluded from `prior` by the caller too. */
+  fresh: DomainPoints = { earned: 0, available: 0 },
 ): HarmonisedDomain {
   const priorPoints = "available" in prior && prior.available > 0 ? prior : null;
 
-  const percent = priorPoints
-    ? ((priorPoints.earned + current.earned) / (priorPoints.available + current.available)) * 100
+  // What is left to average once the re-read items are set aside.
+  const carried: DomainPoints = {
+    earned: current.earned - fresh.earned,
+    available: current.available - fresh.available,
+  };
+
+  const pooled = priorPoints
+    ? ((priorPoints.earned + carried.earned) / (priorPoints.available + carried.available)) * 100
     : (("percent" in prior ? prior.percent : 0) +
-        (current.available === 0 ? 0 : (current.earned / current.available) * 100)) /
+        (carried.available === 0 ? 0 : (carried.earned / carried.available) * 100)) /
       2;
 
-  const points = (percent / 100) * current.available;
+  const points = (pooled / 100) * carried.available + fresh.earned;
 
   return {
-    percent,
+    // Over the whole domain, not just the pooled part — the column shows a
+    // Planning percentage, and a club whose re-read items scored well must not
+    // read as though only the carried ones counted.
+    percent: current.available === 0 ? 0 : (points / current.available) * 100,
+    pooled,
     points,
     diff: points - current.earned,
+    fresh,
     basis: priorPoints ? "POOLED" : "MEAN",
   };
 }

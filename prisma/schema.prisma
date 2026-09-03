@@ -1273,6 +1273,18 @@ model Pool {
   /// would move clubs that were assessed fresh.
   retainedEvidence Boolean @default(false)
 
+  /// The line items this pool did read again despite retaining the rest.
+  ///
+  /// Football Queensland's cycle table does not say "Retained", it says
+  /// "Retained +5": a retained pool still has a handful of items assessed from
+  /// scratch. Those carry a finding from this season that supersedes last
+  /// season's rather than one to be averaged with it, so they are held out of
+  /// the pooling on both sides and counted at what they scored.
+  ///
+  /// Per pool for the same reason `retainedEvidence` is: which items were
+  /// re-read is a decision made per pool when the season was planned.
+  refreshedCriteria Criterion[] @relation("PoolRefreshedCriteria")
+
   assessments ClubAssessment[]
   assignments CriterionAssignment[]
 
@@ -1454,6 +1466,10 @@ model Criterion {
   twoStarAt   Int  @default(2)
   threeStarAt Int  @default(3)
   fourStarAt  Int?
+
+  /// Pools that re-read this item in a season they otherwise retained. See
+  /// Pool.refreshedCriteria.
+  refreshedInPools Pool[] @relation("PoolRefreshedCriteria")
 
   subCriteria SubCriterion[]
   scores      AssessorScore[]

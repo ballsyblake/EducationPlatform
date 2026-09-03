@@ -814,6 +814,19 @@ export async function seedDemo(prisma: PrismaClient) {
         // read fresh. Without a retained pool in the demo the harmonised board
         // is identical to the raw one and the whole mechanism is invisible.
         retainedEvidence: poolSpec.name === "B",
+        // The "+5" — the items that pool read again anyway, which count at what
+        // they scored rather than being averaged with last season. Five of
+        // them, which is what FQ's own cycle table says.
+        ...(poolSpec.name === "B"
+          ? {
+              refreshedCriteria: {
+                connect: criteria
+                  .filter((c) => c.domain === "PLANNING")
+                  .slice(0, 5)
+                  .map((c) => ({ id: c.id })),
+              },
+            }
+          : {}),
       },
     });
 

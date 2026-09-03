@@ -12,9 +12,9 @@ import {
   loadAssessment,
   tierScope,
 } from "@/lib/cda/assessment";
-import { ASSESSED_DOMAINS, MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
+import { ASSESSED_DOMAINS, DOMAIN_LABELS, MAX_ASSESSORS_PER_CLUB } from "@/lib/cda/rubric";
 import { STAGE_LABELS, reviewTimeline } from "@/lib/cda/review";
-import { THRESHOLD_LEVELS } from "@/lib/cda/scoring";
+import { HARMONISED_DOMAINS, THRESHOLD_LEVELS } from "@/lib/cda/scoring";
 import { ensureCycleStandards } from "@/lib/cda/assessment";
 import { parseClubCsv, planImport, type ImportPlan } from "@/lib/cda/club-import";
 import { prisma } from "@/lib/db";
@@ -797,7 +797,16 @@ export async function setPoolRetained(
   });
   if (!pool) return { status: "error", message: "That pool no longer exists." };
 
-  await prisma.pool.update({ where: { id: poolId }, data: { retainedEvidence: retained } });
+  await prisma.pool.update({
+    where: { id: poolId },
+    data: {
+      retainedEvidence: retained,
+      // "The items we read again anyway" only means something in a season that
+      // carried the rest over. Left behind, they would silently reapply if the
+      // pool were ever marked retained again for a different season's reason.
+      ...(retained ? {} : { refreshedCriteria: { set: [] } }),
+    },
+  });
 
   refresh();
   revalidatePath("/cda/leaderboard");
@@ -815,6 +824,62 @@ export async function setPoolRetained(
         ? `Pool ${pool.name} retained last season's evidence. Its clubs are now placed on the harmonised score.`
         : `Pool ${pool.name} was assessed fresh. Its clubs are placed on this season's score alone.`) +
       note,
+  };
+}
+
+/**
+ * Records which line items a retained pool read again anyway — FQ's "+5".
+ *
+ * The whole set is posted and replaces what was there, the same way an
+ * assessor's evidence ticks do: a checkbox that is off has to be able to mean
+ * "not this one" rather than "unchanged", and diffing two lists to work out
+ * which is which is how one gets left behind.
+ *
+ * Only offered on a retained pool, and cleared when a pool stops being one:
+ * "the items we read again anyway" is a statement about a season that carried
+ * the rest over, and it means nothing about a pool assessed fresh throughout.
+ */
+export async function setRefreshedCriteria(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  await requireCdu();
+
+  const poolId = String(formData.get("poolId") ?? "");
+  const pool = await prisma.pool.findUnique({
+    where: { id: poolId },
+    select: { name: true, retainedEvidence: true },
+  });
+  if (!pool) return { status: "error", message: "That pool no longer exists." };
+  if (!pool.retainedEvidence) {
+    return {
+      status: "error",
+      message: `Pool ${pool.name} was assessed fresh throughout, so there is nothing to hold out of the pooling.`,
+    };
+  }
+
+  // Intersected with the items that can actually be harmonised, so an id from
+  // another domain — or from nowhere — can't quietly exempt itself from the
+  // averaging.
+  const eligible = await prisma.criterion.findMany({
+    where: { active: true, domain: { in: HARMONISED_DOMAINS } },
+    select: { id: true },
+  });
+  const posted = new Set(formData.getAll("criterionId").map(String));
+  const ids = eligible.filter((c) => posted.has(c.id)).map((c) => ({ id: c.id }));
+
+  await prisma.pool.update({
+    where: { id: poolId },
+    data: { refreshedCriteria: { set: ids } },
+  });
+
+  refresh();
+  revalidatePath("/cda/leaderboard");
+  return {
+    status: "ok",
+    message: ids.length
+      ? `${ids.length} line item${ids.length === 1 ? "" : "s"} counted at this season's score for Pool ${pool.name}; the rest are pooled across both.`
+      : `Pool ${pool.name} has nothing read again — its whole ${HARMONISED_DOMAINS.map((d) => DOMAIN_LABELS[d]).join(" and ")} is pooled across both seasons.`,
   };
 }
 
