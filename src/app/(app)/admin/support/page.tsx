@@ -19,6 +19,7 @@ const CASE_STATUS: Record<string, { label: string; tone: "ok" | "good" | "bad" |
   SUCCESSFUL: { label: "Successful", tone: "good" },
   UNSUCCESSFUL: { label: "Not successful", tone: "bad" },
   WITHDRAWN: { label: "Withdrawn", tone: "muted" },
+  LAPSED: { label: "Deadline passed", tone: "bad" },
 };
 
 export default async function SupportPage({

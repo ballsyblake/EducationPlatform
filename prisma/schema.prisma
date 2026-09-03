@@ -122,6 +122,9 @@ model User {
   supportReferrals SupportCase[]    @relation("SupportReferrer")
   supportReviews   SupportAttempt[] @relation("SupportReviewer")
 
+  supportExtensions SupportExtension[] @relation("SupportExtensionRequester")
+  supportActivities SupportActivity[]  @relation("SupportActivityAuthor")
+
   // Club Development & Assessment
   clubMemberships        ClubMembership[]
   ambassadorFor          ClubAmbassador[]      @relation("ClubAmbassadors")
@@ -182,6 +185,19 @@ model Course {
   /// not passed, and the rubric's own name for what happens next is
   /// post-course support.
   ratingThreshold Float?
+
+  /// When post-course support for this cohort has to be finished by.
+  ///
+  /// Set once for the whole intake — "within six months of the course ending" —
+  /// and inherited by every case opened on it, so eleven coaches referred off
+  /// one course share one date without eleven people typing it.
+  ///
+  /// Stored rather than computed from the last delivery day. The dates FQ
+  /// actually uses are decisions, not arithmetic, and a derived deadline would
+  /// move on its own the day somebody corrects a date in the register — which
+  /// is a date that decides whether a coach passed. A case can still override
+  /// it; see `SupportCase.deadline`.
+  supportDeadline DateTime?
 
   /// What the course is an accreditation in — "B Diploma", "C Licence".
   qualification String?
@@ -803,6 +819,15 @@ enum SupportCaseStatus {
   /// Closed without an outcome: the coach left the program, moved clubs, or
   /// was referred in error. Distinct from UNSUCCESSFUL, which is a judgement.
   WITHDRAWN
+
+  /// The deadline passed and nothing was ever submitted.
+  ///
+  /// Its own status because the other two both misreport it. UNSUCCESSFUL says
+  /// a delivery was assessed and fell short, which is a judgement nobody made
+  /// here; WITHDRAWN says the coach left, which they didn't. The register's own
+  /// phrase for this is "failed to submit", and a coach who ran out of time
+  /// deserves to be told that rather than told they failed.
+  LAPSED
 }
 
 enum SupportAttemptStatus {
@@ -859,6 +884,55 @@ model SupportCase {
   educatorId String?
   educator   User?   @relation("SupportEducator", fields: [educatorId], references: [id], onDelete: SetNull)
 
+  /// Who is running it, written out.
+  ///
+  /// Nullable account with a name beside it, the same shape as `CourseStaff`
+  /// and for the same reason. Support is sometimes given by somebody this
+  /// system will never hold an account for — a technical director at another
+  /// federation, or two people sharing it. A foreign key alone makes those
+  /// cases unrecordable, and an unrecordable case goes back to the spreadsheet.
+  educatorName String?
+
+  /// This coach's own deadline, when it isn't the cohort's.
+  ///
+  /// Null means the course's date applies. Set only where somebody has moved it
+  /// for this coach specifically, so the ordinary case stays one edit on the
+  /// course rather than one per case — and so correcting a cohort's date still
+  /// reaches everybody who has not been given their own.
+  deadline DateTime?
+
+  /// The support prescribed at referral, in the words it was prescribed in.
+  ///
+  /// "Training visit x1 and filmed live assessment x1 within 6 months." Kept as
+  /// written rather than broken into obligations: it is cohort boilerplate, it
+  /// is what the coach was actually told, and the parts of it a schema could
+  /// check are already modelled — assessed deliveries as attempts, days to sit
+  /// again as `AttendanceMakeUp`, and everything else as an activity.
+  plan String?
+
+  // ---- What the coach told us about visiting them --------------------------
+  //
+  // Replaces a separate Microsoft Form and the "filled the form? Y/N" column
+  // beside it. Their club and the age group they coach are deliberately absent:
+  // the enrolment for this course already carries both, and a second copy is a
+  // second thing to go out of date.
+
+  /// Which day suits a visit, in their words — "Tuesdays or Thursdays".
+  availabilityDay String?
+
+  /// What time — "5:30pm training".
+  availabilityTime String?
+
+  /// Anything else they said about being visited.
+  availabilityNote String?
+
+  /// When they answered.
+  ///
+  /// A timestamp rather than a flag because null is the sheet's "hasn't filled
+  /// the form in", and chasing somebody is a question of how long ago you
+  /// asked.
+  availabilityAt DateTime?
+
   referredById String?
   referredBy   User?   @relation("SupportReferrer", fields: [referredById], references: [id], onDelete: SetNull)
 
@@ -868,7 +942,9 @@ model SupportCase {
   /// The educator's closing note, written when the case ends either way.
   closingNote String?
 
-  attempts SupportAttempt[]
+  attempts   SupportAttempt[]
+  extensions SupportExtension[]
+  activities SupportActivity[]
 
   /// One case per coach per course. A course here is already a single season's
   /// offering, so a second run of the same course is a second course row.
@@ -876,6 +952,17 @@ model SupportCase {
   @@index([status])
   @@index([userId])
   @@index([educatorId])
+  /// The desk's own query: open cases, soonest deadline first, and the count of
+  /// them already past it. Status leads because it is the selective half —
+  /// most cases are closed — and the date follows so the ordering comes off the
+  /// index rather than a sort.
+  ///
+  /// Covers only the cases with no extension, which is nearly all of them. A
+  /// case that has one is resolved in application code; see the note in the
+  /// migration about why the deadline in force is not a column.
+  @@index([status, deadline])
+  /// Caseload per educator, which the sheet kept as a hand-maintained tally.
+  @@index([educatorId, status])
 }
 
 /// One observation or one piece of film, and the review of it.
@@ -928,6 +1015,125 @@ model SupportAttempt {
   @@unique([caseId, attemptNo])
   @@index([status])
   @@index([caseId])
+}
+
+enum SupportExtensionStatus {
+  /// Asked for, not yet answered. Usually asked of the national body, which is
+  /// why this can sit here for weeks and why it is a state rather than a note.
+  REQUESTED
+
+  /// Granted, for the date in `grantedUntil` — which is not always the date
+  /// that was asked for.
+  GRANTED
+
+  /// Refused. Kept rather than deleted: a refused request is the reason the
+  /// original deadline still stands, and next year somebody will ask why.
+  REFUSED
+}
+
+/// One request to move a case's deadline, and what came back.
+///
+/// A row rather than a mutable date, because the spreadsheet carried two
+/// different things in one column — "extension granted" with a later date, and
+/// "asked FA for an extension" with no date at all — and a single field can
+/// only hold the first. The deadline in force is the latest GRANTED extension,
+/// falling back to the case's own date, falling back to the course's.
+model SupportExtension {
+  id     String      @id @default(cuid())
+  caseId String
+  case   SupportCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  status SupportExtensionStatus @default(REQUESTED)
+
+  /// The date asked for.
+  requestedUntil DateTime
+
+  /// The date given, when it was granted. Null until then, and not necessarily
+  /// what was asked for — a request for December answered with October is a
+  /// grant, and the case is due in October.
+  grantedUntil DateTime?
+
+  /// Why the extension is needed, for whoever reads this a year later.
+  reason String?
+
+  /// Who answered — "Football Australia". Free text because the decision is
+  /// usually made outside this system, by somebody with no account in it.
+  decidedBy String?
+
+  requestedAt   DateTime  @default(now())
+  decidedAt     DateTime?
+  requestedById String?
+  requestedBy   User?     @relation("SupportExtensionRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@index([status])
+  @@index([requestedById])
+}
+
+enum SupportActivityKind {
+  /// "Email offering support sent 31/03/2026" — the case's opening move.
+  SUPPORT_OFFERED
+
+  /// An online meeting or catch-up.
+  MEETING
+
+  /// A session watched to help rather than to judge. Nobody is rated and no
+  /// attempt is consumed, which is exactly why it cannot be a SupportAttempt.
+  TRAINING_VISIT
+
+  /// An action plan sent to the coach.
+  ACTION_PLAN
+
+  /// Film asked for.
+  VIDEO_CHASED
+
+  /// Film arrived — the moment the clock stops being the coach's problem.
+  VIDEO_RECEIVED
+
+  /// The coach is unavailable, has stopped coaching, or has gone quiet. Often
+  /// the last thing on a case that lapses, and the reason it did.
+  UNAVAILABLE
+
+  /// The outcome was sent to the coach.
+  OUTCOME_SENT
+
+  /// Anything else worth writing down.
+  NOTE
+}
+
+/// One dated entry in a case's history.
+///
+/// The spreadsheet kept this as a single Notes cell holding four dated entries
+/// typed by one educator, and it was the only record of who did what. A cell is
+/// not a log: it cannot be ordered, counted, or handed to the next person, and
+/// the previous entry is one careless edit from gone.
+model SupportActivity {
+  id     String      @id @default(cuid())
+  caseId String
+  case   SupportCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  kind SupportActivityKind @default(NOTE)
+
+  /// The day the thing happened.
+  ///
+  /// Distinct from `recordedAt` on purpose. These are written up afterwards —
+  /// "training observation completed 27/04" typed in May — and every question
+  /// worth asking of this log is about when the work happened, not when
+  /// somebody got round to recording it.
+  occurredAt DateTime
+
+  /// What happened, in the educator's words.
+  detail String?
+
+  recordedAt   DateTime @default(now())
+  recordedById String?
+  recordedBy   User?    @relation("SupportActivityAuthor", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  /// The timeline, and the only way this is ever read. `caseId` alone needs no
+  /// index of its own — a composite serves its own prefix, and the foreign key
+  /// is covered by this one.
+  @@index([caseId, occurredAt])
+  @@index([recordedById])
 }
 
 /// A reviewer's mark against one criterion of the delivery rubric.
