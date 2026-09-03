@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
 import { assertCourseStaff } from "@/lib/access";
-import { requireStaff } from "@/lib/auth";
+import { isAdmin, requireStaff } from "@/lib/auth";
 import { shortCourseTitle } from "@/lib/coaches";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate } from "@/lib/format";
@@ -41,6 +41,13 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   await assertCourseStaff(user, id);
 
+  // Course settings are an admin's page; an educator's way back is the course
+  // page they work from. Sending them to one that bounces them to their
+  // dashboard is not a way back at all.
+  const back = isAdmin(user)
+    ? { href: `/admin/courses/${id}`, label: "Course settings" }
+    : { href: `/admin/courses/${id}/assess`, label: "Course" };
+
   const course = await prisma.course.findUnique({
     where: { id },
     include: {
@@ -67,15 +74,12 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
   if (course.days.length === 0) {
     return (
       <>
-        <PageHeader
-          breadcrumb={{ href: `/admin/courses/${course.id}`, label: course.title }}
-          title="Attendance register"
-        />
+        <PageHeader breadcrumb={back} title="Attendance register" />
         <EmptyState
           title="This course has no days"
           description="A register needs delivery days to keep. Courses imported from an FQ register bring their nine days with them; add them to a course you created here."
           action={
-            <Link href={`/admin/courses/${course.id}`} className="btn-secondary btn-sm">
+            <Link href={back.href} className="btn-secondary btn-sm">
               Back to the course
             </Link>
           }
@@ -267,7 +271,7 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
   return (
     <>
       <PageHeader
-        breadcrumb={{ href: `/admin/courses/${course.id}`, label: course.title }}
+        breadcrumb={back}
         title="Attendance register"
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
@@ -280,6 +284,9 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
         }
         action={
           <span className="flex flex-wrap gap-2">
+            <Link href={`/admin/courses/${course.id}/assess`} className="btn-secondary btn-sm">
+              Attendance &amp; feedback →
+            </Link>
             <Link href="/admin/make-ups" className="btn-secondary btn-sm">
               Hours desk →
             </Link>
