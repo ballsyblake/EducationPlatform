@@ -761,6 +761,64 @@ export async function createPool(_prev: CduFormState, formData: FormData): Promi
 }
 
 /**
+ * Records whether a pool carried its retained-evidence domains over from last
+ * season instead of assessing them fresh.
+ *
+ * The one input the harmonised board needs. Everything else about
+ * harmonisation is arithmetic the portal can do on its own; which pools
+ * retained their evidence is a decision the Unit made when it planned the
+ * season, and nothing in the data reveals it — a retained Planning score looks
+ * exactly like a re-assessed one.
+ *
+ * Allowed after a lock, unlike almost everything else here, because it changes
+ * no rating. Harmonisation lives on the leaderboard: `computeRating` never sees
+ * it, `freezeResult` never writes it, and a club's percentage, shield and
+ * report are identical either way. What moves is where the club sits on the
+ * board and therefore which league its rank falls in — so a published pool says
+ * how many clubs that is rather than refusing the correction. Blocking it would
+ * mean a flag set wrongly could only be fixed by unlocking issued ratings,
+ * which is a far more dangerous edit than the one being prevented.
+ */
+export async function setPoolRetained(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  await requireCdu();
+
+  const poolId = String(formData.get("poolId") ?? "");
+  const retained = formData.get("retained") === "true";
+
+  const pool = await prisma.pool.findUnique({
+    where: { id: poolId },
+    select: {
+      name: true,
+      _count: { select: { assessments: { where: { publishedAt: { not: null } } } } },
+    },
+  });
+  if (!pool) return { status: "error", message: "That pool no longer exists." };
+
+  await prisma.pool.update({ where: { id: poolId }, data: { retainedEvidence: retained } });
+
+  refresh();
+  revalidatePath("/cda/leaderboard");
+
+  const published = pool._count.assessments;
+  const note = published
+    ? ` ${published} club${published === 1 ? " here has" : "s here have"} a published rating —
+       those are unchanged; what moves is where they sit on the board.`.replace(/\s+/g, " ")
+    : "";
+
+  return {
+    status: "ok",
+    message:
+      (retained
+        ? `Pool ${pool.name} retained last season's evidence. Its clubs are now placed on the harmonised score.`
+        : `Pool ${pool.name} was assessed fresh. Its clubs are placed on this season's score alone.`) +
+      note,
+  };
+}
+
+/**
  * Moves a club into a pool — or out of one.
  *
  * Scores already recorded stay put. They belong to (club, criterion, assessor)

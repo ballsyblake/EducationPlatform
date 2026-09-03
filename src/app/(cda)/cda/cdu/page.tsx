@@ -120,6 +120,7 @@ export default async function CduHomePage() {
     // one item is one item covered, and reporting it as two overstates how far
     // the pool has actually been staffed.
     items: new Set(p.assignments.map((x) => x.criterionId)).size,
+    retained: p.retainedEvidence,
   }));
 
 

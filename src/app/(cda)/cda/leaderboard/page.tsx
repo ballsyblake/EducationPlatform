@@ -101,10 +101,15 @@ export default async function LeaderboardPage({
   const cycle = cycles.find((c) => c.id === cycleParam) ?? cycles[0];
   const sort: Sort = SORTS.includes(sortParam as Sort) ? (sortParam as Sort) : "rank";
 
-  const scoreBasis: ScoreBasis = scoreParam === "harmonised" ? "HARMONISED" : "RAW";
-  const harmonisedView = scoreBasis === "HARMONISED";
+  // Left unset unless the reader asked, so the cycle's own answer stands: a
+  // season with a retained pool in it opens on the harmonised board, because
+  // that is the score those clubs are placed on.
+  const requested: ScoreBasis | undefined =
+    scoreParam === "harmonised" ? "HARMONISED" : scoreParam === "season" ? "RAW" : undefined;
 
-  const board = await loadLeaderboard(cycle.id, scoreBasis);
+  const board = await loadLeaderboard(cycle.id, requested);
+  const harmonisedView = board.basis === "HARMONISED";
+  const scoreKey = scoreParam === "harmonised" || scoreParam === "season" ? scoreParam : undefined;
   const cdu = isCdu(user);
 
   /* ------------------------------- scoping -------------------------------- */
@@ -178,8 +183,7 @@ export default async function LeaderboardPage({
     if (t) q.set("tier", t);
     const v = params.view === undefined ? (byPool ? "pool" : undefined) : params.view;
     if (v) q.set("view", v);
-    const sc =
-      params.score === undefined ? (harmonisedView ? "harmonised" : undefined) : params.score;
+    const sc = params.score === undefined ? scoreKey : params.score;
     if (sc) q.set("score", sc);
     return `/cda/leaderboard?${q.toString()}`;
   };
@@ -277,7 +281,7 @@ export default async function LeaderboardPage({
                 Score
               </span>
               {[
-                { value: null, label: "This season" },
+                { value: "season", label: "This season" },
                 { value: "harmonised", label: "Harmonised" },
               ].map((o) => (
                 <Link
@@ -296,17 +300,22 @@ export default async function LeaderboardPage({
             <p className="mt-1.5 max-w-3xl text-xs text-ink-500">
               {harmonisedView ? (
                 <>
-                  {HARMONISED_DOMAINS.map((d) => DOMAIN_LABELS[d]).join(" and ")} pooled across{" "}
-                  {board.priorCycle?.year} and {board.cycle.year} — every point scored across both
-                  seasons over every point available — with the places, leagues and changes drawn
-                  from that. {board.harmonisable} of {board.standings.length}{" "}
-                  ranked clubs have a season to pool with; the rest keep this one&apos;s score.
+                  Pool{board.retainedPools.length === 1 ? "" : "s"}{" "}
+                  {board.retainedPools.join(", ")} carried{" "}
+                  {HARMONISED_DOMAINS.map((d) => DOMAIN_LABELS[d]).join(" and ")} over from{" "}
+                  {board.priorCycle?.year}, so those clubs are pooled across both seasons — every
+                  point scored across the two over every point available — with their places,
+                  leagues and changes drawn from that.{" "}
+                  {board.harmonisable} of {board.standings.length}{" "}
+                  ranked clubs. Every other pool was assessed fresh and keeps this
+                  season&apos;s score.
                 </>
               ) : (
                 <>
-                  This season&apos;s assessment alone. Planning evidence is retained between seasons
-                  for some pools, so the harmonised board is the one a league allocation is drawn
-                  from.
+                  This season&apos;s assessment alone, including the clubs whose{" "}
+                  {HARMONISED_DOMAINS.map((d) => DOMAIN_LABELS[d]).join(" and ")} was carried over
+                  rather than read again. The harmonised board is the one those clubs are placed
+                  on.
                 </>
               )}
             </p>
@@ -402,7 +411,12 @@ export default async function LeaderboardPage({
                           colSpan={10}
                           className="bg-ink-50 px-3 py-1.5 text-xs font-semibold text-ink-600"
                         >
-                          {r.pool ? `Pool ${r.pool}` : "No pool"}
+                          {r.pool ? `Pool ${r.pool}` : "No pool"}{" "}
+                          {r.retained && (
+                            <span className="ml-2 font-normal text-ink-500">
+                              · evidence retained from {board.priorCycle?.year ?? "last season"}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     )}

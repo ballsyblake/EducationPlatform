@@ -17,6 +17,8 @@ export type PoolSummary = {
   applicable: number;
   /** Of those, how many nobody holds. */
   missing: number;
+  /** Carried its retained-evidence domains over from last season. */
+  retained: boolean;
 };
 
 /**
@@ -60,6 +62,10 @@ export function PoolsPanel({ cycleId, pools }: { cycleId: string; pools: PoolSum
               </Link>
               <span className="text-xs text-ink-500">
                 {p.clubs} club{p.clubs === 1 ? "" : "s"} · {p.items}/{p.applicable} allocated
+                {/* Said here as well as on the pool's own page: it changes how
+                    every club in the pool is placed, and the cycle board is
+                    where someone would notice it was set wrongly. */}
+                {p.retained && " · evidence retained"}
               </span>
             </li>
           ))}

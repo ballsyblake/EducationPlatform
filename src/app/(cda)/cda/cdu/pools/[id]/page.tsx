@@ -8,6 +8,7 @@ import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
 import { AllocateRow, type AllocationRow } from "./allocate-row";
 import { FillGaps } from "./fill-gaps";
+import { RetainedToggle } from "./retained-toggle";
 import type { Domain } from "@prisma-client";
 
 export const metadata = { title: "Allocate a pool" };
@@ -175,6 +176,14 @@ export default async function PoolPage({
       </div>
 
       <FillGaps poolId={pool.id} missing={applicableCriteria.length - allocated} />
+
+      <div className="mb-6">
+        <RetainedToggle
+          poolId={pool.id}
+          retained={pool.retainedEvidence}
+          published={pool.assessments.filter((a) => a.publishedAt !== null).length}
+        />
+      </div>
 
       {mixedTiers && (
         <div className="mb-6 card card-pad">

@@ -109,6 +109,12 @@ export type Standing = {
   zone: string | null;
   poolId: string | null;
   pool: string | null;
+  /**
+   * Whether this club's pool carried its retained-evidence domains over from
+   * last season instead of assessing them fresh. What decides whether the club
+   * is harmonised at all.
+   */
+  retained: boolean;
   tier: string | null;
   status: string;
   /**
@@ -173,6 +179,8 @@ export type Leaderboard = {
   basis: ScoreBasis;
   /** How many ranked clubs actually carry a harmonised figure. */
   harmonisable: number;
+  /** Pools that carried their evidence over, by name — what to say out loud. */
+  retainedPools: string[];
   cycle: { id: string; year: number; name: string };
   priorCycle: { id: string; year: number; name: string } | null;
   standings: Standing[];
@@ -250,7 +258,13 @@ export function leagueFor(rank: number | null): number | null {
  */
 export async function loadLeaderboard(
   cycleId: string,
-  scoreBasis: ScoreBasis = "RAW",
+  /**
+   * Omit to let the cycle decide. A cycle with a retained pool in it defaults to
+   * the harmonised board, because that is the score those clubs are actually
+   * placed on; a cycle where every pool was assessed fresh has nothing to
+   * harmonise and defaults to the raw one. Pass a basis to override.
+   */
+  requested?: ScoreBasis,
 ): Promise<Leaderboard> {
   const cycle = await prisma.cycle.findUniqueOrThrow({ where: { id: cycleId } });
 
@@ -289,7 +303,7 @@ export async function loadLeaderboard(
           eligible: true,
           poolId: true,
           club: { select: { id: true, name: true, zone: true } },
-          pool: { select: { name: true } },
+          pool: { select: { name: true, retainedEvidence: true } },
         },
         orderBy: { club: { name: "asc" } },
       }),
@@ -375,6 +389,13 @@ export async function loadLeaderboard(
     ]);
 
   /* ------------------------------ grouping -------------------------------- */
+
+  // Decided from the cycle rather than left to the caller: harmonisation is a
+  // property of how the season was assessed, so a board that had to be asked
+  // for it would show the wrong ranking to anyone who did not know to ask.
+  const scoreBasis: ScoreBasis =
+    requested ??
+    (assessments.some((a) => a.pool?.retainedEvidence === true) ? "HARMONISED" : "RAW");
 
   const fallbackTier = tiers[0] ?? null;
 
@@ -565,8 +586,14 @@ export async function loadLeaderboard(
     // Averaged across the two seasons for the retained-evidence domains, then
     // folded back into the total: the rest of the rating is untouched, so the
     // harmonised total is the raw one plus the adjustment those domains made.
+    // Only the pools that retained their evidence. Harmonising a club that was
+    // assessed fresh would average this season's finding with a finding it
+    // already replaced, and drag a club that genuinely improved back towards
+    // last year.
+    const retained = a.pool?.retainedEvidence === true;
+
     let harmonised: Harmonised | null = null;
-    if (prior && breakdown) {
+    if (retained && prior && breakdown) {
       const domains: Partial<Record<Domain, HarmonisedDomain>> = {};
       let diff = 0;
       let pooled = true;
@@ -609,6 +636,7 @@ export async function loadLeaderboard(
       zone: a.club.zone,
       poolId: a.poolId,
       pool: a.pool?.name ?? null,
+      retained,
       tier: tier?.name ?? null,
       status: a.status,
       basis: frozen ? "FROZEN" : "PROVISIONAL",
@@ -709,6 +737,9 @@ export async function loadLeaderboard(
   return {
     basis: scoreBasis,
     harmonisable: ranked.filter((r) => r.harmonised !== null).length,
+    retainedPools: [
+      ...new Set(rows.filter((r) => r.retained && r.pool).map((r) => r.pool!)),
+    ].sort(),
     cycle: { id: cycle.id, year: cycle.year, name: cycle.name },
     priorCycle: priorCycle
       ? { id: priorCycle.id, year: priorCycle.year, name: priorCycle.name }

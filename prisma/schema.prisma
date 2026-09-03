@@ -1259,6 +1259,20 @@ model Pool {
   name     String
   position Int    @default(0)
 
+  /// Whether this pool's retained-evidence domains were carried over from last
+  /// season rather than assessed fresh this one.
+  ///
+  /// Football Queensland does not re-read every pool's Planning documents every
+  /// year. Their own cycle table runs "All / Retained +5 / All" across the pools
+  /// and seasons, so in a retained year part of a club's Planning score rests on
+  /// paperwork assessed twelve months ago — and those clubs are placed on a
+  /// score pooled across the two seasons instead of on this one alone.
+  ///
+  /// Per pool rather than per cycle because that is the grain FQ works in: in
+  /// 2026 one pool retained and the others did not, and harmonising the others
+  /// would move clubs that were assessed fresh.
+  retainedEvidence Boolean @default(false)
+
   assessments ClubAssessment[]
   assignments CriterionAssignment[]
 

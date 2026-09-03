@@ -805,7 +805,16 @@ export async function seedDemo(prisma: PrismaClient) {
 
   for (const [poolIndex, poolSpec] of POOLS.entries()) {
     const pool = await prisma.pool.create({
-      data: { cycleId: cycle.id, name: poolSpec.name, position: poolIndex },
+      data: {
+        cycleId: cycle.id,
+        name: poolSpec.name,
+        position: poolIndex,
+        // Pool B carried its Planning evidence over, which is the shape of
+        // Football Queensland's own 2026 season — one pool retained, the others
+        // read fresh. Without a retained pool in the demo the harmonised board
+        // is identical to the raw one and the whole mechanism is invisible.
+        retainedEvidence: poolSpec.name === "B",
+      },
     });
 
     for (const slug of poolSpec.clubs) {
