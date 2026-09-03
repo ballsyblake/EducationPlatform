@@ -37,6 +37,7 @@ export async function createCourse(_prev: ActionState, formData: FormData): Prom
   if (!title) return { status: "error", message: "Give the course a title." };
 
   const passMark = parsePassMark(formData.get("ratingThreshold"));
+
   if (passMark.error) return { status: "error", message: passMark.error };
 
   const course = await prisma.course.create({
@@ -60,6 +61,16 @@ export async function updateCourse(formData: FormData) {
 
   const passMark = parsePassMark(formData.get("ratingThreshold"));
 
+  // A date, read as that day rather than as an instant in the server's zone —
+  // it decides whether a coach ran out of time. An unparseable value leaves the
+  // date alone for the same reason the pass mark does: this form has no error
+  // channel, and silently clearing a cohort's deadline would take every case on
+  // it off the overdue list without telling anybody.
+  const rawDeadline = String(formData.get("supportDeadline") ?? "").trim();
+  const supportDeadline = rawDeadline === "" ? null : new Date(`${rawDeadline}T00:00:00Z`);
+  const deadlineUsable =
+    supportDeadline === null || !Number.isNaN(supportDeadline.getTime());
+
   await prisma.course.update({
     where: { id },
     data: {
@@ -75,6 +86,7 @@ export async function updateCourse(formData: FormData) {
       // course's pass mark because of a typo would take every coach on it out
       // of the referral list without anyone being told.
       ...(passMark.error ? {} : { ratingThreshold: passMark.value }),
+      ...(deadlineUsable ? { supportDeadline } : {}),
       published: formData.get("published") === "on",
     },
   });

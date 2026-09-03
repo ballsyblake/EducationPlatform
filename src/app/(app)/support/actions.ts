@@ -7,6 +7,60 @@ import { storeUpload, UploadError } from "@/lib/uploads";
 
 export type SubmitVideoState = { status: "idle" | "ok" | "error"; message?: string };
 
+/**
+ * When a visit suits the coach.
+ *
+ * Replaces a Microsoft Form and the "filled it in? Y/N" column beside it. Their
+ * club and age group are not asked for: the enrolment for this course already
+ * holds both, and a second copy is a second thing to go out of date.
+ *
+ * Their own open case, and nobody else's — the same rule the video submission
+ * follows, for the same reason.
+ */
+export async function saveAvailability(
+  _prev: SubmitVideoState,
+  formData: FormData,
+): Promise<SubmitVideoState> {
+  const user = await requireUser();
+  const caseId = String(formData.get("caseId") ?? "");
+
+  const supportCase = await prisma.supportCase.findUnique({
+    where: { id: caseId },
+    select: { id: true, userId: true, status: true },
+  });
+  if (!supportCase || supportCase.userId !== user.id) {
+    return { status: "error", message: "That case isn't yours." };
+  }
+  if (supportCase.status !== "IN_PROGRESS") {
+    return { status: "error", message: "This case is closed." };
+  }
+
+  const day = String(formData.get("availabilityDay") ?? "").trim();
+  const time = String(formData.get("availabilityTime") ?? "").trim();
+  const note = String(formData.get("availabilityNote") ?? "").trim();
+
+  if (!day && !time && !note) {
+    return { status: "error", message: "Say which day or time suits before saving." };
+  }
+
+  await prisma.supportCase.update({
+    where: { id: caseId },
+    data: {
+      availabilityDay: day || null,
+      availabilityTime: time || null,
+      availabilityNote: note || null,
+      // Stamped on every save, so "answered three weeks ago" stays true of the
+      // answer actually on the case rather than of the first one.
+      availabilityAt: new Date(),
+    },
+  });
+
+  revalidatePath(`/support/${caseId}`);
+  revalidatePath(`/admin/support/${caseId}`);
+  revalidatePath("/admin/support");
+  return { status: "ok", message: "Saved — your educator can see this." };
+}
+
 /** Only http(s): a link is rendered on an educator's page, so no other scheme. */
 function normalizeVideoUrl(raw: string) {
   try {

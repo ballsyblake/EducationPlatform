@@ -185,6 +185,27 @@ export const PATHWAY_LABEL: Record<SupportPathway, string> = {
   VIDEO_REVIEW: "Video review",
 };
 
+/**
+ * The kinds of thing that happen on a case between assessments, in the words a
+ * person would use for them.
+ *
+ * Here rather than beside the form that writes them: this file is client-safe
+ * and imports nothing, so the desk's server components and the form both read
+ * the same labels. A label map that lives in a "use client" module is a client
+ * reference on the server, and every entry renders as its raw enum name.
+ */
+export const ACTIVITY_LABEL: Record<string, string> = {
+  SUPPORT_OFFERED: "Support offered",
+  MEETING: "Meeting",
+  TRAINING_VISIT: "Training visit",
+  ACTION_PLAN: "Action plan sent",
+  VIDEO_CHASED: "Video chased",
+  VIDEO_RECEIVED: "Video received",
+  UNAVAILABLE: "Unavailable",
+  OUTCOME_SENT: "Outcome sent",
+  NOTE: "Note",
+};
+
 export const PATHWAY_DESCRIPTION: Record<SupportPathway, string> = {
   LIVE_ASSESSMENT: "An educator attends one of your sessions and assesses it in person.",
   VIDEO_REVIEW: "You film a session you deliver and send the link for an educator to review.",
@@ -339,6 +360,16 @@ export function stageOf(
       waitingOn: "nobody",
       tone: "muted",
       next: "This case was closed without an assessment.",
+    };
+  // Without this the clause below reads a lapsed case as an open one and tells
+  // the coach their educator is arranging something. Nobody is: the time ran
+  // out, which is a different thing to say and the only honest one.
+  if (supportCase.status === "LAPSED")
+    return {
+      label: "Deadline passed",
+      waitingOn: "nobody",
+      tone: "bad",
+      next: "The deadline for this support passed without an assessment. Talk to your educator about what happens next.",
     };
 
   const attempt = openAttempt(supportCase.attempts);

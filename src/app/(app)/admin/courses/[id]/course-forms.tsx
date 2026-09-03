@@ -22,6 +22,63 @@ function Feedback({ state }: { state: ActionState }) {
   );
 }
 
+/* -------------------------- The support deadline -------------------------- */
+
+/**
+ * The cohort's post-course support deadline.
+ *
+ * A field with a suggestion beside it rather than a computed value: FQ's real
+ * dates are near six months after the last day but not equal to it, and this
+ * date decides whether a coach ran out of time. So the arithmetic is offered
+ * and a person confirms it — one tap when the suggestion is right, and no
+ * argument with the form when it isn't.
+ */
+export function SupportDeadlineField({
+  defaultValue,
+  suggestion,
+  suggestionLabel,
+}: {
+  defaultValue: string;
+  /// Last delivery day plus six months, as `yyyy-mm-dd`. Null with no days.
+  suggestion: string | null;
+  suggestionLabel: string | null;
+}) {
+  const [value, setValue] = useState(defaultValue);
+
+  return (
+    <div>
+      <label className="label" htmlFor="supportDeadline">
+        Post-course support deadline
+      </label>
+      <input
+        id="supportDeadline"
+        name="supportDeadline"
+        type="date"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="input"
+      />
+      <p className="hint">
+        When support referred off this course has to be finished by. Every case opened on it
+        inherits this date; one coach can be given their own on their case.
+        {suggestion && value !== suggestion && (
+          <>
+            {" "}
+            <button
+              type="button"
+              onClick={() => setValue(suggestion)}
+              className="font-medium text-maroon-700 hover:underline"
+            >
+              Use {suggestionLabel}
+            </button>{" "}
+            — six months after the last delivery day.
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
 /* -------------------------------- Materials ------------------------------- */
 
 export function MaterialForm({ courseId }: { courseId: string }) {

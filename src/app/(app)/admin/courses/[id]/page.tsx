@@ -15,7 +15,12 @@ import {
   setEnrollment,
   updateCourse,
 } from "../../actions/courses";
-import { AssignmentForm, MaterialForm, QuizSettingsForm } from "./course-forms";
+import {
+  AssignmentForm,
+  MaterialForm,
+  QuizSettingsForm,
+  SupportDeadlineField,
+} from "./course-forms";
 
 export default async function ManageCoursePage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin();
@@ -40,6 +45,13 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
     },
   });
   if (!course) notFound();
+
+  // Six months after the last delivery day: near the dates FQ actually uses,
+  // and offered as a suggestion rather than written in. See SupportDeadlineField.
+  const lastDay = course.days.at(-1)?.date ?? null;
+  const suggested = lastDay ? new Date(lastDay) : null;
+  if (suggested) suggested.setUTCMonth(suggested.getUTCMonth() + 6);
+  const asDay = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : "");
 
   // The roster is the people on the course, in the order a person reads a list
   // of names. It used to be every active account in the instance with an
@@ -198,6 +210,14 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                 </Link>
                 .
               </p>
+            </div>
+
+            <div className="sm:w-1/2">
+              <SupportDeadlineField
+                defaultValue={asDay(course.supportDeadline)}
+                suggestion={suggested ? asDay(suggested) : null}
+                suggestionLabel={suggested ? formatDate(suggested) : null}
+              />
             </div>
 
             <label className="flex items-center gap-2 text-sm text-ink-700">

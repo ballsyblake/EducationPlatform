@@ -8,8 +8,16 @@ import { assertCourseStaff } from "@/lib/access";
 import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate, formatDateTime, relativeDue } from "@/lib/format";
-import { courseResultsFor, getSupportCase } from "@/lib/support";
 import {
+  courseResultsFor,
+  DEADLINE_SOURCE_LABEL,
+  deadlineInForce,
+  deadlineTone,
+  getSupportCase,
+  isPastDeadline,
+} from "@/lib/support";
+import {
+  ACTIVITY_LABEL,
   bandFor,
   criterionByCode,
   DEFAULT_RATING_THRESHOLD,
@@ -24,9 +32,21 @@ import {
   ArrangeAttemptForm,
   CaseSettingsForm,
   CloseCaseForm,
+  DecideExtensionForm,
+  LogActivityForm,
   RearrangeForm,
+  RequestExtensionForm,
   ReviewForm,
 } from "../support-forms";
+
+/** A stored date as the value a `<input type="date">` wants. */
+const dayValue = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : "");
+
+const EXTENSION_STATUS: Record<string, { label: string; tone: "ok" | "good" | "bad" }> = {
+  REQUESTED: { label: "Asked for", tone: "ok" },
+  GRANTED: { label: "Granted", tone: "good" },
+  REFUSED: { label: "Refused", tone: "bad" },
+};
 
 export const metadata = { title: "Support case" };
 
@@ -35,6 +55,7 @@ const CASE_STATUS: Record<string, { label: string; tone: "ok" | "good" | "bad" |
   SUCCESSFUL: { label: "Successful", tone: "good" },
   UNSUCCESSFUL: { label: "Not successful", tone: "bad" },
   WITHDRAWN: { label: "Withdrawn", tone: "muted" },
+  LAPSED: { label: "Deadline passed", tone: "bad" },
 };
 
 export default async function SupportCasePage({ params }: { params: Promise<{ id: string }> }) {
@@ -71,6 +92,17 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
   const status = CASE_STATUS[supportCase.status];
   const attemptsLeft = supportCase.attemptsAllowed - supportCase.attempts.length;
 
+  // The one rule, resolved once for the page: the latest granted extension,
+  // then this coach's own date, then the cohort's.
+  const deadline = deadlineInForce(supportCase);
+  const overdue = isPastDeadline(deadline.date);
+  const pending = supportCase.extensions.find((e) => e.status === "REQUESTED");
+  // Who is running it: the account where there is one, the written name where
+  // there isn't. Support is sometimes given by somebody with no login here.
+  const runningIt = supportCase.educator
+    ? displayName(supportCase.educator)
+    : (supportCase.educatorName ?? null);
+
   const video = current?.videoUrl ? embedUrl(current.videoUrl) : null;
 
   return (
@@ -94,7 +126,7 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
         }
       />
 
-      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-5">
         <StatTile
           label="Course rating"
           value={result?.rating == null ? "—" : result.rating.toFixed(1)}
@@ -119,20 +151,48 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
         />
         <StatTile
           label="Educator"
+          value={<span className="text-base">{runningIt ?? "Unassigned"}</span>}
+          hint={supportCase.educator ? undefined : runningIt ? "No account here" : undefined}
+        />
+        {/* The number this whole page exists to stop being invisible. Its
+            source is on the tile because a date whose origin nobody can see is
+            a date that gets argued about. */}
+        <StatTile
+          label="Deadline"
           value={
             <span className="text-base">
-              {supportCase.educator ? displayName(supportCase.educator) : "Unassigned"}
+              {deadline.date ? formatDate(deadline.date) : "Not set"}
             </span>
+          }
+          tone={deadlineTone(deadline.date)}
+          hint={
+            deadline.source
+              ? overdue
+                ? `Passed · ${DEADLINE_SOURCE_LABEL[deadline.source]}`
+                : DEADLINE_SOURCE_LABEL[deadline.source]
+              : "No date on this case or its cohort"
           }
         />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-6">
-          {supportCase.reason && (
+          {(supportCase.reason || supportCase.plan) && (
             <section className="card card-pad">
-              <h2 className="section-title mb-2">Why they were referred</h2>
-              <p className="prose-note">{supportCase.reason}</p>
+              {supportCase.reason && (
+                <>
+                  <h2 className="section-title mb-2">Why they were referred</h2>
+                  <p className="prose-note">{supportCase.reason}</p>
+                </>
+              )}
+              {supportCase.plan && (
+                <>
+                  <h2 className={`section-title mb-2 ${supportCase.reason ? "mt-4" : ""}`}>
+                    The support prescribed
+                  </h2>
+                  <p className="prose-note">{supportCase.plan}</p>
+                </>
+              )}
             </section>
           )}
 
@@ -312,6 +372,47 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
             </section>
           )}
 
+          {/* ------------------------- The case history --------------------- */}
+          <section className="card card-pad">
+            <h2 className="mb-1 text-lg font-semibold text-ink-900">History</h2>
+            <p className="mb-4 text-sm text-ink-500">
+              Everything done on this case that isn&apos;t an assessment — the visits, the
+              meetings, the chasing. Newest first, by the day it happened rather than the day it
+              was written up.
+            </p>
+
+            {supportCase.activities.length > 0 ? (
+              <ul className="mb-4 divide-y divide-ink-200 border-y border-ink-200">
+                {supportCase.activities.map((activity) => (
+                  <li key={activity.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2.5">
+                    <span className="w-28 shrink-0 text-xs text-ink-500">
+                      {formatDate(activity.occurredAt)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="text-sm font-medium text-ink-900">
+                        {ACTIVITY_LABEL[activity.kind] ?? activity.kind}
+                      </span>
+                      {activity.detail && (
+                        <span className="prose-note mt-0.5 block">{activity.detail}</span>
+                      )}
+                    </span>
+                    {activity.recordedBy && (
+                      <span className="text-xs text-ink-400">
+                        {displayName(activity.recordedBy)}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mb-4 rounded-lg bg-ink-50 px-3 py-2 text-sm text-ink-500">
+                Nothing recorded yet.
+              </p>
+            )}
+
+            <LogActivityForm caseId={supportCase.id} />
+          </section>
+
           {/* ---------------------------- History --------------------------- */}
           <section>
             <h2 className="mb-3 text-lg font-semibold text-ink-900">Assessments completed</h2>
@@ -421,6 +522,136 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
             </Link>
           </section>
 
+          {/* --------------------------- The deadline ----------------------- */}
+          <section className="card card-pad">
+            <h2 className="section-title mb-2">Deadline</h2>
+            <p className="flex flex-wrap items-center gap-2">
+              <span className="text-lg font-semibold text-ink-900">
+                {deadline.date ? formatDate(deadline.date) : "Not set"}
+              </span>
+              {deadline.source && (
+                <Badge tone={deadlineTone(deadline.date)}>
+                  {overdue ? "Passed" : DEADLINE_SOURCE_LABEL[deadline.source]}
+                </Badge>
+              )}
+            </p>
+            <p className="mt-1 text-xs text-ink-500">
+              {deadline.source === "extension"
+                ? "Moved by a granted extension."
+                : deadline.source === "case"
+                  ? "Set for this coach, rather than the cohort's date."
+                  : deadline.source === "course"
+                    ? `Inherited from ${supportCase.course.title}.`
+                    : "Neither this case nor its cohort has a date. Set one on the course settings page, or below."}
+            </p>
+
+            {supportCase.extensions.length > 0 && (
+              <ul className="mt-3 space-y-2 border-t border-ink-200 pt-3">
+                {supportCase.extensions.map((extension) => {
+                  const badge = EXTENSION_STATUS[extension.status];
+                  return (
+                    <li key={extension.id} className="text-xs">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <Badge tone={badge.tone}>{badge.label}</Badge>
+                        <span className="font-medium text-ink-800">
+                          {extension.status === "GRANTED" && extension.grantedUntil
+                            ? `until ${formatDate(extension.grantedUntil)}`
+                            : `asked until ${formatDate(extension.requestedUntil)}`}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block text-ink-500">
+                        {formatDate(extension.requestedAt)}
+                        {extension.requestedBy && ` · ${displayName(extension.requestedBy)}`}
+                        {extension.decidedBy && ` · answered by ${extension.decidedBy}`}
+                      </span>
+                      {extension.reason && (
+                        <span className="mt-0.5 block text-ink-600">{extension.reason}</span>
+                      )}
+                      {/* A grant that isn't the date asked for is the one worth
+                          pointing at: it is the number people misremember. */}
+                      {extension.status === "GRANTED" &&
+                        extension.grantedUntil &&
+                        extension.grantedUntil.getTime() !== extension.requestedUntil.getTime() && (
+                          <span className="mt-0.5 block text-ink-500">
+                            Asked until {formatDate(extension.requestedUntil)}.
+                          </span>
+                        )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {pending ? (
+              <div className="mt-3">
+                <p className="mb-2 text-xs font-medium text-ink-700">
+                  Waiting on an answer to the request of {formatDate(pending.requestedAt)}.
+                </p>
+                <DecideExtensionForm
+                  extension={{
+                    id: pending.id,
+                    requestedUntil: dayValue(pending.requestedUntil),
+                  }}
+                />
+              </div>
+            ) : (
+              supportCase.status === "IN_PROGRESS" && (
+                <details className="mt-3 border-t border-ink-200 pt-3">
+                  <summary className="cursor-pointer text-sm font-medium text-maroon-700">
+                    Ask for more time
+                  </summary>
+                  <div className="mt-3">
+                    <RequestExtensionForm caseId={supportCase.id} />
+                  </div>
+                </details>
+              )
+            )}
+          </section>
+
+          {/* ------------------------- Getting to them ---------------------- */}
+          <section className="card card-pad">
+            <h2 className="section-title mb-2">Visiting them</h2>
+            {supportCase.availabilityAt ? (
+              <>
+                <dl className="space-y-2 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-ink-500">Day</dt>
+                    <dd className="text-right font-medium text-ink-800">
+                      {supportCase.availabilityDay ?? "—"}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-ink-500">Time</dt>
+                    <dd className="text-right font-medium text-ink-800">
+                      {supportCase.availabilityTime ?? "—"}
+                    </dd>
+                  </div>
+                </dl>
+                {supportCase.availabilityNote && (
+                  <p className="prose-note mt-2 rounded-lg bg-ink-50 px-3 py-2">
+                    {supportCase.availabilityNote}
+                  </p>
+                )}
+                <p className="mt-2 text-xs text-ink-400">
+                  Answered {formatDate(supportCase.availabilityAt)}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-ink-500">
+                {displayName(supportCase.user)}{" "}
+                hasn&apos;t said when suits yet. It&apos;s a form on their own case page.
+              </p>
+            )}
+            {/* Their club and age group come off the enrolment rather than
+                being asked for twice — the register already holds both. */}
+            {(enrollment?.clubName || enrollment?.coachingAgeGroup) && (
+              <p className="mt-3 border-t border-ink-200 pt-2 text-xs text-ink-500">
+                {[enrollment.clubName, enrollment.coachingAgeGroup].filter(Boolean).join(" · ")}
+                <span className="block text-ink-400">From the register</span>
+              </p>
+            )}
+          </section>
+
           {supportCase.status !== "IN_PROGRESS" && (
             <section className="card card-pad">
               <h2 className="section-title mb-2">Closed</h2>
@@ -445,15 +676,20 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
           <section className="card card-pad">
             <h2 className="section-title mb-3">Case settings</h2>
             <CaseSettingsForm
-              supportCase={supportCase}
+              supportCase={{ ...supportCase, deadline: dayValue(supportCase.deadline) }}
               educators={educators.map((e) => ({ id: e.id, label: displayName(e) }))}
+              courseDeadline={
+                supportCase.course.supportDeadline
+                  ? formatDate(supportCase.course.supportDeadline)
+                  : null
+              }
             />
           </section>
 
           {supportCase.status === "IN_PROGRESS" && (
             <section className="card card-pad">
               <h2 className="section-title mb-3">Close the case</h2>
-              <CloseCaseForm caseId={supportCase.id} />
+              <CloseCaseForm caseId={supportCase.id} lapsed={overdue} />
             </section>
           )}
         </aside>

@@ -50,11 +50,17 @@ export default async function SupportIndexPage() {
                   </p>
                 )}
 
-                {supportCase.educator && (
+                {supportCase.educator ? (
                   <p className="mt-1 text-xs text-ink-500">
                     Your educator: {displayName(supportCase.educator)} ·{" "}
                     {supportCase.educator.email}
                   </p>
+                ) : (
+                  supportCase.educatorName && (
+                    <p className="mt-1 text-xs text-ink-500">
+                      Your educator: {supportCase.educatorName}
+                    </p>
+                  )
                 )}
               </Link>
             );

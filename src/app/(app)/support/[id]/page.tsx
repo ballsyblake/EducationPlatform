@@ -2,8 +2,13 @@ import { notFound } from "next/navigation";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, EmptyState, PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
-import { displayName, formatDateTime, relativeDue } from "@/lib/format";
-import { getSupportCase } from "@/lib/support";
+import { displayName, formatDate, formatDateTime, relativeDue } from "@/lib/format";
+import {
+  deadlineInForce,
+  deadlineTone,
+  getSupportCase,
+  isPastDeadline,
+} from "@/lib/support";
 import {
   bandFor,
   criteriaByGroup,
@@ -15,6 +20,7 @@ import {
 } from "@/lib/support-rubric";
 import { formatBytes } from "@/lib/uploads";
 import { removeSupportAttachment } from "../actions";
+import { AvailabilityForm } from "../availability-form";
 import { VideoSubmissionForm } from "../video-form";
 
 export const metadata = { title: "Support" };
@@ -36,6 +42,11 @@ export default async function CoachSupportCasePage({
   const current = openAttempt(supportCase.attempts);
   const reviewed = supportCase.attempts.filter((a) => a.status === "REVIEWED");
 
+  // The coach's own deadline. Their obligation before it is anybody else's, and
+  // it is the one thing the spreadsheet never told them.
+  const deadline = deadlineInForce(supportCase);
+  const overdue = isPastDeadline(deadline.date);
+
   return (
     <>
       <PageHeader
@@ -54,6 +65,24 @@ export default async function CoachSupportCasePage({
           <section className="card card-pad">
             <h2 className="mb-2 text-lg font-semibold text-ink-900">Where this is up to</h2>
             <p className="prose-note">{stage.next}</p>
+            {deadline.date && supportCase.status === "IN_PROGRESS" && (
+              <p className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-600">
+                <Badge tone={deadlineTone(deadline.date)}>
+                  {overdue ? "Deadline passed" : "Due by"} {formatDate(deadline.date)}
+                </Badge>
+                <span>
+                  {overdue
+                    ? "Talk to your educator — they can ask for more time on your behalf."
+                    : "Everything on this case has to be finished by then."}
+                </span>
+              </p>
+            )}
+            {supportCase.plan && (
+              <>
+                <p className="section-title mt-4 mb-1">What was asked of you</p>
+                <p className="prose-note rounded-lg bg-ink-50 px-3 py-2">{supportCase.plan}</p>
+              </>
+            )}
             {supportCase.reason && (
               <>
                 <p className="section-title mt-4 mb-1">Why you were referred</p>
@@ -83,7 +112,9 @@ export default async function CoachSupportCasePage({
                 <div className="flex justify-between gap-3">
                   <dt className="text-ink-500">Educator</dt>
                   <dd className="text-right font-medium text-ink-800">
-                    {supportCase.educator ? displayName(supportCase.educator) : "To be confirmed"}
+                    {supportCase.educator
+                      ? displayName(supportCase.educator)
+                      : (supportCase.educatorName ?? "To be confirmed")}
                   </dd>
                 </div>
               </dl>
@@ -248,16 +279,49 @@ export default async function CoachSupportCasePage({
             </div>
           </section>
 
-          {supportCase.educator && (
+          {supportCase.status === "IN_PROGRESS" && (
+            <section className="card card-pad">
+              <h2 className="section-title mb-2">When suits you</h2>
+              <p className="mb-3 text-sm text-ink-600">
+                Your educator has to find you at a session. Tell them when you train and they can
+                arrange it around you rather than by email.
+              </p>
+              <AvailabilityForm
+                caseId={supportCase.id}
+                defaultDay={supportCase.availabilityDay ?? ""}
+                defaultTime={supportCase.availabilityTime ?? ""}
+                defaultNote={supportCase.availabilityNote ?? ""}
+                answered={supportCase.availabilityAt !== null}
+              />
+              {supportCase.availabilityAt && (
+                <p className="mt-2 text-xs text-ink-400">
+                  Sent {formatDate(supportCase.availabilityAt)}
+                </p>
+              )}
+            </section>
+          )}
+
+          {(supportCase.educator || supportCase.educatorName) && (
             <section className="card card-pad">
               <h2 className="section-title mb-2">Your educator</h2>
-              <p className="font-semibold text-ink-900">{displayName(supportCase.educator)}</p>
-              <a
-                href={`mailto:${supportCase.educator.email}`}
-                className="text-sm font-medium text-maroon-700 hover:underline"
-              >
-                {supportCase.educator.email}
-              </a>
+              {supportCase.educator ? (
+                <>
+                  <p className="font-semibold text-ink-900">
+                    {displayName(supportCase.educator)}
+                  </p>
+                  <a
+                    href={`mailto:${supportCase.educator.email}`}
+                    className="text-sm font-medium text-maroon-700 hover:underline"
+                  >
+                    {supportCase.educator.email}
+                  </a>
+                </>
+              ) : (
+                // Somebody with no account here — a technical director
+                // elsewhere. A name and no address is still worth showing: it
+                // tells the coach who to expect.
+                <p className="font-semibold text-ink-900">{supportCase.educatorName}</p>
+              )}
             </section>
           )}
         </aside>
