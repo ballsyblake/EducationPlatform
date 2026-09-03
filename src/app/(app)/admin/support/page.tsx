@@ -5,6 +5,11 @@ import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate, relativeDue } from "@/lib/format";
 import {
+  DEADLINE_SOURCE_LABEL,
+  deadlineInForce,
+  deadlineTone,
+  DUE_SOON_DAYS,
+  getOpenCaseDeadlines,
   getOverdueVideos,
   getReferralCandidates,
   getSupportQueue,
@@ -33,7 +38,7 @@ export default async function SupportPage({
   const { show } = await searchParams;
   const includeClosed = show === "all";
 
-  const [queue, overdue, candidates, cases, educators, coaches, courses] = await Promise.all([
+  const [queue, overdue, candidates, cases, educators, coaches, courses, open] = await Promise.all([
     getSupportQueue(new Date(), scope),
     getOverdueVideos(new Date(), scope),
     getReferralCandidates(scope),
@@ -60,10 +65,35 @@ export default async function SupportPage({
       where: scope === null ? {} : { id: { in: scope } },
       orderBy: { title: "asc" },
     }),
+    // Open cases with the date each is actually due by, soonest first. Resolved
+    // in one place so the tiles, the overdue list and the case list below can't
+    // disagree about the same case.
+    getOpenCaseDeadlines(new Date(), scope),
   ]);
 
   const educatorOptions = educators.map((e) => ({ id: e.id, label: displayName(e) }));
   const openCases = cases.filter((c) => c.status === "IN_PROGRESS");
+
+  const pastDeadline = open.filter((c) => c.overdue);
+  const dueSoon = open.filter(
+    (c) => !c.overdue && c.daysLeft !== null && c.daysLeft <= DUE_SOON_DAYS,
+  );
+  const undated = open.filter((c) => c.deadlineInForce.date === null);
+
+  // The case list is ordered by the deadline in force, which is two tables away
+  // from the query that fetched it — so the order is applied here, off the
+  // resolved list, rather than asked of the database.
+  const deadlineOrder = new Map(open.map((c, i) => [c.id, i]));
+  const orderedCases = [...cases].sort((a, b) => {
+    const left = deadlineOrder.get(a.id);
+    const right = deadlineOrder.get(b.id);
+    if (left !== undefined && right !== undefined) return left - right;
+    // Closed cases keep their own ordering, below every open one.
+    if (left !== undefined) return -1;
+    if (right !== undefined) return 1;
+    return b.openedAt.getTime() - a.openedAt.getTime();
+  });
+  const deadlineOf = new Map(open.map((c) => [c.id, c]));
 
   return (
     <>
@@ -80,8 +110,25 @@ export default async function SupportPage({
         }
       />
 
-      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatTile label="Open cases" value={openCases.length} />
+      <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        <StatTile
+          label="Open cases"
+          value={openCases.length}
+          hint={undated.length ? `${undated.length} with no deadline set` : undefined}
+        />
+        {/* The two the spreadsheet couldn't answer. First, and in that order. */}
+        <StatTile
+          label="Past the deadline"
+          value={pastDeadline.length}
+          tone={pastDeadline.length ? "bad" : "good"}
+          hint={pastDeadline.length ? "Out of time, still open" : "Nobody is out of time"}
+        />
+        <StatTile
+          label={`Due in ${DUE_SOON_DAYS} days`}
+          value={dueSoon.length}
+          tone={dueSoon.length ? "warn" : "muted"}
+          hint="Coming up"
+        />
         <StatTile
           label="Waiting on you"
           value={queue.length}
@@ -101,6 +148,45 @@ export default async function SupportPage({
         />
       </div>
 
+      {/* ----------------------- Past the deadline ------------------------ */}
+      {pastDeadline.length > 0 && (
+        <section className="mb-10">
+          <h2 className="mb-1 text-lg font-semibold text-ink-900">Past the deadline</h2>
+          <p className="mb-3 text-sm text-ink-500">
+            Open cases whose date has gone. Each one is either an extension to ask for, an
+            assessment to arrange, or a case to close as lapsed — but not something to leave.
+          </p>
+          <div className="card divide-y divide-ink-200">
+            {pastDeadline.map((supportCase) => (
+              <Link
+                key={supportCase.id}
+                href={`/admin/support/${supportCase.id}`}
+                className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 hover:bg-ink-50"
+              >
+                <div className="min-w-0">
+                  <p className="font-semibold text-ink-900">{displayName(supportCase.user)}</p>
+                  <p className="mt-0.5 text-xs text-ink-500">
+                    {supportCase.course.title}
+                    {supportCase.educator
+                      ? ` · ${displayName(supportCase.educator)}`
+                      : supportCase.educatorName
+                        ? ` · ${supportCase.educatorName}`
+                        : ""}
+                    {supportCase.deadlineInForce.source &&
+                      ` · ${DEADLINE_SOURCE_LABEL[supportCase.deadlineInForce.source]}`}
+                  </p>
+                </div>
+                <Badge tone="bad">
+                  {formatDate(supportCase.deadlineInForce.date)} ·{" "}
+                  {Math.abs(supportCase.daysLeft ?? 0)} day
+                  {Math.abs(supportCase.daysLeft ?? 0) === 1 ? "" : "s"} over
+                </Badge>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* --------------------------- The queue ---------------------------- */}
       <section className="mb-10">
         <h2 className="mb-3 text-lg font-semibold text-ink-900">Waiting on an educator</h2>
@@ -117,7 +203,11 @@ export default async function SupportPage({
                   <p className="mt-0.5 text-xs text-ink-500">
                     {attempt.case.course.title} · {PATHWAY_LABEL[attempt.pathway]} · assessment{" "}
                     {attempt.attemptNo}
-                    {attempt.case.educator && ` · ${displayName(attempt.case.educator)}`}
+                    {attempt.case.educator
+                      ? ` · ${displayName(attempt.case.educator)}`
+                      : attempt.case.educatorName
+                        ? ` · ${attempt.case.educatorName}`
+                        : ""}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -224,9 +314,10 @@ export default async function SupportPage({
         </h2>
         {cases.length ? (
           <div className="card divide-y divide-ink-200">
-            {cases.map((supportCase) => {
+            {orderedCases.map((supportCase) => {
               const stage = stageOf(supportCase);
               const status = CASE_STATUS[supportCase.status];
+              const due = deadlineOf.get(supportCase.id);
               return (
                 <Link
                   key={supportCase.id}
@@ -239,10 +330,21 @@ export default async function SupportPage({
                       {supportCase.course.title} · opened {formatDate(supportCase.openedAt)} ·{" "}
                       {supportCase.attempts.length} of {supportCase.attemptsAllowed} assessment
                       {supportCase.attemptsAllowed === 1 ? "" : "s"} used
-                      {supportCase.educator && ` · ${displayName(supportCase.educator)}`}
+                      {supportCase.educator
+                        ? ` · ${displayName(supportCase.educator)}`
+                        : supportCase.educatorName
+                          ? ` · ${supportCase.educatorName}`
+                          : ""}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {due && (
+                      <Badge tone={deadlineTone(due.deadlineInForce.date)}>
+                        {due.deadlineInForce.date
+                          ? `${due.overdue ? "Was due" : "Due"} ${formatDate(due.deadlineInForce.date)}`
+                          : "No deadline"}
+                      </Badge>
+                    )}
                     {supportCase.status === "IN_PROGRESS" ? (
                       <Badge tone={stage.tone}>{stage.label}</Badge>
                     ) : (

@@ -6,6 +6,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { FormError, FormSuccess } from "@/components/ui";
 import { toDateTimeLocal } from "@/lib/format";
 import {
+  ACTIVITY_LABEL,
   bandFor,
   criteriaByGroup,
   DEFAULT_RATING_THRESHOLD,
@@ -19,9 +20,12 @@ import type { SupportPathway } from "@prisma-client";
 import {
   arrangeAttempt,
   closeCase,
+  decideExtension,
+  logActivity,
   rearrangeAttempt,
   recordReview,
   referToSupport,
+  requestExtension,
   updateCase,
   type SupportState,
 } from "../actions/support";
@@ -29,6 +33,11 @@ import {
 const idle: SupportState = { status: "idle" };
 
 export type EducatorOption = { id: string; label: string };
+
+/** A date field's value for today, in the shape `<input type="date">` wants. */
+function todayValue() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 /* --------------------------- Shared bits ---------------------------------- */
 
@@ -537,29 +546,310 @@ export function ReviewForm({
   );
 }
 
+/* ------------------------------ Extensions -------------------------------- */
+
+/**
+ * Asks for the deadline to be moved.
+ *
+ * Nothing about the case's date changes here. The request is a state of its own
+ * because the answer usually comes from the national body and can sit for
+ * weeks, and a case waiting on an answer is not the same as a case that has
+ * been given more time.
+ */
+export function RequestExtensionForm({ caseId }: { caseId: string }) {
+  const [state, formAction] = useActionState(requestExtension, idle);
+  const [until, setUntil] = useState("");
+  const [reason, setReason] = useState("");
+
+  return (
+    <form action={formAction} className="space-y-3">
+      <input type="hidden" name="caseId" value={caseId} />
+      <div>
+        <label className="label" htmlFor={`ext-until-${caseId}`}>
+          Asking until
+        </label>
+        <input
+          id={`ext-until-${caseId}`}
+          name="requestedUntil"
+          type="date"
+          value={until}
+          onChange={(e) => setUntil(e.target.value)}
+          className="input"
+        />
+      </div>
+      <div>
+        <label className="label" htmlFor={`ext-reason-${caseId}`}>
+          Why
+        </label>
+        <textarea
+          id={`ext-reason-${caseId}`}
+          name="reason"
+          rows={2}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="What has held this up, for whoever reads it a year from now."
+          className="input"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <SubmitButton className="btn-secondary btn-sm" pendingLabel="Requesting…">
+          Request an extension
+        </SubmitButton>
+        <FormError message={state.status === "error" ? state.message : null} />
+        <FormSuccess message={state.status === "ok" ? state.message : null} />
+      </div>
+      <p className="hint">
+        The deadline doesn&apos;t move until you record what came back.
+      </p>
+    </form>
+  );
+}
+
+/** Records the answer to one request. */
+export function DecideExtensionForm({
+  extension,
+}: {
+  extension: { id: string; requestedUntil: string };
+}) {
+  const [state, formAction] = useActionState(decideExtension, idle);
+  const [status, setStatus] = useState("GRANTED");
+  // Defaulted to the date asked for, which is the ordinary answer. A different
+  // date is the interesting case and it is one edit away.
+  const [until, setUntil] = useState(extension.requestedUntil);
+  const [decidedBy, setDecidedBy] = useState("");
+
+  return (
+    <form action={formAction} className="space-y-3 border-t border-ink-200 pt-3">
+      <input type="hidden" name="extensionId" value={extension.id} />
+      <div className="flex flex-wrap gap-4">
+        <label className="flex items-center gap-2 text-sm text-ink-800">
+          <input
+            type="radio"
+            name="status"
+            value="GRANTED"
+            checked={status === "GRANTED"}
+            onChange={() => setStatus("GRANTED")}
+            className="accent-maroon-600"
+          />
+          Granted
+        </label>
+        <label className="flex items-center gap-2 text-sm text-ink-800">
+          <input
+            type="radio"
+            name="status"
+            value="REFUSED"
+            checked={status === "REFUSED"}
+            onChange={() => setStatus("REFUSED")}
+            className="accent-maroon-600"
+          />
+          Refused
+        </label>
+      </div>
+
+      {status === "GRANTED" && (
+        <div>
+          <label className="label" htmlFor={`granted-${extension.id}`}>
+            Granted until
+          </label>
+          <input
+            id={`granted-${extension.id}`}
+            name="grantedUntil"
+            type="date"
+            value={until}
+            onChange={(e) => setUntil(e.target.value)}
+            className="input"
+          />
+          <p className="hint">
+            The date given, which isn&apos;t always the date asked for. This is what the case is
+            then due by.
+          </p>
+        </div>
+      )}
+
+      <div>
+        <label className="label" htmlFor={`decided-by-${extension.id}`}>
+          Who answered
+        </label>
+        <input
+          id={`decided-by-${extension.id}`}
+          name="decidedBy"
+          value={decidedBy}
+          onChange={(e) => setDecidedBy(e.target.value)}
+          placeholder="Football Australia"
+          className="input"
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <SubmitButton className="btn-secondary btn-sm" pendingLabel="Recording…">
+          Record the answer
+        </SubmitButton>
+        <FormError message={state.status === "error" ? state.message : null} />
+        <FormSuccess message={state.status === "ok" ? state.message : null} />
+      </div>
+    </form>
+  );
+}
+
+/* ---------------------------- The activity log ---------------------------- */
+
+/**
+ * One entry in the case's history.
+ *
+ * The day defaults to today and stays editable, because these are written up
+ * afterwards — a training visit on the 27th typed up in May is the normal case,
+ * not the exception.
+ */
+export function LogActivityForm({ caseId }: { caseId: string }) {
+  const [state, formAction] = useActionState(logActivity, idle);
+  const [kind, setKind] = useState("TRAINING_VISIT");
+  const [occurredAt, setOccurredAt] = useState(todayValue());
+  const [detail, setDetail] = useState("");
+
+  return (
+    <form action={formAction} className="space-y-3">
+      <input type="hidden" name="caseId" value={caseId} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="label" htmlFor={`kind-${caseId}`}>
+            What happened
+          </label>
+          <select
+            id={`kind-${caseId}`}
+            name="kind"
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+            className="input"
+          >
+            {Object.entries(ACTIVITY_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label" htmlFor={`occurred-${caseId}`}>
+            The day it happened
+          </label>
+          <input
+            id={`occurred-${caseId}`}
+            name="occurredAt"
+            type="date"
+            value={occurredAt}
+            onChange={(e) => setOccurredAt(e.target.value)}
+            className="input"
+          />
+        </div>
+      </div>
+      <div>
+        <label className="label" htmlFor={`detail-${caseId}`}>
+          Detail
+        </label>
+        <textarea
+          id={`detail-${caseId}`}
+          name="detail"
+          rows={2}
+          value={detail}
+          onChange={(e) => setDetail(e.target.value)}
+          placeholder="Observed his U15s. Session plan sent through first; action plan to follow."
+          className="input"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <SubmitButton className="btn-secondary btn-sm" pendingLabel="Adding…">
+          Add to the history
+        </SubmitButton>
+        <FormError message={state.status === "error" ? state.message : null} />
+        <FormSuccess message={state.status === "ok" ? state.message : null} />
+      </div>
+    </form>
+  );
+}
+
 /* ---------------------------- Case settings ------------------------------- */
 
 export function CaseSettingsForm({
   supportCase,
   educators,
+  courseDeadline,
 }: {
   supportCase: {
     id: string;
     educatorId: string | null;
+    educatorName: string | null;
     attemptsAllowed: number;
     reason: string | null;
+    plan: string | null;
+    /// The case's own date as `yyyy-mm-dd`, empty when it inherits the cohort's.
+    deadline: string;
   };
   educators: EducatorOption[];
+  /// The cohort's date, so the field can say what clearing it falls back to.
+  courseDeadline: string | null;
 }) {
   const [state, formAction] = useActionState(updateCase, idle);
   const [educatorId, setEducatorId] = useState(supportCase.educatorId ?? "");
+  const [educatorName, setEducatorName] = useState(supportCase.educatorName ?? "");
   const [allowed, setAllowed] = useState(String(supportCase.attemptsAllowed));
   const [reason, setReason] = useState(supportCase.reason ?? "");
+  const [plan, setPlan] = useState(supportCase.plan ?? "");
+  const [deadline, setDeadline] = useState(supportCase.deadline);
 
   return (
     <form action={formAction} className="space-y-4">
       <input type="hidden" name="caseId" value={supportCase.id} />
       <EducatorSelect educators={educators} value={educatorId} onChange={setEducatorId} />
+      <div>
+        <label className="label" htmlFor="educatorName">
+          Or a name
+        </label>
+        <input
+          id="educatorName"
+          name="educatorName"
+          value={educatorName}
+          onChange={(e) => setEducatorName(e.target.value)}
+          placeholder="A technical director elsewhere, or two people sharing it"
+          className="input"
+        />
+        <p className="hint">
+          For support given by somebody with no account here. Shown when no educator is picked
+          above.
+        </p>
+      </div>
+      <div>
+        <label className="label" htmlFor="case-deadline">
+          Deadline for this coach
+        </label>
+        <input
+          id="case-deadline"
+          name="deadline"
+          type="date"
+          value={deadline}
+          onChange={(e) => setDeadline(e.target.value)}
+          className="input"
+        />
+        <p className="hint">
+          {courseDeadline
+            ? `Leave it empty and the cohort's date applies — ${courseDeadline}.`
+            : "Only set where somebody has moved it for this coach. The cohort has no date set."}
+        </p>
+      </div>
+      <div>
+        <label className="label" htmlFor="case-plan">
+          The support prescribed
+        </label>
+        <textarea
+          id="case-plan"
+          name="plan"
+          rows={3}
+          value={plan}
+          onChange={(e) => setPlan(e.target.value)}
+          placeholder="Training visit x1 and filmed live assessment x1 within 6 months"
+          className="input"
+        />
+        <p className="hint">In the words it was prescribed in. The coach reads this.</p>
+      </div>
       <div>
         <label className="label" htmlFor="attemptsAllowed">
           Assessments allowed
@@ -598,7 +888,15 @@ export function CaseSettingsForm({
   );
 }
 
-export function CloseCaseForm({ caseId }: { caseId: string }) {
+export function CloseCaseForm({
+  caseId,
+  lapsed,
+}: {
+  caseId: string;
+  /// Whether the deadline in force has actually passed. Decides whether the
+  /// third option exists at all — the action checks the same fact server-side.
+  lapsed: boolean;
+}) {
   const [state, formAction] = useActionState(closeCase, idle);
   const [status, setStatus] = useState("UNSUCCESSFUL");
   const [note, setNote] = useState("");
@@ -635,6 +933,25 @@ export function CloseCaseForm({ caseId }: { caseId: string }) {
             left, moved clubs, or was referred in error.
           </span>
         </label>
+        {/* Offered only once the date has genuinely passed. A case that has not
+            run out of time cannot have lapsed, and an option that is there but
+            refused on save is a worse way to say so. */}
+        {lapsed && (
+          <label className="flex items-start gap-2 text-sm text-ink-800">
+            <input
+              type="radio"
+              name="status"
+              value="LAPSED"
+              checked={status === "LAPSED"}
+              onChange={() => setStatus("LAPSED")}
+              className="mt-1 accent-maroon-600"
+            />
+            <span>
+              <span className="font-semibold">Deadline passed</span> — the date came and went with
+              nothing submitted. Not a judgement about a delivery, and not the coach leaving.
+            </span>
+          </label>
+        )}
       </div>
       <textarea
         name="closingNote"

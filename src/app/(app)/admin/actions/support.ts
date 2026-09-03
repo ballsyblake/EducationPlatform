@@ -5,14 +5,14 @@ import { redirect } from "next/navigation";
 import { assertCourseStaff } from "@/lib/access";
 import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { courseResultsFor } from "@/lib/support";
+import { courseResultsFor, deadlineInForce, isPastDeadline } from "@/lib/support";
 import {
   DEFAULT_RATING_THRESHOLD,
   RATING_SCALE,
   reviewGate,
   SUPPORT_CRITERIA,
 } from "@/lib/support-rubric";
-import type { SupportPathway } from "@prisma-client";
+import type { SupportActivityKind, SupportPathway } from "@prisma-client";
 
 /**
  * The course a case or an attempt belongs to.
@@ -38,6 +38,14 @@ async function courseOfAttempt(attemptId: string) {
   return row?.case.courseId ?? null;
 }
 
+async function courseOfExtension(extensionId: string) {
+  const row = await prisma.supportExtension.findUnique({
+    where: { id: extensionId },
+    select: { case: { select: { courseId: true } } },
+  });
+  return row?.case.courseId ?? null;
+}
+
 export type SupportState = { status: "idle" | "ok" | "error"; message?: string };
 
 const PATHWAYS: SupportPathway[] = ["LIVE_ASSESSMENT", "VIDEO_REVIEW"];
@@ -51,6 +59,20 @@ function parseDate(formData: FormData, key: string) {
   const raw = text(formData, key);
   if (!raw) return null;
   const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * A `<input type="date">` value, read as that day rather than as an instant.
+ *
+ * Anchored to UTC the way the register anchors a course day: a deadline is a
+ * date somebody agreed to, and parsing it in the server's zone would let the
+ * machine's location decide whether a coach ran out of time.
+ */
+function parseDay(formData: FormData, key: string) {
+  const raw = text(formData, key);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const date = new Date(`${raw}T00:00:00Z`);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -293,13 +315,163 @@ export async function updateCase(_prev: SupportState, formData: FormData): Promi
     where: { id: caseId },
     data: {
       educatorId: text(formData, "educatorId") || null,
+      // Cleared when the field is emptied, which is how somebody takes a name
+      // back off a case that has since been given to an account.
+      educatorName: text(formData, "educatorName") || null,
       attemptsAllowed: allowed,
       reason: text(formData, "reason") || null,
+      plan: text(formData, "plan") || null,
+      // Null puts the coach back on the cohort's date. That is the useful
+      // meaning of clearing it, and it is why the column is nullable rather
+      // than copied down from the course when the case is opened.
+      deadline: parseDay(formData, "deadline"),
     },
   });
 
   refreshCase(caseId);
   return { status: "ok", message: "Case updated." };
+}
+
+/* ------------------------------ Extensions -------------------------------- */
+
+/**
+ * Asks for a case's deadline to be moved.
+ *
+ * A request rather than an edit, because the answer usually comes from outside
+ * this system and can take weeks. The deadline does not move now — it moves if
+ * and when somebody records what came back.
+ */
+export async function requestExtension(
+  _prev: SupportState,
+  formData: FormData,
+): Promise<SupportState> {
+  const actor = await requireStaff();
+  const caseId = text(formData, "caseId");
+  const scope = await courseOfCase(caseId);
+  if (!scope) return { status: "error", message: "Case not found." };
+  await assertCourseStaff(actor, scope);
+
+  const requestedUntil = parseDay(formData, "requestedUntil");
+  if (!requestedUntil) {
+    return { status: "error", message: "Say which date you're asking for." };
+  }
+
+  await prisma.supportExtension.create({
+    data: {
+      caseId,
+      requestedUntil,
+      reason: text(formData, "reason") || null,
+      requestedById: actor.id,
+    },
+  });
+
+  refreshCase(caseId);
+  return { status: "ok", message: "Extension requested." };
+}
+
+/**
+ * Records the answer.
+ *
+ * A grant carries its own date because the date given is not always the date
+ * asked for, and it is the given one the case is then due by. A refusal keeps
+ * the row: it is the reason the original deadline still stands.
+ */
+export async function decideExtension(
+  _prev: SupportState,
+  formData: FormData,
+): Promise<SupportState> {
+  const actor = await requireStaff();
+  const extensionId = text(formData, "extensionId");
+  const scope = await courseOfExtension(extensionId);
+  if (!scope) return { status: "error", message: "Extension not found." };
+  await assertCourseStaff(actor, scope);
+
+  const extension = await prisma.supportExtension.findUnique({
+    where: { id: extensionId },
+    select: { id: true, caseId: true, requestedUntil: true },
+  });
+  if (!extension) return { status: "error", message: "Extension not found." };
+
+  const status = text(formData, "status");
+  if (status !== "GRANTED" && status !== "REFUSED") {
+    return { status: "error", message: "Say whether it was granted or refused." };
+  }
+
+  // Only a grant carries a date, and it defaults to the date that was asked
+  // for — the ordinary answer — rather than making somebody retype it.
+  const grantedUntil = status === "GRANTED" ? (parseDay(formData, "grantedUntil") ?? extension.requestedUntil) : null;
+
+  await prisma.supportExtension.update({
+    where: { id: extensionId },
+    data: {
+      status,
+      grantedUntil,
+      decidedBy: text(formData, "decidedBy") || null,
+      decidedAt: new Date(),
+    },
+  });
+
+  refreshCase(extension.caseId);
+  return {
+    status: "ok",
+    message:
+      status === "GRANTED"
+        ? "Extension granted — the deadline moves with it."
+        : "Refused. The original deadline still stands.",
+  };
+}
+
+/* ---------------------------- The activity log ---------------------------- */
+
+const ACTIVITY_KINDS: SupportActivityKind[] = [
+  "SUPPORT_OFFERED",
+  "MEETING",
+  "TRAINING_VISIT",
+  "ACTION_PLAN",
+  "VIDEO_CHASED",
+  "VIDEO_RECEIVED",
+  "UNAVAILABLE",
+  "OUTCOME_SENT",
+  "NOTE",
+];
+
+/**
+ * Adds one dated entry to a case's history.
+ *
+ * `occurredAt` is the day the thing happened, not today: these are written up
+ * afterwards, and a log that timestamps itself answers the wrong question.
+ */
+export async function logActivity(
+  _prev: SupportState,
+  formData: FormData,
+): Promise<SupportState> {
+  const actor = await requireStaff();
+  const caseId = text(formData, "caseId");
+  const scope = await courseOfCase(caseId);
+  if (!scope) return { status: "error", message: "Case not found." };
+  await assertCourseStaff(actor, scope);
+
+  const kind = text(formData, "kind") as SupportActivityKind;
+  if (!ACTIVITY_KINDS.includes(kind)) {
+    return { status: "error", message: "Pick what kind of entry this is." };
+  }
+
+  const occurredAt = parseDay(formData, "occurredAt");
+  if (!occurredAt) return { status: "error", message: "Say which day this happened." };
+
+  const detail = text(formData, "detail");
+  // A bare "NOTE" with nothing written in it records that somebody typed
+  // nothing. Every other kind says something on its own.
+  if (kind === "NOTE" && !detail) {
+    return { status: "error", message: "Write the note before saving it." };
+  }
+
+  await prisma.supportActivity.create({
+    data: { caseId, kind, occurredAt, detail: detail || null, recordedById: actor.id },
+  });
+
+  refreshCase(caseId);
+  return { status: "ok", message: "Added to the history." };
 }
 
 /* ------------------------------- Review ----------------------------------- */
@@ -441,15 +613,42 @@ export async function closeCase(_prev: SupportState, formData: FormData): Promis
   if (scope) await assertCourseStaff(actor, scope);
   const status = text(formData, "status");
 
-  if (status !== "UNSUCCESSFUL" && status !== "WITHDRAWN") {
+  if (status !== "UNSUCCESSFUL" && status !== "WITHDRAWN" && status !== "LAPSED") {
     return { status: "error", message: "Choose how this case is being closed." };
   }
 
   const note = text(formData, "closingNote");
   if (!note) return { status: "error", message: "Write a closing note." };
 
-  const supportCase = await prisma.supportCase.findUnique({ where: { id: caseId } });
+  const supportCase = await prisma.supportCase.findUnique({
+    where: { id: caseId },
+    include: { course: { select: { supportDeadline: true } }, extensions: true },
+  });
   if (!supportCase) return { status: "error", message: "Case not found." };
+
+  // Lapsing is a fact about the calendar, not a view anybody holds about the
+  // coach, so it is checked here rather than taken from the form. The form only
+  // offers it when the date has passed; this is what stops it being reachable
+  // by any other route while an extension is still running.
+  if (status === "LAPSED") {
+    const deadline = deadlineInForce(supportCase);
+    if (!deadline.date) {
+      return {
+        status: "error",
+        message:
+          "This case has no deadline, so it can't have run out of time. Set the cohort's date on " +
+          "the course, or one for this coach, before closing it this way.",
+      };
+    }
+    if (!isPastDeadline(deadline.date)) {
+      return {
+        status: "error",
+        message:
+          "The deadline hasn't passed yet, so this case hasn't lapsed. Close it another way, or " +
+          "wait for the date.",
+      };
+    }
+  }
 
   await prisma.$transaction(async (tx) => {
     // An assessment that was arranged and never happened is dropped. Film the
