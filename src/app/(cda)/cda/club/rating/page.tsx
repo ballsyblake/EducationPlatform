@@ -97,6 +97,7 @@ export default async function ClubRatingPage() {
   const timeline = reviewTimeline({
     status: assessment.status,
     publishedAt: assessment.publishedAt,
+    clubNotifiedAt: assessment.clubNotifiedAt,
     review,
   });
   // From the timeline, not the status column: a window that has lapsed has

@@ -149,6 +149,14 @@ export function daysUntil(deadline: Date, now: Date = new Date()): number {
 export type ReviewStage =
   /** Not released, so nothing to review yet. */
   | "NOT_RELEASED"
+  /**
+   * Released in the portal, but nobody has recorded telling the club.
+   *
+   * The eight days have not started. The club may still ask for a review — see
+   * `canRequestReview` — because one that has found its rating in the portal
+   * should never be told to wait for a letter.
+   */
+  | "AWAITING_NOTIFICATION"
   /** Preliminary rating out, review window open. */
   | "WINDOW_OPEN"
   /** Window closed with no request. The rating confirms itself. */
@@ -181,11 +189,22 @@ export type ReviewTimeline = {
    * clock running out, not by a decision.
    */
   shouldConfirm: boolean;
+  /**
+   * True once the Unit has recorded telling the club. False on a rating that is
+   * visible in the portal but that nobody has written to the club about — the
+   * one state where the Unit owes an action no clock is counting.
+   */
+  notified: boolean;
 };
 
 export type ReviewTimelineInput = {
   status: string;
   publishedAt: Date | null;
+  /**
+   * When the Unit recorded telling the club, outside this system. Null means
+   * nobody has, and the review window has not started.
+   */
+  clubNotifiedAt: Date | null;
   review: {
     status: string;
     submittedAt: Date;
@@ -207,6 +226,8 @@ export function reviewTimeline(
   input: ReviewTimelineInput,
   now: Date = new Date(),
 ): ReviewTimeline {
+  const notified = input.clubNotifiedAt !== null;
+
   const settled = (stage: ReviewStage): ReviewTimeline => ({
     stage,
     deadline: null,
@@ -215,6 +236,7 @@ export function reviewTimeline(
     canRequestReview: false,
     canAppeal: false,
     shouldConfirm: stage !== "CONFIRMED",
+    notified,
   });
 
   const waiting = (
@@ -229,6 +251,7 @@ export function reviewTimeline(
     canRequestReview: opts.canRequestReview ?? false,
     canAppeal: opts.canAppeal ?? false,
     shouldConfirm: false,
+    notified,
   });
 
   if (input.status === "CONFIRMED") return settled("CONFIRMED");
@@ -241,13 +264,33 @@ export function reviewTimeline(
       canRequestReview: false,
       canAppeal: false,
       shouldConfirm: false,
+      notified,
     };
   }
 
   const review = input.review;
 
   if (!review) {
-    const deadline = addDays(input.publishedAt, REVIEW_REQUEST_DAYS);
+    // Released, and nobody has written to the club yet. The window cannot have
+    // lapsed because it has not started, and this deliberately does not fall
+    // back to `publishedAt`: a rating confirming itself on a clock the club had
+    // no way of knowing was running is the failure this whole field exists to
+    // prevent. The club may still ask — finding your own rating in the portal
+    // is not a reason to be made to wait.
+    if (!input.clubNotifiedAt) {
+      return {
+        stage: "AWAITING_NOTIFICATION",
+        deadline: null,
+        daysLeft: null,
+        overdue: false,
+        canRequestReview: true,
+        canAppeal: false,
+        shouldConfirm: false,
+        notified,
+      };
+    }
+
+    const deadline = addDays(input.clubNotifiedAt, REVIEW_REQUEST_DAYS);
     if (now > deadline) return settled("WINDOW_LAPSED");
     return waiting("WINDOW_OPEN", deadline, { canRequestReview: true });
   }
@@ -362,6 +405,7 @@ export { DOMAIN_WORD as REVIEW_DOMAIN_WORD };
 
 export const STAGE_LABELS: Record<ReviewStage, string> = {
   NOT_RELEASED: "Not released",
+  AWAITING_NOTIFICATION: "Released — club not yet told",
   WINDOW_OPEN: "Review window open",
   WINDOW_LAPSED: "Review window closed",
   AWAITING_RESPONSE: "Awaiting the Unit's response",

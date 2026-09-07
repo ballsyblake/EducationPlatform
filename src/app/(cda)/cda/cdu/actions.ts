@@ -1252,6 +1252,72 @@ export async function publishAssessment(
   return { status: "ok", message: "Rating released to the club." };
 }
 
+/**
+ * Records that the Unit has told the club, and starts their eight days.
+ *
+ * Football Queensland notifies clubs outside this system, so releasing a rating
+ * and telling a club about it are two acts that can be days apart. Only the
+ * second one is a date the club could act on, and it is the one FQ's process
+ * measures the review window from.
+ *
+ * Re-recording is allowed and simply overwrites: the correction for a date
+ * typed wrong is the same form again, and a separate "clear" would be one more
+ * button for a mistake that is rarer than the typo.
+ */
+export async function recordClubNotified(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  const actor = await requireCdu();
+  const assessmentId = String(formData.get("assessmentId") ?? "");
+
+  const assessment = await prisma.clubAssessment.findUnique({
+    where: { id: assessmentId },
+    include: { club: { select: { name: true } } },
+  });
+  if (!assessment) return { status: "error", message: "That assessment no longer exists." };
+  if (!assessment.publishedAt) {
+    return { status: "error", message: "Release the rating before recording that the club was told." };
+  }
+
+  const raw = String(formData.get("notifiedOn") ?? "").trim();
+  // A plain date rather than an instant. Nobody remembers what time they sent
+  // an email, and a window measured in days does not need the hour.
+  const notifiedAt = raw ? new Date(`${raw}T00:00:00.000Z`) : new Date();
+  if (Number.isNaN(notifiedAt.getTime())) {
+    return { status: "error", message: "That isn't a date." };
+  }
+  if (notifiedAt.getTime() > Date.now()) {
+    return { status: "error", message: "That date is in the future." };
+  }
+
+  // Compared by day: a rating released this morning can honestly be phoned
+  // through this afternoon, and an hours-level comparison would reject it.
+  const releasedDay = Date.UTC(
+    assessment.publishedAt.getUTCFullYear(),
+    assessment.publishedAt.getUTCMonth(),
+    assessment.publishedAt.getUTCDate(),
+  );
+  if (notifiedAt.getTime() < releasedDay) {
+    return {
+      status: "error",
+      message: "The club can't have been told before the rating was released.",
+    };
+  }
+
+  await prisma.clubAssessment.update({
+    where: { id: assessmentId },
+    data: { clubNotifiedAt: notifiedAt, clubNotifiedById: actor.id },
+  });
+
+  revalidatePath(`/cda/cdu/assessments/${assessmentId}`, "layout");
+  revalidatePath("/cda/cdu");
+  return {
+    status: "ok",
+    message: `Recorded. ${assessment.club.name} has eight days from ${notifiedAt.toISOString().slice(0, 10)}.`,
+  };
+}
+
 export async function withdrawAssessment(
   _prev: CduFormState,
   formData: FormData,
@@ -1273,10 +1339,14 @@ export async function withdrawAssessment(
 
   await prisma.clubAssessment.update({
     where: { id: assessmentId },
-    data: { status: "LOCKED", publishedAt: null },
+    // The notification goes with the rating it was about. Leaving it behind
+    // would start the club's eight days from a letter describing a rating they
+    // can no longer see, and a re-release has to give them the window again.
+    data: { status: "LOCKED", publishedAt: null, clubNotifiedAt: null, clubNotifiedById: null },
   });
 
   revalidatePath(`/cda/cdu/assessments/${assessmentId}`, "layout");
+  revalidatePath("/cda/cdu");
   return { status: "ok", message: "Withdrawn. The club can no longer see the rating." };
 }
 
@@ -1634,6 +1704,7 @@ export async function confirmRating(
   const timeline = reviewTimeline({
     status: assessment.status,
     publishedAt: assessment.publishedAt,
+    clubNotifiedAt: assessment.clubNotifiedAt,
     review: assessment.review,
   });
 

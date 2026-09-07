@@ -30,6 +30,7 @@ cda/cdu/            The Unit: the cycle board, clubs, assessors, pools, the
 | `assessment.ts` | Assembles an assessment; freezes the result at lock. |
 | `access.ts` | Club / assessor / CDU authorization. |
 | `review.ts` | Review and appeal windows, and what a club is allowed to request. |
+| `queue.ts` | What the cycle is waiting on the Unit for. Derived, pure. |
 | `structure.ts` | The structure standards behind NN7. |
 | `club-import.ts` | CSV parsing and the import plan. |
 
@@ -63,6 +64,17 @@ without writing anything down. **Keep the database out of it.**
   belongs nowhere in this directory. Don't reintroduce the shortcut.
 - **Nothing is locked or published by a computation.** The portal computes a
   rating live; freezing it is `freezeResult`, called by a person.
+- **The review window runs from `clubNotifiedAt`, not `publishedAt`.** Every
+  notification FQ sends is external to this system, so releasing a rating and
+  telling a club about it are two acts days apart, and only the second is a date
+  the club could act on. Until the Unit records it the stage is
+  `AWAITING_NOTIFICATION`: no clock, nothing lapses, and the club may still ask
+  for a review. It deliberately does **not** fall back to `publishedAt` — that
+  would confirm a rating by a clock the club never knew was running.
+- **All communication is external, both products.** Nothing here emails anyone
+  but a sign-in link, and that is the design rather than a gap. It is why
+  `unitWorkList` exists: if the queue on `/cda/cdu` doesn't say a club is owed
+  something, nobody finds out.
 - **Platinum is a future level** (85%, from 2028), not stale documentation.
 
 ## Loading a real season

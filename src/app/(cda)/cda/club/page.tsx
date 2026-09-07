@@ -37,7 +37,7 @@ const STATUS_COPY: Record<string, { label: string; blurb: string }> = {
   PUBLISHED: {
     label: "Preliminary",
     blurb:
-      "Your preliminary rating is available. If you believe evidence was missed on a line item, you can ask for it to be reviewed — the window is open for a limited time, and the rating confirms itself once it closes.",
+      "Your preliminary rating is available. If you believe evidence was missed on a line item, you can ask for it to be reviewed — the window runs for eight days from the day Football Queensland writes to you, and they confirm the rating once it closes.",
   },
   IN_REVIEW: {
     label: "Under review",
