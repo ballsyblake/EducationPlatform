@@ -31,6 +31,7 @@ cda/cdu/            The Unit: the cycle board, clubs, assessors, pools, the
 | `access.ts` | Club / assessor / CDU authorization. |
 | `review.ts` | Review and appeal windows, and what a club is allowed to request. |
 | `queue.ts` | What the cycle is waiting on the Unit for. Derived, pure. |
+| `cycle.ts` | The club entry window: opens, due, late. Informs, never blocks. |
 | `structure.ts` | The structure standards behind NN7. |
 | `club-import.ts` | CSV parsing and the import plan. |
 
@@ -71,6 +72,12 @@ without writing anything down. **Keep the database out of it.**
   `AWAITING_NOTIFICATION`: no clock, nothing lapses, and the club may still ask
   for a review. It deliberately does **not** fall back to `publishedAt` — that
   would confirm a rating by a clock the club never knew was running.
+- **`Cycle.opensAt` / `closesAt` inform; they never enforce.** What stops a club
+  editing is `clubCanEdit` on its own assessment, and what closes entry for
+  everyone is the Unit moving the cycle to Assessing — both acts a person takes.
+  FQ accepts a late submission from a club that rang to explain, so a form that
+  locked itself on a date would refuse work FQ wants, on a Saturday, with nobody
+  to appeal to. Past the date a club is told it is late and to send it anyway.
 - **All communication is external, both products.** Nothing here emails anyone
   but a sign-in link, and that is the design rather than a gap. It is why
   `unitWorkList` exists: if the queue on `/cda/cdu` doesn't say a club is owed

@@ -11,6 +11,10 @@ export type CycleSettingsData = {
   id: string;
   name: string;
   status: string;
+  /** YYYY-MM-DD, or "" — formatted on the server so the input and the stored
+      date can't disagree about the viewer's timezone. */
+  opensAt: string;
+  closesAt: string;
   technicalMaxPoints: number;
   bronzeMin: number;
   silverMin: number;
@@ -35,6 +39,7 @@ export function CycleSettings({ cycle }: { cycle: CycleSettingsData }) {
     goldMin: String(cycle.goldMin),
   });
   const [status, setStatus] = useState(cycle.status);
+  const [dates, setDates] = useState({ opensAt: cycle.opensAt, closesAt: cycle.closesAt });
 
   const thresholdFields = [
     { key: "bronzeMin", label: "Bronze" },
@@ -72,6 +77,33 @@ export function CycleSettings({ cycle }: { cycle: CycleSettingsData }) {
           ))}
         </select>
       </div>
+
+      <fieldset>
+        <legend className="label">Club entry window</legend>
+        <p className="mb-2 text-xs text-ink-500">
+          The timetable clubs are told, and what the Cycle board measures a late club against.
+          Nothing locks on these dates — moving the stage to Assessing is what closes entry.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {(
+            [
+              { key: "opensAt", label: "Opens" },
+              { key: "closesAt", label: "Due" },
+            ] as const
+          ).map((f) => (
+            <label key={f.key} className="text-xs text-ink-600">
+              {f.label}
+              <input
+                type="date"
+                name={f.key}
+                className="input mt-1"
+                value={dates[f.key]}
+                onChange={(e) => setDates({ ...dates, [f.key]: e.target.value })}
+              />
+            </label>
+          ))}
+        </div>
+      </fieldset>
 
       <div>
         <label className="label" htmlFor="technical-max">

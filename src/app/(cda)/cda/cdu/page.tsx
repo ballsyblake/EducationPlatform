@@ -5,14 +5,19 @@ import { RELEASED_STATUSES, requireCdu } from "@/lib/cda/access";
 import { activeCycle, tierScope } from "@/lib/cda/assessment";
 import { SHIELD_LABELS } from "@/lib/cda/rubric";
 import { unitWorkList } from "@/lib/cda/queue";
+import { submissionWindow } from "@/lib/cda/cycle";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
+import { formatDate } from "@/lib/format";
 import { CycleSettings } from "./cycle-settings";
 import { NewCycle } from "./new-cycle";
 import { PoolsPanel, type PoolSummary } from "./pools-panel";
 import type { NonNegotiableVerdict, Shield } from "@prisma-client";
 
 export const metadata = { title: "Cycle" };
+
+/** A stored date as the value a `<input type="date">` wants. */
+const asDateInput = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
 
 const STATUS_TONE = {
   NOT_STARTED: "muted",
@@ -167,6 +172,7 @@ export default async function CduHomePage() {
   // Everything the cycle is waiting on the Unit for. Clubs are told about their
   // ratings outside this system, so nothing arrives to prompt this work — if it
   // isn't on the screen, it doesn't happen.
+  const window = submissionWindow(cycle);
   const work = unitWorkList(
     assessments.map((a) => ({
       id: a.id,
@@ -176,6 +182,8 @@ export default async function CduHomePage() {
       clubNotifiedAt: a.clubNotifiedAt,
       review: a.review,
     })),
+    new Date(),
+    window.closesAt,
   );
   const workCount = work.reduce((n, g) => n + g.items.length, 0);
 
@@ -183,7 +191,19 @@ export default async function CduHomePage() {
     <>
       <PageHeader
         title={cycle.name}
-        subtitle={`${assessments.length} clubs in this cycle`}
+        subtitle={
+          <>
+            {assessments.length} clubs in this cycle
+            {window.closesAt && (
+              <>
+                {" · "}
+                <span className={window.overdue ? "font-medium text-red-700" : undefined}>
+                  entries {window.overdue ? "were due" : "due"} {formatDate(window.closesAt)}
+                </span>
+              </>
+            )}
+          </>
+        }
         action={<Badge tone="info">{cycle.status.replace("_", " ").toLowerCase()}</Badge>}
       />
 
@@ -374,7 +394,17 @@ export default async function CduHomePage() {
         <aside className="space-y-4">
           <PoolsPanel cycleId={cycle.id} pools={pools} />
 
-          <CycleSettings cycle={cycle} />
+          <CycleSettings
+            cycle={{
+              ...cycle,
+              // Formatted here rather than in the client component: a date
+              // input wants YYYY-MM-DD, and doing it browser-side would render
+              // the viewer's timezone against a UTC-midnight date and show the
+              // day before for anyone west of it.
+              opensAt: asDateInput(cycle.opensAt),
+              closesAt: asDateInput(cycle.closesAt),
+            }}
+          />
 
           {published.length > 0 && (
             <div className="card card-pad">

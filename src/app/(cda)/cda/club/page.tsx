@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ShieldBadge } from "@/components/cda/shield";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
+import { submissionNote, submissionWindow } from "@/lib/cda/cycle";
 import { RELEASED_STATUSES, ratingVisibleToClub } from "@/lib/cda/access";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/format";
@@ -133,6 +134,9 @@ export default async function ClubOverviewPage() {
 
   const completed = steps.filter((s) => s.done).length;
 
+  const window = submissionWindow(cycle);
+  const note = submissionNote(window, formatDate);
+
   return (
     <>
       <PageHeader
@@ -167,6 +171,20 @@ export default async function ClubOverviewPage() {
           hint={previous ? `${previous.cycle.name}` : "No published history"}
         />
       </div>
+
+      {/* The timetable, while the club still has something to do about it. A
+          countdown on a submitted club is noise, and one on a club whose rating
+          is already out is a deadline for a thing that has happened. */}
+      {checklist.editable && note && (
+        <div className="mb-6 card card-pad">
+          <p className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
+            <Badge tone={window.tone}>
+              {window.stage === "CLOSED" ? "Overdue" : window.stage === "BEFORE_OPEN" ? "Not open yet" : "Due"}
+            </Badge>
+            {note}
+          </p>
+        </div>
+      )}
 
       <div className="mb-6 card card-pad">
         <p className="text-sm text-ink-700">{status.blurb}</p>
