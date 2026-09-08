@@ -378,6 +378,7 @@ export async function submitReviewRequest(
   const timeline = reviewTimeline({
     status: assessment.status,
     publishedAt: assessment.publishedAt,
+    clubNotifiedAt: assessment.clubNotifiedAt,
     review: null,
   });
   if (!timeline.canRequestReview) {
@@ -479,6 +480,7 @@ export async function submitAppeal(
   const timeline = reviewTimeline({
     status: assessment.status,
     publishedAt: assessment.publishedAt,
+    clubNotifiedAt: assessment.clubNotifiedAt,
     review: assessment.review,
   });
   if (!timeline.canAppeal) {

@@ -132,6 +132,7 @@ model User {
   assessorScores         AssessorScore[]       @relation("AssessorScores")
   resolvedScores         FinalScore[]          @relation("ScoreResolver")
   lockedAssessments      ClubAssessment[]      @relation("AssessmentLocker")
+  assessmentsNotified    ClubAssessment[]      @relation("AssessmentNotifier")
   verifiedNonNegotiables NonNegotiableResult[] @relation("NonNegotiableVerifier")
   areaNotes              AreaNote[]            @relation("AreaNoteAuthor")
   reviewsSubmitted       ReviewRequest[]       @relation("ReviewSubmitter")
@@ -1376,6 +1377,25 @@ model ClubAssessment {
   lockedById      String?
   lockedBy        User?     @relation("AssessmentLocker", fields: [lockedById], references: [id], onDelete: SetNull)
   publishedAt     DateTime?
+
+  /// When the Unit actually told the club, outside this system.
+  ///
+  /// Every notification Football Queensland sends is external — email, phone,
+  /// the club's own channels — so `publishedAt` records only the moment
+  /// somebody pressed Release. The club's eight days run from being *told*.
+  /// Release on a Thursday, write to them on the Monday, and anchoring the
+  /// window to `publishedAt` silently takes four days off a right FQ's own
+  /// process grants in full, with nothing on the record to show it happened.
+  ///
+  /// Null means nobody has recorded telling them, and the review window has not
+  /// started. It deliberately does not fall back to `publishedAt`: a rating the
+  /// club was never told about must not lapse into Confirmed on a clock they
+  /// had no way of knowing was running. The club can still ask for a review in
+  /// the meantime — see `reviewTimeline` — because a club that has found its
+  /// rating in the portal should never be told to wait for a letter.
+  clubNotifiedAt   DateTime?
+  clubNotifiedById String?
+  clubNotifiedBy   User?     @relation("AssessmentNotifier", fields: [clubNotifiedById], references: [id], onDelete: SetNull)
 
   /// The result, frozen at lock time.
   ///

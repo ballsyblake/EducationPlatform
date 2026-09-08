@@ -52,6 +52,7 @@ export default async function ClubReviewPage() {
   const timeline = reviewTimeline({
     status: assessment.status,
     publishedAt: assessment.publishedAt,
+    clubNotifiedAt: assessment.clubNotifiedAt,
     review,
   });
 
@@ -109,7 +110,9 @@ export default async function ClubReviewPage() {
             {allowance.poolLimited
               ? "Pool B clubs get one Planning item rather than three, because only part of your Planning was reassessed this year. "
               : ""}
-            If you don&apos;t request a review, your rating confirms itself once the window closes.
+            {timeline.notified
+              ? " If you don't request a review, Football Queensland confirms your rating once the window closes."
+              : " Football Queensland will write to you about this rating, and your eight days run from that letter rather than from today — so there is no rush. You can put a request in now if you would rather."}
           </p>
           <p className="text-ink-500">
             Uploading your evidence to the Club Hub is the club&apos;s responsibility. Say in each

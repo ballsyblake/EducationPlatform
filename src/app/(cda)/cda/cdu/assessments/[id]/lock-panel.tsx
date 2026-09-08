@@ -7,6 +7,7 @@ import { formatDate } from "@/lib/format";
 import {
   lockAssessment,
   publishAssessment,
+  recordClubNotified,
   reopenForClub,
   setLicenceCompliance,
   unlockAssessment,
@@ -29,6 +30,8 @@ export function LockPanel({
   status,
   lockedAt,
   publishedAt,
+  clubNotifiedAt,
+  today,
   unresolved,
   pendingChecks,
   summary,
@@ -39,6 +42,11 @@ export function LockPanel({
   status: string;
   lockedAt: Date | null;
   publishedAt: Date | null;
+  /** When the Unit recorded telling the club, outside this system. */
+  clubNotifiedAt: Date | null;
+  /** Today as YYYY-MM-DD, from the server — a client `new Date()` here would
+      disagree with the server render and trip hydration. */
+  today: string;
   unresolved: number;
   pendingChecks: number;
   summary: string;
@@ -52,8 +60,13 @@ export function LockPanel({
   const [withdrawState, withdrawAction] = useActionState(withdrawAssessment, initialState);
   const [reopenState, reopenAction] = useActionState(reopenForClub, initialState);
   const [licenceState, licenceAction] = useActionState(setLicenceCompliance, initialState);
+  const [notifiedState, notifiedAction] = useActionState(recordClubNotified, initialState);
 
   const [summaryText, setSummaryText] = useState(summary);
+  const [notifiedOn, setNotifiedOn] = useState(
+    clubNotifiedAt ? clubNotifiedAt.toISOString().slice(0, 10) : today,
+  );
+  const [correcting, setCorrecting] = useState(false);
   const [licence, setLicence] = useState(
     licenceCompliant === null ? "" : licenceCompliant ? "yes" : "no",
   );
@@ -75,7 +88,15 @@ export function LockPanel({
     blockers.push("licence compliance not recorded — needed for the Development Committed badge");
   }
 
-  const messages = [lockState, unlockState, publishState, withdrawState, reopenState, licenceState];
+  const messages = [
+    lockState,
+    unlockState,
+    publishState,
+    withdrawState,
+    reopenState,
+    licenceState,
+    notifiedState,
+  ];
 
   return (
     <div className="card card-pad space-y-4">
@@ -198,6 +219,72 @@ export function LockPanel({
             </SubmitButton>
           </form>
         </>
+      )}
+
+      {/* Released, and the club has to be told before their eight days can
+          start. Every notification FQ sends happens outside this system, so
+          this is the only place that date can come from — and without it the
+          window would run from a portal event the club never saw. */}
+      {publishedAt && !clubNotifiedAt && (
+        <form action={notifiedAction} className="space-y-2 rounded-lg bg-maroon-50 p-3">
+          <input type="hidden" name="assessmentId" value={assessmentId} />
+          <p className="text-sm font-medium text-maroon-800">Club not yet told</p>
+          <p className="text-xs text-maroon-700">
+            Their eight days to ask for a review start from the day you write to them, not from
+            the release. Record that date once you have.
+          </p>
+          <label className="label" htmlFor="notifiedOn">
+            Date the club was told
+          </label>
+          <input
+            id="notifiedOn"
+            name="notifiedOn"
+            type="date"
+            className="input"
+            max={today}
+            value={notifiedOn}
+            onChange={(e) => setNotifiedOn(e.target.value)}
+          />
+          <SubmitButton className="btn-primary btn-sm w-full" pendingLabel="Recording…">
+            Record that the club was told
+          </SubmitButton>
+        </form>
+      )}
+
+      {publishedAt && clubNotifiedAt && (
+        <div className="space-y-2 border-t border-ink-200 pt-3">
+          <p className="text-xs text-ink-500">
+            Club told {formatDate(clubNotifiedAt)}. Their review window runs from that date.
+          </p>
+          {correcting ? (
+            <form action={notifiedAction} className="space-y-2">
+              <input type="hidden" name="assessmentId" value={assessmentId} />
+              <label className="label" htmlFor="notifiedOnFix">
+                Date the club was told
+              </label>
+              <input
+                id="notifiedOnFix"
+                name="notifiedOn"
+                type="date"
+                className="input"
+                max={today}
+                value={notifiedOn}
+                onChange={(e) => setNotifiedOn(e.target.value)}
+              />
+              <SubmitButton className="btn-secondary btn-sm w-full" pendingLabel="Saving…">
+                Save the corrected date
+              </SubmitButton>
+            </form>
+          ) : (
+            <button
+              type="button"
+              className="text-xs font-medium text-maroon-700 hover:underline"
+              onClick={() => setCorrecting(true)}
+            >
+              Correct this date
+            </button>
+          )}
+        </div>
       )}
 
       {publishedAt && (

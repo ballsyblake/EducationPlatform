@@ -140,6 +140,7 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
   const timeline = reviewTimeline({
     status: assessment.status,
     publishedAt: assessment.publishedAt,
+    clubNotifiedAt: assessment.clubNotifiedAt,
     review: reviewRow,
   });
 
@@ -342,6 +343,8 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
             status={assessment.status}
             lockedAt={assessment.lockedAt}
             publishedAt={assessment.publishedAt}
+            clubNotifiedAt={assessment.clubNotifiedAt}
+            today={new Date().toISOString().slice(0, 10)}
             unresolved={overview.unresolved.length}
             pendingChecks={pendingChecks}
             summary={assessment.summary ?? ""}

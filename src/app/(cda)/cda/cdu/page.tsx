@@ -4,6 +4,7 @@ import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/componen
 import { RELEASED_STATUSES, requireCdu } from "@/lib/cda/access";
 import { activeCycle, tierScope } from "@/lib/cda/assessment";
 import { SHIELD_LABELS } from "@/lib/cda/rubric";
+import { unitWorkList } from "@/lib/cda/queue";
 import { pct } from "@/lib/cda/scoring";
 import { prisma } from "@/lib/db";
 import { CycleSettings } from "./cycle-settings";
@@ -86,6 +87,17 @@ export default async function CduHomePage() {
       club: true,
       pool: { include: { assignments: { select: { criterionId: true, submittedAt: true } } } },
       _count: { select: { finalScores: true, staff: true } },
+      // For the work list below. Only the five timestamps the review clock
+      // turns on — the items and their comments are the assessment page's job.
+      review: {
+        select: {
+          status: true,
+          submittedAt: true,
+          respondedAt: true,
+          appealedAt: true,
+          appealDecidedAt: true,
+        },
+      },
     },
     orderBy: { club: { name: "asc" } },
   });
@@ -152,6 +164,21 @@ export default async function CduHomePage() {
 
   const needsAttention = assessments.filter((a) => a.status === "RECONCILING").length;
 
+  // Everything the cycle is waiting on the Unit for. Clubs are told about their
+  // ratings outside this system, so nothing arrives to prompt this work — if it
+  // isn't on the screen, it doesn't happen.
+  const work = unitWorkList(
+    assessments.map((a) => ({
+      id: a.id,
+      clubName: a.club.name,
+      status: a.status,
+      publishedAt: a.publishedAt,
+      clubNotifiedAt: a.clubNotifiedAt,
+      review: a.review,
+    })),
+  );
+  const workCount = work.reduce((n, g) => n + g.items.length, 0);
+
   return (
     <>
       <PageHeader
@@ -176,6 +203,54 @@ export default async function CduHomePage() {
           hint="Failed a Non-Negotiable"
         />
       </div>
+
+      {work.length > 0 && (
+        <section className="mb-6">
+          <h2 className="section-title mb-3">
+            Waiting on the Unit{" "}
+            <span className="font-normal text-ink-500">
+              — {workCount} {workCount === 1 ? "club" : "clubs"}
+            </span>
+          </h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            {work.map((group) => (
+              <div key={group.key} className="card card-pad">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="font-semibold text-ink-900">{group.title}</h3>
+                  <Badge tone={group.tone}>{group.items.length}</Badge>
+                </div>
+                <p className="mt-1 text-xs text-ink-500">{group.blurb}</p>
+                <ul className="mt-3 divide-y divide-ink-200 text-sm">
+                  {group.items.map((item) => (
+                    <li
+                      key={item.assessmentId}
+                      className="flex flex-wrap items-baseline justify-between gap-2 py-1.5"
+                    >
+                      <Link
+                        href={`/cda/cdu/assessments/${item.assessmentId}`}
+                        className="font-medium text-maroon-800 hover:underline"
+                      >
+                        {item.clubName}
+                      </Link>
+                      {item.daysLeft !== null && (
+                        <span
+                          className={
+                            item.overdue ? "text-xs font-medium text-red-700" : "text-xs text-ink-500"
+                          }
+                        >
+                          {item.overdue
+                            ? `${Math.abs(item.daysLeft)} ${Math.abs(item.daysLeft) === 1 ? "day" : "days"} overdue`
+                            : `${item.daysLeft} ${item.daysLeft === 1 ? "day" : "days"} left`}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
         <section className="min-w-0">
