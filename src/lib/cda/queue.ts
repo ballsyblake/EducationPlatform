@@ -11,6 +11,7 @@
  * agrees with the club's own countdown by construction rather than by two
  * places being kept in step.
  */
+import { daysUntil } from "./review";
 import { reviewTimeline, type ReviewTimelineInput } from "./review";
 
 export type WorkRow = ReviewTimelineInput & {
@@ -58,7 +59,16 @@ function byUrgency(a: WorkItem, b: WorkItem) {
  * zeroes — a list of six headings with nothing under five of them is harder to
  * read than a list of one.
  */
-export function unitWorkList(rows: WorkRow[], now: Date = new Date()): WorkGroup[] {
+export function unitWorkList(
+  rows: WorkRow[],
+  now: Date = new Date(),
+  /**
+   * The cycle's due date for club entries, where one is set. Only the
+   * unsubmitted group is measured against it — every other deadline here
+   * belongs to one club's own process rather than to the timetable.
+   */
+  entriesDueAt: Date | null = null,
+): WorkGroup[] {
   const groups: Record<string, WorkItem[]> = {
     respond: [],
     appeal: [],
@@ -86,7 +96,16 @@ export function unitWorkList(rows: WorkRow[], now: Date = new Date()): WorkGroup
     // Not from the timeline: these two sit before a rating exists at all.
     if (row.status === "RECONCILING") groups.reconcile.push(item);
     if (row.status === "NOT_STARTED" || row.status === "IN_PROGRESS") {
-      groups.unsubmitted.push(item);
+      groups.unsubmitted.push(
+        entriesDueAt
+          ? {
+              ...item,
+              deadline: entriesDueAt,
+              daysLeft: daysUntil(entriesDueAt, now),
+              overdue: now > entriesDueAt,
+            }
+          : item,
+      );
     }
   }
 
@@ -125,7 +144,7 @@ export function unitWorkList(rows: WorkRow[], now: Date = new Date()): WorkGroup
     {
       key: "unsubmitted",
       title: "Clubs yet to submit",
-      blurb: "Nothing can be scored until they do.",
+      blurb: "Nothing can be scored until they do. Measured against the cycle's due date.",
       tone: "info",
     },
   ];

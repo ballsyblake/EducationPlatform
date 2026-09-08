@@ -1417,9 +1417,30 @@ export async function updateCycle(_prev: CduFormState, formData: FormData): Prom
     status,
   );
 
+  // The club entry window. A plain date rather than an instant: FQ publishes
+  // "entries due 30 September", not a time, and a club submitting at 11pm on
+  // the day has not missed it. Blank clears the date, which is a cycle FQ ran
+  // to an emailed timetable rather than one with no deadline at all.
+  const dates: { opensAt?: Date | null; closesAt?: Date | null } = {};
+  for (const key of ["opensAt", "closesAt"] as const) {
+    const raw = String(formData.get(key) ?? "").trim();
+    if (!raw) {
+      dates[key] = null;
+      continue;
+    }
+    const parsedDate = new Date(`${raw}T00:00:00.000Z`);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return { status: "error", message: `"${raw}" isn't a date.` };
+    }
+    dates[key] = parsedDate;
+  }
+  if (dates.opensAt && dates.closesAt && dates.opensAt > dates.closesAt) {
+    return { status: "error", message: "Entries can't be due before they open." };
+  }
+
   await prisma.cycle.update({
     where: { id: cycleId },
-    data: { ...d, ...(validStatus ? { status: status as never } : {}) },
+    data: { ...d, ...dates, ...(validStatus ? { status: status as never } : {}) },
   });
 
   refresh();
