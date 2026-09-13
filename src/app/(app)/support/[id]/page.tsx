@@ -38,14 +38,15 @@ export default async function CoachSupportCasePage({
   // rest of the app follows about revealing that a thing exists.
   if (!supportCase || supportCase.userId !== user.id) notFound();
 
-  const stage = stageOf(supportCase);
-  const current = openAttempt(supportCase.attempts);
-  const reviewed = supportCase.attempts.filter((a) => a.status === "REVIEWED");
-
   // The coach's own deadline. Their obligation before it is anybody else's, and
-  // it is the one thing the spreadsheet never told them.
+  // it is the one thing the spreadsheet never told them. Resolved before the
+  // stage because the stage now turns on it.
   const deadline = deadlineInForce(supportCase);
   const overdue = isPastDeadline(deadline.date);
+
+  const stage = stageOf(supportCase, deadline.date);
+  const current = openAttempt(supportCase.attempts);
+  const reviewed = supportCase.attempts.filter((a) => a.status === "REVIEWED");
 
   return (
     <>
@@ -70,11 +71,10 @@ export default async function CoachSupportCasePage({
                 <Badge tone={deadlineTone(deadline.date)}>
                   {overdue ? "Deadline passed" : "Due by"} {formatDate(deadline.date)}
                 </Badge>
-                <span>
-                  {overdue
-                    ? "Talk to your educator — they can ask for more time on your behalf."
-                    : "Everything on this case has to be finished by then."}
-                </span>
+                {/* Once the stage itself says the deadline has gone, it has
+                    already given this advice a line above. All that is left to
+                    add here is the date. */}
+                {!stage.lapsed && <span>Everything on this case has to be finished by then.</span>}
               </p>
             )}
             {supportCase.plan && (
