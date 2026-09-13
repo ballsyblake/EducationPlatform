@@ -323,6 +323,15 @@ export type Stage = {
   tone: "muted" | "ok" | "warn" | "bad" | "good" | "info";
   /// Plain-language next step, written for the coach.
   next: string;
+  /**
+   * The deadline has gone by with the case unfinished — whether an educator has
+   * recorded that or not.
+   *
+   * True for a stored `LAPSED` status and for a case the clock has simply run
+   * out on. Callers that need to tell those two apart read the status; callers
+   * that want "is this case out of time" read this.
+   */
+  lapsed: boolean;
 };
 
 /**
@@ -338,6 +347,16 @@ export function stageOf(
     attemptsAllowed: number;
     attempts: { status: string; attemptNo: number; pathway: SupportPathway; dueAt: Date | null }[];
   },
+  /**
+   * The date this case is actually due by — `deadlineInForce(supportCase).date`,
+   * resolved by the caller.
+   *
+   * Passed in rather than worked out here: resolving it means reading the
+   * extensions, the case and the course, and this module holds arithmetic that
+   * never touches a row. Null where nobody has dated the case, which is not the
+   * same as a deadline that has passed and must not read as one.
+   */
+  deadline: Date | null,
   now = new Date(),
 ): Stage {
   if (supportCase.status === "SUCCESSFUL")
@@ -345,6 +364,7 @@ export function stageOf(
       label: "Successful",
       waitingOn: "nobody",
       tone: "good",
+      lapsed: false,
       next: "Your delivery met the standard. The course is passed — nothing further to do.",
     };
   if (supportCase.status === "UNSUCCESSFUL")
@@ -352,6 +372,7 @@ export function stageOf(
       label: "Closed — not successful",
       waitingOn: "nobody",
       tone: "bad",
+      lapsed: false,
       next: "This support case is closed. Talk to your educator about what happens next.",
     };
   if (supportCase.status === "WITHDRAWN")
@@ -359,6 +380,7 @@ export function stageOf(
       label: "Withdrawn",
       waitingOn: "nobody",
       tone: "muted",
+      lapsed: false,
       next: "This case was closed without an assessment.",
     };
   // Without this the clause below reads a lapsed case as an open one and tells
@@ -369,16 +391,48 @@ export function stageOf(
       label: "Deadline passed",
       waitingOn: "nobody",
       tone: "bad",
+      lapsed: true,
       next: "The deadline for this support passed without an assessment. Talk to your educator about what happens next.",
     };
 
   const attempt = openAttempt(supportCase.attempts);
+
+  // Out of time, and nobody has written the row that says so.
+  //
+  // The CDA side already works this way, for the reason stated there: two of
+  // its transitions happen by a deadline passing and nobody is present to
+  // record it. This one is worse, because the clause below reassures — a case
+  // whose time ran out months ago goes on telling the coach their educator is
+  // arranging something. Nobody is.
+  //
+  // Work already in hand is exempt. A booked session or a delivery sitting with
+  // an educator for write-up is the educator's clock to answer for, and calling
+  // that lapsed would blame the coach for somebody else's backlog — the same
+  // rule `reviewTimeline` applies to the Unit's own overdue response.
+  const inHand = attempt?.status === "SCHEDULED" || attempt?.status === "SUBMITTED";
+  if (deadline && deadline < now && !inHand) {
+    return {
+      label: "Deadline passed",
+      // Not "nobody": the case is still open and somebody has to either find
+      // more time or close it. That is an educator's decision, and this is the
+      // only place a coach would see that it is owed.
+      waitingOn: "educator",
+      tone: "bad",
+      lapsed: true,
+      next:
+        attempt?.status === "AWAITING_VIDEO"
+          ? "The deadline for this support has passed. Send your video through anyway, and talk to your educator — they can ask for more time on your behalf."
+          : "The deadline for this support has passed without an assessment. Talk to your educator — they can ask for more time on your behalf, or tell you what happens next.",
+    };
+  }
+
   if (!attempt) {
     const used = supportCase.attempts.length;
     return {
       label: used ? "Awaiting next attempt" : "Awaiting arrangement",
       waitingOn: "educator",
       tone: "warn",
+      lapsed: false,
       next:
         used >= supportCase.attemptsAllowed
           ? "You've used every assessment on this case. Your educator will be in touch about what happens next."
@@ -393,6 +447,7 @@ export function stageOf(
       label: overdue ? "Video overdue" : "Awaiting video",
       waitingOn: "coach",
       tone: overdue ? "bad" : "warn",
+      lapsed: false,
       next: "Film a session you deliver and submit the link below.",
     };
 
@@ -401,6 +456,7 @@ export function stageOf(
       label: overdue ? "Observation to write up" : "Assessment booked",
       waitingOn: overdue ? "educator" : "coach",
       tone: overdue ? "ok" : "info",
+      lapsed: false,
       next: overdue
         ? "Your educator has been out to see you and is writing up the assessment."
         : "Your educator will attend the session below. Run it as you normally would.",
@@ -410,6 +466,7 @@ export function stageOf(
     label: "Awaiting write-up",
     waitingOn: "educator",
     tone: "ok",
+    lapsed: false,
     next: "Your delivery is with your educator. Their feedback lands here once it's written up.",
   };
 }

@@ -95,6 +95,10 @@ export default async function SupportPage({
   });
   const deadlineOf = new Map(open.map((c) => [c.id, c]));
 
+  /** The stage of a case already known to be past its date. */
+  const pastDeadlineStage = (c: (typeof open)[number]) =>
+    stageOf(c, c.deadlineInForce.date);
+
   return (
     <>
       <PageHeader
@@ -153,8 +157,9 @@ export default async function SupportPage({
         <section className="mb-10">
           <h2 className="mb-1 text-lg font-semibold text-ink-900">Past the deadline</h2>
           <p className="mb-3 text-sm text-ink-500">
-            Open cases whose date has gone. Each one is either an extension to ask for, an
-            assessment to arrange, or a case to close as lapsed — but not something to leave.
+            Open cases whose date has gone. Each one is an extension to ask for, an assessment to
+            arrange, a write-up an educator still owes, or a case to close as lapsed — but not
+            something to leave. The badge says which.
           </p>
           <div className="card divide-y divide-ink-200">
             {pastDeadline.map((supportCase) => (
@@ -176,11 +181,20 @@ export default async function SupportPage({
                       ` · ${DEADLINE_SOURCE_LABEL[supportCase.deadlineInForce.source]}`}
                   </p>
                 </div>
-                <Badge tone="bad">
-                  {formatDate(supportCase.deadlineInForce.date)} ·{" "}
-                  {Math.abs(supportCase.daysLeft ?? 0)} day
-                  {Math.abs(supportCase.daysLeft ?? 0) === 1 ? "" : "s"} over
-                </Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Why this one is here. A case past its date with a delivery
+                      sitting in an educator's inbox needs a write-up, not an
+                      extension, and the two used to look identical in this
+                      list. */}
+                  <Badge tone={pastDeadlineStage(supportCase).tone}>
+                    {pastDeadlineStage(supportCase).label}
+                  </Badge>
+                  <Badge tone="bad">
+                    {formatDate(supportCase.deadlineInForce.date)} ·{" "}
+                    {Math.abs(supportCase.daysLeft ?? 0)} day
+                    {Math.abs(supportCase.daysLeft ?? 0) === 1 ? "" : "s"} over
+                  </Badge>
+                </div>
               </Link>
             ))}
           </div>
@@ -315,9 +329,9 @@ export default async function SupportPage({
         {cases.length ? (
           <div className="card divide-y divide-ink-200">
             {orderedCases.map((supportCase) => {
-              const stage = stageOf(supportCase);
-              const status = CASE_STATUS[supportCase.status];
               const due = deadlineOf.get(supportCase.id);
+              const stage = stageOf(supportCase, due?.deadlineInForce.date ?? null);
+              const status = CASE_STATUS[supportCase.status];
               return (
                 <Link
                   key={supportCase.id}

@@ -88,13 +88,14 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
   const result = results.find((r) => r.courseId === supportCase.courseId);
   const current = openAttempt(supportCase.attempts);
   const reviewed = supportCase.attempts.filter((a) => a.status === "REVIEWED");
-  const stage = stageOf(supportCase);
+  // The one rule, resolved once for the page: the latest granted extension,
+  // then this coach's own date, then the cohort's. Before the stage, which
+  // reads it to tell an out-of-time case from an open one.
+  const deadline = deadlineInForce(supportCase);
+
+  const stage = stageOf(supportCase, deadline.date);
   const status = CASE_STATUS[supportCase.status];
   const attemptsLeft = supportCase.attemptsAllowed - supportCase.attempts.length;
-
-  // The one rule, resolved once for the page: the latest granted extension,
-  // then this coach's own date, then the cohort's.
-  const deadline = deadlineInForce(supportCase);
   const overdue = isPastDeadline(deadline.date);
   const pending = supportCase.extensions.find((e) => e.status === "REQUESTED");
   // Who is running it: the account where there is one, the written name where

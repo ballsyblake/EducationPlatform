@@ -6,7 +6,11 @@ import { formatHours, makeUpBalance } from "@/lib/attendance";
 import { isAdmin, isStaff, requireUser } from "@/lib/auth";
 import { getGradingQueueCounts, getTasksForCoach, summarizeTasks } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
-import { getSupportCasesForCoach, getSupportQueueCount } from "@/lib/support";
+import {
+  deadlineInForce,
+  getSupportCasesForCoach,
+  getSupportQueueCount,
+} from "@/lib/support";
 import { stageOf } from "@/lib/support-rubric";
 
 export const metadata = { title: "Dashboard" };
@@ -74,7 +78,9 @@ export default async function DashboardPage() {
             <p className="font-semibold text-maroon-800">
               Post-course support · {openCase.course.title}
             </p>
-            <p className="text-sm text-maroon-700">{stageOf(openCase).next}</p>
+            <p className="text-sm text-maroon-700">
+              {stageOf(openCase, deadlineInForce(openCase).date).next}
+            </p>
           </div>
           <span className="text-sm font-semibold whitespace-nowrap text-maroon-800">Open →</span>
         </Link>

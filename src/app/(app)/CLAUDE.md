@@ -65,6 +65,16 @@ approximations of it. **Keep database access out of them.**
 - **Educators are scoped.** `staffCourseIds(user)` returns `null` for an admin —
   the absence of a filter — and a list of course ids for an educator. Every list
   page here filters by it, and every action calls `assertCourseStaff`.
+- **A support case lapses by the clock, not by a tick.** `stageOf` takes the
+  deadline in force and derives "Deadline passed" itself — the stored `LAPSED`
+  status records that an educator *decided*, which is a different fact and is
+  kept. Before this, a case whose time ran out went on telling the coach their
+  educator was arranging an assessment. Nobody was.
+- **Work in hand is exempt from that.** A booked session or a delivery sitting
+  with an educator for write-up stays on its own stage past the deadline: that
+  is the educator's clock to answer for, and calling it lapsed blames the coach
+  for somebody else's backlog. Same rule `cda/review.ts` applies to the Unit's
+  own overdue response.
 - **Film is a link, never an upload.** Session footage is hundreds of megabytes
   and this app stores files as database rows.
 

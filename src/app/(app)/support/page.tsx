@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Badge, EmptyState, PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { displayName, formatDateTime, relativeDue } from "@/lib/format";
-import { getSupportCasesForCoach } from "@/lib/support";
+import { deadlineInForce, getSupportCasesForCoach } from "@/lib/support";
 import { openAttempt, PATHWAY_LABEL, stageOf } from "@/lib/support-rubric";
 
 export const metadata = { title: "Support" };
@@ -21,7 +21,7 @@ export default async function SupportIndexPage() {
       {cases.length ? (
         <div className="space-y-4">
           {cases.map((supportCase) => {
-            const stage = stageOf(supportCase);
+            const stage = stageOf(supportCase, deadlineInForce(supportCase).date);
             const current = openAttempt(supportCase.attempts);
             return (
               <Link
