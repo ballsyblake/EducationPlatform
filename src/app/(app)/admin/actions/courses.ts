@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAdmin } from "@/lib/auth";
+import { assertCourseStaff } from "@/lib/access";
+import { requireAdmin, requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { deleteUpload, storeUpload, UploadError } from "@/lib/uploads";
 
@@ -96,6 +97,50 @@ export async function updateCourse(formData: FormData) {
   revalidatePath("/courses");
   revalidatePath("/admin/support");
   revalidatePath("/grades");
+}
+
+/**
+ * Files a cohort away, or takes it back out.
+ *
+ * Deliberately not gated on the course being finished. Nothing here is decided
+ * automatically that a person should decide, and a cohort has legitimate loose
+ * ends somebody has judged acceptable — a coach who stopped answering, hours an
+ * educator has already written off in their head. What the page does instead is
+ * count what is outstanding and put it in front of them first. Closing anyway
+ * is then an informed act rather than a blind one.
+ *
+ * Two layers, like everything else that writes here: staff to get through the
+ * door, staff *on this course* to get into the room.
+ */
+export async function closeCourse(formData: FormData) {
+  const actor = await requireStaff();
+  const courseId = String(formData.get("courseId") ?? "");
+  await assertCourseStaff(actor, courseId);
+
+  await prisma.course.update({
+    where: { id: courseId },
+    data: { closedAt: new Date(), closedById: actor.id },
+  });
+
+  revalidatePath(`/admin/courses/${courseId}`);
+  revalidatePath("/admin");
+}
+
+export async function reopenCourse(formData: FormData) {
+  const actor = await requireStaff();
+  const courseId = String(formData.get("courseId") ?? "");
+  await assertCourseStaff(actor, courseId);
+
+  // Who closed it goes with the closure. Keeping the name against a course
+  // that is open again would leave the record saying somebody signed off a
+  // cohort that is still being worked on.
+  await prisma.course.update({
+    where: { id: courseId },
+    data: { closedAt: null, closedById: null },
+  });
+
+  revalidatePath(`/admin/courses/${courseId}`);
+  revalidatePath("/admin");
 }
 
 export async function deleteCourse(formData: FormData) {

@@ -22,6 +22,10 @@ export default async function AdminPage() {
       orderBy: [{ published: "desc" }, { createdAt: "desc" }],
       include: {
         _count: { select: { enrollments: true, assignments: true, quizzes: true, materials: true } },
+        // Just the last one. The list needs to say whether delivery is over,
+        // and pulling nine days per course to find out would be nine times the
+        // rows for one date.
+        days: { orderBy: { date: "desc" }, take: 1, select: { date: true } },
       },
     }),
     getGradingQueueCounts(scope),
@@ -38,6 +42,17 @@ export default async function AdminPage() {
     }),
   ]);
 
+  // Closed cohorts sort below open ones, whatever their season. A closed course
+  // is a record rather than work, and the first thing this page has to answer is
+  // what is live — which it could not, when every cohort ever run sat in one
+  // flat list.
+  const now = new Date();
+  const ordered = [...courses].sort((a, b) => {
+    if (Boolean(a.closedAt) !== Boolean(b.closedAt)) return a.closedAt ? 1 : -1;
+    return 0;
+  });
+  const openCourses = courses.filter((c) => !c.closedAt).length;
+
   return (
     <>
       <PageHeader
@@ -50,7 +65,15 @@ export default async function AdminPage() {
       />
 
       <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <StatTile label="Courses" value={courses.length} />
+        <StatTile
+          label="Courses"
+          value={openCourses}
+          hint={
+            courses.length - openCourses > 0
+              ? `${courses.length - openCourses} closed`
+              : "None closed yet"
+          }
+        />
         <StatTile label="Active coaches" value={coachCount} />
         <StatTile
           label="Needs grading"
@@ -80,7 +103,7 @@ export default async function AdminPage() {
           <h2 className="mb-3 text-lg font-semibold text-ink-900">Courses</h2>
           {courses.length ? (
             <div className="card divide-y divide-ink-200">
-              {courses.map((course) => (
+              {ordered.map((course) => (
                 <Link
                   key={course.id}
                   // Course settings are an admin's. An educator's way in is the
@@ -97,6 +120,12 @@ export default async function AdminPage() {
                     <div className="flex items-center gap-2">
                       <p className="truncate font-medium text-ink-900">{course.title}</p>
                       {!course.published && <Badge tone="warn">Draft</Badge>}
+                      {course.closedAt ? (
+                        <Badge tone="muted">Closed</Badge>
+                      ) : (
+                        course.days[0] &&
+                        course.days[0].date < now && <Badge tone="info">Delivered</Badge>
+                      )}
                     </div>
                     <p className="mt-0.5 text-xs text-ink-500">
                       {course.season ? `${course.season} · ` : ""}

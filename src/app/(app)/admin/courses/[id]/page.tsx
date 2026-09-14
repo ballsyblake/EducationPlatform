@@ -4,6 +4,8 @@ import { Avatar } from "@/components/avatar";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
+import { courseStanding } from "@/lib/courses";
+import { getGradingQueueCounts } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate, formatDateTime, toDateTimeLocal } from "@/lib/format";
 import { formatBytes } from "@/lib/uploads";
@@ -12,6 +14,8 @@ import {
   deleteCourse,
   deleteMaterial,
   enrollAllCoaches,
+  closeCourse,
+  reopenCourse,
   setEnrollment,
   updateCourse,
 } from "../../actions/courses";
@@ -38,9 +42,13 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
         orderBy: { createdAt: "desc" },
         include: { _count: { select: { questions: true, attempts: true } } },
       },
-      enrollments: { include: { user: true } },
+      // Attendance and the ledger come with the roster because the standing
+      // below counts hours, and a second pass per enrolment would be a query
+      // per coach on a page that already has the rows in hand.
+      enrollments: { include: { user: true, attendance: true, makeUps: true } },
       days: { orderBy: { dayNo: "asc" } },
       staff: { orderBy: { position: "asc" } },
+      closedBy: true,
       _count: { select: { days: true } },
     },
   });
@@ -52,6 +60,21 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
   const suggested = lastDay ? new Date(lastDay) : null;
   if (suggested) suggested.setUTCMonth(suggested.getUTCMonth() + 6);
   const asDay = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : "");
+
+  // What this cohort still owes anybody. Counted here rather than left across
+  // four screens, because "is this course finished" was a question nothing in
+  // the app ever asked.
+  const [openSupportCases, grading] = await Promise.all([
+    prisma.supportCase.count({ where: { courseId: id, status: "IN_PROGRESS" } }),
+    getGradingQueueCounts([id]),
+  ]);
+  const standing = courseStanding({
+    days: course.days,
+    closedAt: course.closedAt,
+    enrollments: course.enrollments,
+    openSupportCases,
+    ungraded: grading.total,
+  });
 
   // The roster is the people on the course, in the order a person reads a list
   // of names. It used to be every active account in the instance with an
@@ -107,6 +130,76 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
       />
 
       <div className="space-y-8">
+        {/* ---------------------------- Finishing up --------------------------- */}
+        {/* Only once delivery is over. A cohort three days into a nine-day block
+            has every one of these outstanding by definition, and listing them
+            would read as a fault rather than as a course in progress. */}
+        {(standing.delivered || standing.closed) && (
+          <section
+            className={`card card-pad ${standing.closed ? "" : "border-maroon-200 bg-maroon-50"}`}
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <h2 className="text-lg font-semibold text-ink-900">
+                {standing.closed ? "Closed" : "Finishing up"}
+              </h2>
+              {standing.lastDay && (
+                <p className="text-xs text-ink-500">
+                  Last day {formatDate(standing.lastDay)}
+                  {standing.closed && course.closedAt
+                    ? ` · closed ${formatDate(course.closedAt)}${
+                        course.closedBy ? ` by ${displayName(course.closedBy)}` : ""
+                      }`
+                    : ""}
+                </p>
+              )}
+            </div>
+
+            {standing.outstanding.length > 0 ? (
+              <>
+                <p className="mt-1 text-sm text-ink-700">
+                  {standing.closed
+                    ? "Closed with these still outstanding — somebody judged them acceptable, or they were missed."
+                    : "Delivery is over and this cohort still owes somebody something."}
+                </p>
+                <ul className="mt-3 space-y-1.5 text-sm">
+                  {standing.outstanding.map((item) => (
+                    <li key={item.key} className="flex flex-wrap items-baseline gap-2">
+                      <Badge tone="warn">{item.count}</Badge>
+                      <span className="text-ink-900">{item.label}</span>
+                      <span className="text-xs text-ink-500">{item.blurb}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="mt-1 text-sm text-ink-700">
+                {standing.closed
+                  ? "Nothing outstanding on this cohort."
+                  : "Every coach has a result, the hours are settled and nothing is waiting to be marked."}
+              </p>
+            )}
+
+            <form action={standing.closed ? reopenCourse : closeCourse} className="mt-4">
+              <input type="hidden" name="courseId" value={course.id} />
+              <SubmitButton
+                className={standing.closed ? "btn-secondary btn-sm" : "btn-primary btn-sm"}
+                pendingLabel={standing.closed ? "Reopening…" : "Closing…"}
+                // Closing with loose ends is allowed — somebody may have judged
+                // them acceptable — but not by accident.
+                confirm={
+                  standing.closed
+                    ? undefined
+                    : standing.ready
+                      ? "Close this cohort? It moves to the bottom of Manage."
+                      : `Close this cohort with ${standing.outstanding.reduce((n, o) => n + o.count, 0)} things still outstanding?`
+                }
+              >
+                {standing.closed ? "Reopen this cohort" : "Close this cohort"}
+              </SubmitButton>
+            </form>
+          </section>
+        )}
+
         {/* ------------------------------ Settings ----------------------------- */}
         <section className="card card-pad">
           <h2 className="mb-4 text-lg font-semibold text-ink-900">Course settings</h2>
