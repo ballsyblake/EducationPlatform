@@ -23,6 +23,7 @@ import { PrismaClient } from "../generated/prisma/client.ts";
 import { createAdapter } from "../src/lib/adapter.ts";
 import { applyMigrations } from "./migrate.ts";
 import { bootstrapAdmins } from "./bootstrap-admin.ts";
+import { DEMOTE_MARKER, demoteCourseTeams } from "./demote-course-teams.ts";
 import { seedCatalog } from "../prisma/cda-seed.ts";
 
 async function main() {
@@ -35,6 +36,37 @@ async function main() {
   const prisma = new PrismaClient({ adapter: createAdapter() });
   try {
     await bootstrapAdmins(prisma);
+
+    // One-off correction for the course teams an early importer made admins,
+    // armed by a variable because this host offers no shell.
+    //
+    //   DEMOTE_COURSE_TEAMS=1
+    //
+    // After the bootstrap on purpose: ADMIN_EMAILS is what protects a real
+    // admin from this, and those accounts have to exist before they can
+    // protect anybody.
+    //
+    // A marker, like the season imports, and for a sharper reason than theirs:
+    // a variable left set would re-demote anybody promoted to Admin on the
+    // Staff page since, on the next deploy. Running once and then saying so is
+    // the only version of this that can't surprise somebody.
+    //
+    // Cheap enough to sit in front of the server — two queries and an update
+    // over a handful of rows — and an account with more access than it should
+    // have is not a thing to leave until after the port opens.
+    if ((process.env.DEMOTE_COURSE_TEAMS ?? "").trim()) {
+      const done = await prisma.meta.findUnique({ where: { key: DEMOTE_MARKER } });
+      if (done) {
+        console.log(`[teams] already done on ${done.value} — nothing to do.`);
+        console.log("[teams] DEMOTE_COURSE_TEAMS can be removed from the environment.");
+      } else {
+        const { changed } = await demoteCourseTeams(prisma);
+        await prisma.meta.create({
+          data: { key: DEMOTE_MARKER, value: new Date().toISOString() },
+        });
+        console.log(`[teams] done — ${changed} changed. Remove DEMOTE_COURSE_TEAMS now.`);
+      }
+    }
     // Skips itself in one query when this image ships the catalogue the
     // database already has, which is every boot except the one after a release
     // that changed the rubric.
