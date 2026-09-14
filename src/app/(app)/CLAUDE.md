@@ -32,6 +32,7 @@ admin/
 |---|---|
 | `lib/attendance.ts` | Pure hours. Day lengths, totals, debts, enrolment windows. No database. |
 | `lib/support-rubric.ts` | FA's rubric: 7 criteria, 1–5 in half steps, bands, verdicts. Client-safe. |
+| `lib/courses.ts` | Where a cohort stands: delivered, what it still owes, closed. Pure. |
 | `lib/support.ts` | Support-case queries. `server-only`. |
 | `lib/coaches.ts` | The cross-course roster: one row per enrolment. `server-only`. |
 | `lib/coursework.ts` | Task aggregation and progress summaries. |
@@ -65,6 +66,15 @@ approximations of it. **Keep database access out of them.**
 - **Educators are scoped.** `staffCourseIds(user)` returns `null` for an admin —
   the absence of a filter — and a list of course ids for an educator. Every list
   page here filters by it, and every action calls `assertCourseStaff`.
+- **A course ends twice.** *Delivered* is derived — the last `CourseDay.date`
+  has passed — and moves if the register does, because if a tenth day is added
+  delivery finished later. *Closed* is `Course.closedAt`, somebody's judgement
+  that the cohort is done, and nothing infers it from a date. Don't collapse the
+  two, and don't backfill the second from the first.
+- **Closing is never blocked by what's outstanding.** `courseStanding` counts
+  the loose ends and the page puts them in front of whoever is closing; a cohort
+  legitimately has ends somebody has judged acceptable. Closing files it away —
+  it doesn't take a coach's record off them.
 - **A support case lapses by the clock, not by a tick.** `stageOf` takes the
   deadline in force and derives "Deadline passed" itself — the stored `LAPSED`
   status records that an educator *decided*, which is a different fact and is

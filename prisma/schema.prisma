@@ -132,6 +132,7 @@ model User {
   assessorScores         AssessorScore[]       @relation("AssessorScores")
   resolvedScores         FinalScore[]          @relation("ScoreResolver")
   lockedAssessments      ClubAssessment[]      @relation("AssessmentLocker")
+  coursesClosed          Course[]              @relation("CourseCloser")
   assessmentsNotified    ClubAssessment[]      @relation("AssessmentNotifier")
   verifiedNonNegotiables NonNegotiableResult[] @relation("NonNegotiableVerifier")
   areaNotes              AreaNote[]            @relation("AreaNoteAuthor")
@@ -186,6 +187,24 @@ model Course {
   /// not passed, and the rubric's own name for what happens next is
   /// post-course support.
   ratingThreshold Float?
+
+  /// When somebody said this cohort was finished.
+  ///
+  /// Not the last delivery day — that is `days.at(-1).date`, derived from the
+  /// register so it can never disagree with it. This is the separate act of
+  /// filing a course away: results recorded, hours settled, support cases
+  /// opened for whoever needed one. A course whose last day has passed is
+  /// delivered; a course somebody has closed is *done*, and the difference is
+  /// a judgement rather than a date.
+  ///
+  /// Nothing is blocked by it. A closed course is still a coach's record and
+  /// still opens, and an educator who finds one more thing reopens it. What it
+  /// changes is what an admin is shown first: without it the Manage page is
+  /// every cohort ever run, with no way to tell the live ones from the ones
+  /// finished two years ago.
+  closedAt   DateTime?
+  closedById String?
+  closedBy   User?     @relation("CourseCloser", fields: [closedById], references: [id], onDelete: SetNull)
 
   /// When post-course support for this cohort has to be finished by.
   ///
