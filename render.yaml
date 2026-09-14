@@ -88,6 +88,25 @@ services:
       - key: B_DIPLOMA_IMPORT_2026
         sync: false
 
+      # One-off: takes Admin off the course team members an early run of the
+      # importer created as admins. Set it to "1", save, wait for the deploy,
+      # read the [teams] lines in the log, then remove it.
+      #
+      # Until Admin and the Club Development Unit were separated, that role
+      # carried every club's assessment with it, so these accounts have had
+      # more access than the job needs. It demotes them to Educator, which is
+      # what running a course actually is, and clears the Unit grant with it.
+      #
+      # ADMIN_EMAILS is the only thing protecting a real admin from this, so
+      # make sure every address that should stay an admin is in it before you
+      # set this. Anyone promoted on the Staff page but missing from
+      # ADMIN_EMAILS would be demoted too.
+      #
+      # It records that it ran and skips itself afterwards — deliberately, so a
+      # variable left set can't re-demote somebody promoted since.
+      - key: DEMOTE_COURSE_TEAMS
+        sync: false
+
       # Locked out? Set this to "1" and save. The next boot prints a fresh
       # sign-in link for every ADMIN_EMAILS address to the deploy log, whatever
       # the database thinks about their sessions. Remove it once you're in.

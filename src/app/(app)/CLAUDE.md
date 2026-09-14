@@ -63,6 +63,12 @@ approximations of it. **Keep database access out of them.**
   marks and own it.
 - **Nobody is referred to support automatically.** Coaches below the mark appear
   as candidates on `/admin/support`; opening a case is a conversation first.
+- **The importer never changes a role that already exists.** It creates course
+  team members as `EDUCATOR`; its update branch touches only the name, so
+  re-running a register can't undo a role somebody set on purpose. The flip side
+  is that people created by the early runs — which used `ADMIN` — stay admins
+  until something says otherwise. `npm run teams:demote` is that something, and
+  `ADMIN_EMAILS` (plus `--keep`) is what stops it taking Admin off a real one.
 - **Educators are scoped.** `staffCourseIds(user)` returns `null` for an admin —
   the absence of a filter — and a list of course ids for an educator. Every list
   page here filters by it, and every action calls `assertCourseStaff`.

@@ -22,7 +22,8 @@
     "cda:reset": "tsx scripts/reset-cda.ts",
     "boot": "tsx scripts/boot.ts",
     "cda:import-2026": "tsx scripts/import-fq-2026.ts",
-    "courses:import": "tsx scripts/import-b-diploma.ts"
+    "courses:import": "tsx scripts/import-b-diploma.ts",
+    "teams:demote": "tsx scripts/demote-course-teams.ts"
   },
   "repository": {
     "type": "git",
