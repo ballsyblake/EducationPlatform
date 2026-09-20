@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Delta, RankDelta } from "@/components/cda/delta";
+import { PendingLink } from "@/components/cda/pending-link";
 import { ShieldBadge } from "@/components/cda/shield";
 import { Badge, EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { isCdu } from "@/lib/auth";
@@ -201,7 +202,7 @@ export default async function LeaderboardPage({
           cycles.length > 1 ? (
             <div className="flex flex-wrap gap-2">
               {cycles.map((c) => (
-                <Link
+                <PendingLink
                   key={c.id}
                   href={href({ cycle: c.id })}
                   aria-current={c.id === cycle.id ? "page" : undefined}
@@ -212,7 +213,7 @@ export default async function LeaderboardPage({
                   }`}
                 >
                   {c.year}
-                </Link>
+                </PendingLink>
               ))}
             </div>
           ) : undefined
@@ -284,7 +285,7 @@ export default async function LeaderboardPage({
                 { value: "season", label: "This season" },
                 { value: "harmonised", label: "Harmonised" },
               ].map((o) => (
-                <Link
+                <PendingLink
                   key={o.label}
                   href={href({ score: o.value })}
                   className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
@@ -294,7 +295,7 @@ export default async function LeaderboardPage({
                   }`}
                 >
                   {o.label}
-                </Link>
+                </PendingLink>
               ))}
             </div>
             <p className="mt-1.5 max-w-3xl text-xs text-ink-500">
@@ -337,7 +338,7 @@ export default async function LeaderboardPage({
             { value: null, label: "Overall" },
             { value: "pool", label: "By pool" },
           ].map((v) => (
-            <Link
+            <PendingLink
               key={v.label}
               href={href({ view: v.value })}
               className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
@@ -347,7 +348,7 @@ export default async function LeaderboardPage({
               }`}
             >
               {v.label}
-            </Link>
+            </PendingLink>
           ))}
         </div>
 
@@ -566,13 +567,13 @@ function FilterRow({
     <div>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold tracking-wide text-ink-500 uppercase">{label}</span>
-        <Link href={hrefFor(null)} className={chip(!active)}>
+        <PendingLink href={hrefFor(null)} className={chip(!active)}>
           All
-        </Link>
+        </PendingLink>
         {options.map((o) => (
-          <Link key={o} href={hrefFor(o)} className={chip(active === o)}>
+          <PendingLink key={o} href={hrefFor(o)} className={chip(active === o)}>
             {o}
-          </Link>
+          </PendingLink>
         ))}
       </div>
       {note && <p className="mt-1.5 text-xs text-ink-500">{note}</p>}
@@ -601,14 +602,16 @@ function Th({
 
   return (
     <th className={base} title={title}>
-      <Link
+      <PendingLink
         href={href}
         aria-current={active ? "true" : undefined}
-        className={active ? "text-maroon-700" : "text-ink-500 hover:text-maroon-700"}
+        className={`inline-block ${
+          active ? "text-maroon-700" : "text-ink-500 hover:text-maroon-700"
+        }`}
       >
         {children}
         {active && <span aria-hidden="true"> ↓</span>}
-      </Link>
+      </PendingLink>
     </th>
   );
 }
