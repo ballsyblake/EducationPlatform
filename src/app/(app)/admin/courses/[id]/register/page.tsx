@@ -285,7 +285,7 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
         action={
           <span className="flex flex-wrap gap-2">
             <Link href={`/admin/courses/${course.id}/assess`} className="btn-secondary btn-sm">
-              Attendance &amp; feedback →
+              Coaches &amp; feedback →
             </Link>
             <Link href="/admin/make-ups" className="btn-secondary btn-sm">
               Hours desk →
