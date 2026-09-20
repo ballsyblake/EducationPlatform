@@ -20,33 +20,121 @@ export type TaskItem = {
 };
 
 /** Everything a coach has been assigned, flattened into one to-do list. */
-export async function getTasksForCoach(userId: string): Promise<TaskItem[]> {
+/**
+ * Every task for a set of coaches, in a fixed number of queries.
+ *
+ * The progress page used to call the single-coach version once per coach. Each
+ * of those was a nested read — enrolments, then courses, then assignments, then
+ * that coach's submissions, then quizzes, then question points, then that
+ * coach's attempts — which Prisma resolves as roughly seven statements. With
+ * eighty-eight coaches on the register that was 624 queries to draw one page,
+ * against five to thirty for every other page in the product.
+ *
+ * It looked survivable in development because SQLite is a function call away.
+ * Production talks to Turso over the network, where 624 round trips is the
+ * difference between a page and a wait.
+ *
+ * Six queries now, whatever the roster size. The single-coach version below is
+ * a wrapper on this one so the dashboard and the progress page can never
+ * disagree about what somebody still owes.
+ */
+export async function getTasksForCoaches(
+  userIds: string[],
+  /** Restrict to these courses; null or undefined means every course. */
+  courseIds: string[] | null = null,
+): Promise<Map<string, TaskItem[]>> {
+  const byUser = new Map<string, TaskItem[]>();
+  if (userIds.length === 0) return byUser;
+  if (courseIds && courseIds.length === 0) return byUser;
+
   const enrollments = await prisma.enrollment.findMany({
-    where: { userId, course: { published: true } },
-    include: {
-      course: {
-        include: {
-          assignments: {
-            where: { published: true },
-            include: { submissions: { where: { userId } } },
-          },
-          quizzes: {
-            where: { published: true },
-            include: {
-              questions: { select: { points: true } },
-              attempts: { where: { userId }, orderBy: { attemptNo: "desc" } },
-            },
-          },
-        },
-      },
+    where: {
+      userId: { in: userIds },
+      course: { published: true },
+      ...(courseIds ? { courseId: { in: courseIds } } : {}),
     },
+    select: { userId: true, courseId: true, course: { select: { id: true, title: true } } },
   });
+  if (enrollments.length === 0) return byUser;
 
-  const tasks: TaskItem[] = [];
+  const courses = [...new Set(enrollments.map((e) => e.courseId))];
 
-  for (const { course } of enrollments) {
-    for (const assignment of course.assignments) {
-      const submission = assignment.submissions[0];
+  const [assignments, quizzes] = await Promise.all([
+    prisma.assignment.findMany({
+      where: { published: true, courseId: { in: courses } },
+      select: { id: true, courseId: true, title: true, dueAt: true, points: true },
+    }),
+    prisma.quiz.findMany({
+      where: { published: true, courseId: { in: courses } },
+      select: {
+        id: true,
+        courseId: true,
+        title: true,
+        dueAt: true,
+        questions: { select: { points: true } },
+      },
+    }),
+  ]);
+
+  const [submissions, attempts] = await Promise.all([
+    assignments.length
+      ? prisma.submission.findMany({
+          where: { userId: { in: userIds }, assignmentId: { in: assignments.map((a) => a.id) } },
+          select: {
+            assignmentId: true,
+            userId: true,
+            status: true,
+            score: true,
+            feedback: true,
+          },
+        })
+      : [],
+    quizzes.length
+      ? prisma.quizAttempt.findMany({
+          where: { userId: { in: userIds }, quizId: { in: quizzes.map((q) => q.id) } },
+          // Newest first, so the first one seen per coach and quiz is the one
+          // that counts — the same rule the single-coach read applied.
+          orderBy: { attemptNo: "desc" },
+          select: {
+            quizId: true,
+            userId: true,
+            status: true,
+            score: true,
+            maxScore: true,
+            feedback: true,
+          },
+        })
+      : [],
+  ]);
+
+  const submissionFor = new Map<string, (typeof submissions)[number]>();
+  for (const s of submissions) submissionFor.set(`${s.userId}:${s.assignmentId}`, s);
+
+  const latestAttemptFor = new Map<string, (typeof attempts)[number]>();
+  for (const a of attempts) {
+    const key = `${a.userId}:${a.quizId}`;
+    if (!latestAttemptFor.has(key)) latestAttemptFor.set(key, a);
+  }
+
+  const assignmentsByCourse = new Map<string, typeof assignments>();
+  for (const a of assignments) {
+    const list = assignmentsByCourse.get(a.courseId) ?? [];
+    list.push(a);
+    assignmentsByCourse.set(a.courseId, list);
+  }
+
+  const quizzesByCourse = new Map<string, typeof quizzes>();
+  for (const q of quizzes) {
+    const list = quizzesByCourse.get(q.courseId) ?? [];
+    list.push(q);
+    quizzesByCourse.set(q.courseId, list);
+  }
+
+  for (const { userId, course } of enrollments) {
+    const tasks = byUser.get(userId) ?? [];
+
+    for (const assignment of assignmentsByCourse.get(course.id) ?? []) {
+      const submission = submissionFor.get(`${userId}:${assignment.id}`);
       // RETURNED is work sent back for revision, so it counts as still open.
       let state: TaskState = "not_started";
       if (submission?.status === "GRADED") state = "graded";
@@ -70,8 +158,8 @@ export async function getTasksForCoach(userId: string): Promise<TaskItem[]> {
       });
     }
 
-    for (const quiz of course.quizzes) {
-      const latest = quiz.attempts[0];
+    for (const quiz of quizzesByCourse.get(course.id) ?? []) {
+      const latest = latestAttemptFor.get(`${userId}:${quiz.id}`);
       const totalPoints = quiz.questions.reduce((sum, q) => sum + q.points, 0);
 
       let state: TaskState = "not_started";
@@ -94,12 +182,18 @@ export async function getTasksForCoach(userId: string): Promise<TaskItem[]> {
         href: `/quizzes/${quiz.id}`,
       });
     }
+
+    byUser.set(userId, tasks);
   }
 
-  return tasks.sort(byDueDate);
+  for (const tasks of byUser.values()) tasks.sort(byDueDate);
+  return byUser;
 }
 
-/** Undated work sorts last; otherwise soonest first. */
+export async function getTasksForCoach(userId: string): Promise<TaskItem[]> {
+  return (await getTasksForCoaches([userId])).get(userId) ?? [];
+}
+
 export function byDueDate(a: { dueAt: Date | null }, b: { dueAt: Date | null }) {
   if (!a.dueAt && !b.dueAt) return 0;
   if (!a.dueAt) return 1;
@@ -167,15 +261,18 @@ export async function getStaffProgress(
     select: { id: true, name: true, email: true, title: true },
   });
 
-  const rows = await Promise.all(
-    coaches.map(async (user) => {
-      const all = await getTasksForCoach(user.id);
-      const tasks = all.filter((t) => (courseId ? t.courseId === courseId : within(t.courseId)));
-      return { user, tasks, summary: summarizeTasks(tasks) };
-    }),
+  // One batched read for the whole roster, and the course filter pushed into it
+  // rather than applied after the fact — the old version fetched every coach's
+  // every course and then threw most of it away.
+  const byUser = await getTasksForCoaches(
+    coaches.map((c) => c.id),
+    courseId ? [courseId] : scope,
   );
 
-  return rows;
+  return coaches.map((user) => {
+    const tasks = byUser.get(user.id) ?? [];
+    return { user, tasks, summary: summarizeTasks(tasks) };
+  });
 }
 
 /** Counts of work waiting on a human grader, within the viewer's courses. */
