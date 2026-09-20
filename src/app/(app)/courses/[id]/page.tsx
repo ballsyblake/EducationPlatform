@@ -6,6 +6,8 @@ import { isCourseStaff, requireCourseAccess } from "@/lib/access";
 import {
   dayMinutes,
   formatHours,
+  makeUpAmount,
+  standardDayMinutes,
   makeUpBalance,
   MAKE_UP_STATUS,
   summariseAttendance,
@@ -61,6 +63,10 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
   const rostered = isStaff(user) ? await isCourseStaff(user, id) : false;
 
   const marks = new Map((enrollment?.attendance ?? []).map((a) => [a.courseDayId, a.minutes]));
+  // A day's length on this course, so what a coach owes reads as the days they
+  // will actually sit rather than as a number of hours.
+  const dayLength = standardDayMinutes(course.days);
+
   const hours = enrollment
     ? summariseAttendance({
         days: course.days,
@@ -212,20 +218,26 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
             <div className="mt-4 rounded-lg border border-ink-200 px-4 py-3">
               <p className="mb-2 text-sm font-semibold text-ink-900">
                 {enrollment.makeUps.some((m) => makeUpBalance(m) > 0)
-                  ? "Hours to make up"
-                  : "Hours missed"}
+                  ? "Days to make up"
+                  : "Time missed"}
               </p>
               <ul className="space-y-2">
                 {enrollment.makeUps.map((m) => {
                   const meta = MAKE_UP_STATUS[m.status];
                   const left = makeUpBalance(m);
+                  const owed = makeUpAmount(m.minutesOwed, dayLength);
                   return (
                     <li key={m.id} className="flex flex-wrap items-center gap-2 text-sm">
                       <Badge tone={meta.tone}>{meta.label}</Badge>
                       <span className="text-ink-700">
-                        {formatHours(m.minutesOwed)}
+                        {owed.label}
+                        {/* The hours, when a day isn't what is owed — a coach
+                            reading "a day" for three hours would sit five he
+                            doesn't owe. */}
+                        {owed.note && <span className="text-ink-500"> ({owed.note})</span>}
                         {m.courseDay && ` · Day ${m.courseDay.dayNo}`}
-                        {left > 0 && left !== m.minutesOwed && ` · ${formatHours(left)} still to do`}
+                        {left > 0 && left !== m.minutesOwed &&
+                          ` · ${makeUpAmount(left, dayLength).label} still to do`}
                       </span>
                       <span className="text-xs text-ink-500">
                         {/* Once it is settled, how it was made up is the news;

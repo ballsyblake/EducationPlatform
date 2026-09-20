@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { assertCourseStaff } from "@/lib/access";
-import { dayMinutes, formatHours } from "@/lib/attendance";
+import { dayMinutes, makeUpAmount, standardDayMinutes } from "@/lib/attendance";
 import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import type { MakeUpStatus } from "@prisma-client";
@@ -14,17 +14,23 @@ function text(formData: FormData, key: string) {
 }
 
 /**
- * Hours off a form, in hours, as minutes.
+ * An amount off a form, in days or in hours, as minutes.
  *
- * Educators write "1.5", not "90". Everything below this line is minutes, and
- * this is the only place the two units meet.
+ * Educators write "2" days or "1.5" hours, never "90". Everything below this
+ * line is minutes, and this is the only place the units meet.
+ *
+ * The length of a day is worked out here from the course rather than taken
+ * from the form. A posted conversion factor is a posted number of hours with
+ * an extra step, and this one decides how long a coach has to sit.
  */
-function minutesFromHours(raw: string): number | null {
+function minutesFromAmount(raw: string, unit: string, dayLength: number): number | null {
   if (!raw) return null;
-  const hours = Number(raw);
-  if (!Number.isFinite(hours) || hours < 0) return null;
-  const minutes = Math.round(hours * 60);
-  return minutes;
+  const amount = Number(raw);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  // Days need a day length to mean anything. Without one the form only offers
+  // hours, so this is a crafted post rather than a mistake.
+  if (unit === "days") return dayLength > 0 ? Math.round(amount * dayLength) : null;
+  return Math.round(amount * 60);
 }
 
 /** Paths that show a coach's hours. Cheap to revalidate, easy to forget. */
@@ -70,15 +76,29 @@ export async function openMakeUp(
     return { status: "error", message: "That day isn't on this coach's course." };
   }
 
-  // Hours can come from the form or from the day itself. Off the register the
-  // shortfall is already known, and retyping it is a chance to get it wrong.
-  const typed = minutesFromHours(text(formData, "hours"));
+  const dayLength = standardDayMinutes(enrollment.course.days);
+
+  // The amount can come from the form or from the day itself. Off the register
+  // the shortfall is already known, and retyping it is a chance to get it wrong.
+  const unit = text(formData, "unit");
+  const typed = minutesFromAmount(text(formData, "amount"), unit, dayLength);
+  if (text(formData, "amount") && typed === null) {
+    return {
+      status: "error",
+      message:
+        unit === "days"
+          ? "This course doesn't record how long its days run, so a make-up on it has to be set in hours."
+          : "How much is owed has to be a number.",
+    };
+  }
   const minutesOwed = typed ?? (day ? dayMinutes(day) : 0);
   if (!minutesOwed || minutesOwed <= 0) {
-    return { status: "error", message: "Say how many hours are owed." };
+    return { status: "error", message: "Say how much there is to make up." };
   }
-  if (minutesOwed > 60 * 24) {
-    return { status: "error", message: "That's more than a day — check the hours." };
+  // A fortnight of days is a transfer, not a make-up. The old ceiling was one
+  // day, which a three-day catch-up on another course would have failed.
+  if (minutesOwed > 14 * (dayLength || 60 * 24)) {
+    return { status: "error", message: "That's more time than a course runs — check the number." };
   }
 
   await prisma.attendanceMakeUp.create({
@@ -94,7 +114,11 @@ export async function openMakeUp(
 
   revalidateFor(enrollment.courseId);
   const who = enrollment.user.name ?? enrollment.user.email;
-  return { status: "ok", message: `${formatHours(minutesOwed)} owed by ${who}.` };
+  const owed = makeUpAmount(minutesOwed, dayLength);
+  return {
+    status: "ok",
+    message: `${who} has ${owed.label}${owed.note ? ` (${owed.note})` : ""} to make up.`,
+  };
 }
 
 const STATUSES: MakeUpStatus[] = ["OWED", "ARRANGED", "COMPLETED", "WAIVED"];
@@ -102,11 +126,11 @@ const STATUSES: MakeUpStatus[] = ["OWED", "ARRANGED", "COMPLETED", "WAIVED"];
 /**
  * Moves a debt along: arranged, made up, or written off.
  *
- * Completing one credits the hours in full — a debt made up in part stays open
- * with the hours credited so far, which is what "3 of 8 hours" on the desk
- * means. Waiving credits nothing on purpose: the hours were not sat, an
- * educator decided they didn't need to be, and the record should say so rather
- * than pretend the coach was there.
+ * Completing one credits the time in full — a debt made up in part stays open
+ * with what has been sat so far, which is what "1 day still to sit" on the desk
+ * means. Waiving credits nothing on purpose: the time was not sat, an educator
+ * decided it didn't need to be, and the record should say so rather than
+ * pretend the coach was there.
  */
 export async function settleMakeUp(
   _prev: MakeUpState,
@@ -121,7 +145,12 @@ export async function settleMakeUp(
       id: true,
       minutesOwed: true,
       minutesCredited: true,
-      enrollment: { select: { courseId: true } },
+      enrollment: {
+        select: {
+          courseId: true,
+          course: { select: { days: { select: { startTime: true, endTime: true } } } },
+        },
+      },
     },
   });
   if (!makeUp) return { status: "error", message: "That make-up no longer exists." };
@@ -132,14 +161,17 @@ export async function settleMakeUp(
     return { status: "error", message: "Pick a status from the list." };
   }
 
-  const typed = minutesFromHours(text(formData, "creditHours"));
-  if (text(formData, "creditHours") && typed === null) {
-    return { status: "error", message: "Credited hours must be a number." };
+  const dayLength = standardDayMinutes(makeUp.enrollment.course.days);
+  const raw = text(formData, "creditAmount");
+  const typed = minutesFromAmount(raw, text(formData, "creditUnit"), dayLength);
+  if (raw && typed === null) {
+    return { status: "error", message: "What has been sat has to be a number." };
   }
   if (typed !== null && typed > makeUp.minutesOwed) {
+    const owed = makeUpAmount(makeUp.minutesOwed, dayLength);
     return {
       status: "error",
-      message: `Only ${formatHours(makeUp.minutesOwed)} are owed; ${formatHours(typed)} is more than the debt.`,
+      message: `Only ${owed.label} ${owed.label === "1 day" ? "is" : "are"} owed — that is more than the debt.`,
     };
   }
 

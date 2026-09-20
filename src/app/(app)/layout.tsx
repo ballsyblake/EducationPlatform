@@ -34,7 +34,7 @@ const COURSE_LINKS: NavLink[] = [
   { href: "/admin/coaches", label: "Coaches" },
   { href: "/admin/grading", label: "Grading" },
   { href: "/admin/support", label: "Support" },
-  { href: "/admin/make-ups", label: "Hours" },
+  { href: "/admin/make-ups", label: "Make-ups" },
   { href: "/admin/progress", label: "Progress" },
 ];
 

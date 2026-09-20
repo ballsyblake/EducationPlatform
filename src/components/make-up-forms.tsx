@@ -10,45 +10,59 @@ import {
   settleMakeUp,
   type MakeUpState,
 } from "@/app/(app)/admin/actions/make-ups";
-import { formatHours, MAKE_UP_STATUS } from "@/lib/attendance";
+import { formatHours, makeUpAmount, MAKE_UP_STATUS } from "@/lib/attendance";
 import type { MakeUpStatus } from "@prisma-client";
 
 const idle: MakeUpState = { status: "idle" };
 
-/** Minutes as an hours field's value: 480 -> "8", 90 -> "1.5". */
-function hoursValue(minutes: number): string {
-  return String(Math.round((minutes / 60) * 100) / 100);
+/** Minutes as a field's value: 480 -> "8", 90 -> "1.5". Days or hours alike. */
+function fieldValue(minutes: number, per: number): string {
+  return String(Math.round((minutes / per) * 100) / 100);
 }
 
 export type MakeUpDayOption = { id: string; label: string; minutes: number };
 
 /**
- * Raises a debt against one enrolment.
+ * Raises a debt against one enrolment, in days.
  *
- * Picking a day fills the hours in from the day's own length, because off a
- * register the shortfall is already known and retyping it is a chance to get
- * it wrong. Both stay editable: half the debts in the real registers are
- * "3 hours on Day 2", not a whole day.
+ * Days are the unit because they are the unit of the thing being arranged: a
+ * coach makes up a day by sitting a day, on another course, with the register
+ * it belongs to. The hours field is still here for the debts that really are
+ * hours — "3 hours missed on Day 2" is half of the real ones — and the unit
+ * beside the number is what keeps those from being rounded up to a day
+ * somebody then has to sit.
  */
 export function OpenMakeUpForm({
   enrollmentId,
   days,
+  dayLength,
   defaultDayId,
   defaultMinutes,
   compact = false,
 }: {
   enrollmentId: string;
   days: MakeUpDayOption[];
+  /// How long a standard day runs on this course. Zero when the register kept
+  /// no times, and then there is nothing to count days in but hours.
+  dayLength: number;
   defaultDayId?: string;
-  /// Minutes, like everything else below the form. Turned into hours for the
-  /// field, which is the only place the two units meet.
+  /// Minutes, like everything else below the form.
   defaultMinutes?: number;
   compact?: boolean;
 }) {
   const [state, formAction] = useActionState(openMakeUp, idle);
   const [dayId, setDayId] = useState(defaultDayId ?? "");
-  const [hours, setHours] = useState(
-    defaultMinutes !== undefined ? hoursValue(defaultMinutes) : "",
+  // Whole days where the shortfall is whole days, and hours otherwise — which
+  // is the form arriving already saying the true thing about this coach.
+  const startsInDays =
+    dayLength > 0 && defaultMinutes !== undefined && defaultMinutes % dayLength === 0;
+  const [unit, setUnit] = useState<"days" | "hours">(
+    dayLength > 0 && (startsInDays || defaultMinutes === undefined) ? "days" : "hours",
+  );
+  const [amount, setAmount] = useState(
+    defaultMinutes === undefined
+      ? ""
+      : fieldValue(defaultMinutes, startsInDays ? dayLength : 60),
   );
   const [note, setNote] = useState("");
 
@@ -56,8 +70,10 @@ export function OpenMakeUpForm({
     setDayId(next);
     const day = days.find((d) => d.id === next);
     // Only fill an empty field: an educator who has already typed 3 hours
-    // against Day 2 should not have it overwritten with 8 by the dropdown.
-    if (day && !hours) setHours(hoursValue(day.minutes));
+    // against Day 2 should not have it overwritten by the dropdown.
+    if (!day || amount) return;
+    if (unit === "days" && dayLength > 0) setAmount("1");
+    else setAmount(fieldValue(day.minutes, 60));
   }
 
   return (
@@ -82,15 +98,27 @@ export function OpenMakeUpForm({
       </label>
 
       <label className="block">
-        <span className="mb-1 block text-xs font-medium text-ink-600">Hours owed</span>
-        <input
-          name="hours"
-          value={hours}
-          onChange={(e) => setHours(e.target.value)}
-          inputMode="decimal"
-          placeholder="8"
-          className="input w-24 px-2 py-1 text-xs"
-        />
+        <span className="mb-1 block text-xs font-medium text-ink-600">To make up</span>
+        <span className="flex items-center gap-1">
+          <input
+            name="amount"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            inputMode="decimal"
+            placeholder={unit === "days" ? "1" : "3"}
+            className="input w-16 px-2 py-1 text-xs"
+          />
+          <select
+            name="unit"
+            value={unit}
+            onChange={(e) => setUnit(e.target.value as "days" | "hours")}
+            className="input w-auto px-2 py-1 text-xs"
+          >
+            {/* Days only where the course says how long one is. */}
+            {dayLength > 0 && <option value="days">days</option>}
+            <option value="hours">hours</option>
+          </select>
+        </span>
       </label>
 
       <label className={compact ? "block min-w-56 flex-1" : "block"}>
@@ -142,21 +170,32 @@ const STATUS_ORDER: MakeUpStatus[] = ["OWED", "ARRANGED", "COMPLETED", "WAIVED"]
  * reaches them, usually weeks after the course, and batching those into a
  * "save everything" button would invite settling one by accident.
  */
-export function MakeUpCard({ row }: { row: MakeUpRow }) {
+export function MakeUpCard({ row, dayLength }: { row: MakeUpRow; dayLength: number }) {
   const [state, formAction] = useActionState(settleMakeUp, idle);
   const [remove, removeAction] = useActionState(deleteMakeUp, idle);
   const [status, setStatus] = useState<MakeUpStatus>(row.status);
   const [note, setNote] = useState(row.arrangedNote ?? "");
   const [creditedNote, setCreditedNote] = useState(row.creditedNote ?? "");
-  const [creditHours, setCreditHours] = useState(
-    row.minutesCredited ? hoursValue(row.minutesCredited) : "",
-  );
 
   const meta = MAKE_UP_STATUS[row.status];
+  const owed = makeUpAmount(row.minutesOwed, dayLength);
   const outstanding =
     row.status === "COMPLETED" || row.status === "WAIVED"
       ? 0
       : Math.max(0, row.minutesOwed - row.minutesCredited);
+
+  // Part of a debt can be made up, but only a debt of more than one day can
+  // have that progress said in days — and below a day there is nothing to
+  // report but done or not, which the status already says. The field stays
+  // wherever something has already been credited, so no record is stranded.
+  const partial = row.minutesOwed > dayLength || row.minutesCredited > 0;
+  const settled = status === "COMPLETED" || status === "WAIVED";
+  const creditUnit = dayLength > 0 && row.minutesOwed > dayLength ? "days" : "hours";
+  const [creditAmount, setCreditAmount] = useState(
+    row.minutesCredited
+      ? fieldValue(row.minutesCredited, creditUnit === "days" ? dayLength : 60)
+      : "",
+  );
 
   return (
     <div className="px-5 py-4">
@@ -164,12 +203,17 @@ export function MakeUpCard({ row }: { row: MakeUpRow }) {
         {row.coachName && <span className="font-medium text-ink-900">{row.coachName}</span>}
         <Badge tone={meta.tone}>{meta.label}</Badge>
         <span className="text-sm text-ink-700">
-          {formatHours(row.minutesOwed)} owed
-          {row.minutesCredited > 0 && row.status !== "WAIVED" && (
-            <> · {formatHours(row.minutesCredited)} credited</>
-          )}
-          {outstanding > 0 && (
-            <> · <strong className="text-maroon-700">{formatHours(outstanding)} still out</strong></>
+          <strong className="text-ink-900">{owed.label}</strong>
+          {/* The hours, where a day is not what is owed. Without this a coach
+              owing three hours reads as owing a day, and sits five he doesn't. */}
+          {owed.note && <span className="text-ink-500"> {owed.note}</span>}
+          {outstanding > 0 && outstanding !== row.minutesOwed && (
+            <>
+              {" · "}
+              <strong className="text-maroon-700">
+                {makeUpAmount(outstanding, dayLength).label} still to sit
+              </strong>
+            </>
           )}
         </span>
         <span className="text-xs text-ink-500">
@@ -210,41 +254,53 @@ export function MakeUpCard({ row }: { row: MakeUpRow }) {
           </select>
         </label>
 
-        {status !== "COMPLETED" && status !== "WAIVED" && (
+        {partial && status !== "COMPLETED" && status !== "WAIVED" && (
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-ink-600">Hours done</span>
+            <span className="mb-1 block text-xs font-medium text-ink-600">
+              {creditUnit === "days" ? "Days sat" : "Hours sat"}
+            </span>
             <input
-              name="creditHours"
-              value={creditHours}
-              onChange={(e) => setCreditHours(e.target.value)}
+              name="creditAmount"
+              value={creditAmount}
+              onChange={(e) => setCreditAmount(e.target.value)}
               inputMode="decimal"
               placeholder="0"
-              className="input w-24 px-2 py-1 text-xs"
+              className="input w-20 px-2 py-1 text-xs"
             />
+            <input type="hidden" name="creditUnit" value={creditUnit} />
           </label>
         )}
 
-        <label className="block min-w-48 flex-1">
-          <span className="mb-1 block text-xs font-medium text-ink-600">Arrangement</span>
-          <input
-            name="note"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Where the hours are being made up"
-            className="input w-full px-2 py-1 text-xs"
-          />
-        </label>
-
-        <label className="block min-w-48 flex-1">
-          <span className="mb-1 block text-xs font-medium text-ink-600">How it was made up</span>
-          <input
-            name="creditedNote"
-            value={creditedNote}
-            onChange={(e) => setCreditedNote(e.target.value)}
-            placeholder="Sat Day 3 at GCK, or written task"
-            className="input w-full px-2 py-1 text-xs"
-          />
-        </label>
+        {/* One note, and it is whichever question is live. Until the day is
+            sat that is where it is being sat; afterwards it is how. Both are
+            kept; only the one worth asking for is on screen. */}
+        {settled ? (
+          <label className="block min-w-48 flex-1">
+            <span className="mb-1 block text-xs font-medium text-ink-600">How it was made up</span>
+            <input
+              name="creditedNote"
+              value={creditedNote}
+              onChange={(e) => setCreditedNote(e.target.value)}
+              placeholder="Sat Day 3 at GCK, or written task"
+              className="input w-full px-2 py-1 text-xs"
+            />
+            <input type="hidden" name="note" value={note} />
+          </label>
+        ) : (
+          <label className="block min-w-48 flex-1">
+            <span className="mb-1 block text-xs font-medium text-ink-600">
+              Where it is being made up
+            </span>
+            <input
+              name="note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="GCK Day 3, or Sunny Coast Day 3"
+              className="input w-full px-2 py-1 text-xs"
+            />
+            <input type="hidden" name="creditedNote" value={creditedNote} />
+          </label>
+        )}
 
         <SubmitButton className="btn-secondary btn-sm" pendingLabel="Saving…">
           Save
