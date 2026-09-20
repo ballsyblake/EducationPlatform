@@ -46,7 +46,13 @@ Every one of these cost somebody an afternoon. They are not hypothetical.
     inside boot, took fourteen minutes against the hosted database, and the host
     killed the deploy after five. Long work runs *beside* the server from
     `docker-entrypoint.sh`, never in front of it.
-11. **`npm run lint` is broken repo-wide** and was before any of this work:
+11. **Never run `npm audit fix --force` here.** Its "fix" for the two advisories
+    under the Prisma CLI is `prisma@6.19.3` — a major *downgrade* that would
+    take the schema back behind every migration in `prisma/migrations`. The
+    `overrides` block in `package.json` patches `mysql2` and `deepmerge-ts` in
+    place instead, which is what makes `npm audit` come back clean. Don't
+    delete it; re-check it when Prisma's own dependencies move.
+12. **`npm run lint` is broken repo-wide** and was before any of this work:
     `next lint` was removed in Next 16 and the script tries to lint a directory
     called `lint`. Use `npm run typecheck`. Don't "fix" it as a side quest.
 
@@ -160,3 +166,13 @@ staff *here*. See the table in `README.md` under "Who can do what".
 - Nothing is decided automatically that a person should decide. Hours become a
   debt when an educator says so; a coach is referred to support by a
   conversation, not by a rating.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
