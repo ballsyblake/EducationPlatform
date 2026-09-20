@@ -75,11 +75,15 @@ export function StatTile({
   value,
   hint,
   tone = "muted",
+  href,
 }: {
   label: string;
   value: ReactNode;
   hint?: string;
   tone?: Tone;
+  /// Where the work behind the figure is done. A count of things waiting on
+  /// somebody is a worse tile for not being the way to go and clear them.
+  href?: string;
 }) {
   // Figures are read as type, so they stay in colours that hold contrast —
   // Maroon leads, and the darkened highlight tones carry status.
@@ -92,13 +96,24 @@ export function StatTile({
     bad: "text-maroon-800",
     info: "text-status-blue-fg",
   };
-  return (
-    <div className="card card-pad">
+
+  const body = (
+    <>
       <p className="section-title">{label}</p>
       <p className={`mt-1 text-2xl font-bold ${accent[tone]}`}>{value}</p>
       {hint && <p className="mt-1 text-xs text-ink-500">{hint}</p>}
-    </div>
+    </>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="card card-pad block hover:bg-ink-50">
+        {body}
+      </Link>
+    );
+  }
+
+  return <div className="card card-pad">{body}</div>;
 }
 
 export function ProgressBar({ value, tone = "good" }: { value: number; tone?: Tone }) {

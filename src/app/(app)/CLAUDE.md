@@ -9,7 +9,8 @@ before changing anything about how a coach is rated.
 ## The shape of it
 
 ```
-dashboard/          Coach home; also carries the staff queues and banners
+dashboard/          Home for both: what staff owe (staff-summary.tsx), then
+                    a coach's own coursework — the second half only if enrolled
 courses/[id]/       What a coach sees: library, their own register row, results
 assignments/ quizzes/ grades/   Coursework and its feedback
 support/[id]/       A coach's own post-course support case
