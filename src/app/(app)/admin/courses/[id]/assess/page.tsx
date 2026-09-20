@@ -151,14 +151,6 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
       />
 
       <section>
-        <h2 className="mb-1 text-lg font-semibold text-ink-900">Coaches</h2>
-        <p className="mb-3 text-sm text-ink-500">
-          Open a coach to write up a delivery you watched, or to leave a general comment about how
-          they are going. The write-up is theirs to read on their own course page; the comment
-          stays on the register, with the course team. Their course rating — the judgement across
-          everything they delivered — is set in the same place at the end of the course, and moves
-          the outcome with it.
-        </p>
         {coaches.length === 0 ? (
           <EmptyState
             title="Nobody on this course yet"
