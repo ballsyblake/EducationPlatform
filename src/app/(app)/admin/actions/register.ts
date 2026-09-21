@@ -93,6 +93,9 @@ export async function saveAttendance(
   await Promise.all(writes);
 
   revalidatePath(`/admin/courses/${courseId}/register`);
+  // Both halves of the assessor's course page: the roll it was saved from, and
+  // the coaches list, whose subtitle counts the days marked.
+  revalidatePath(`/admin/courses/${courseId}/assess/attendance`);
   revalidatePath(`/admin/courses/${courseId}/assess`);
   revalidatePath(`/admin/make-ups`);
   revalidatePath(`/courses/${courseId}`);

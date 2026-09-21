@@ -45,7 +45,7 @@ for the accounts that are in both.
 - A photo of each coach, taken on the phone from the register, so whoever assesses their delivery in Block 3 knows who is who
 - A coaches list: every coach and where they stand on each course — hours, rating, outcome — filterable by course and outcome, searchable by name or club
 - The attendance register: nine delivery days, the roster, catch-ups, the CET team, and the results block — one screen per course
-- An assessor's course page: take the roll for one day, write up a coach's delivery on the register's own form, leave a general comment, and rate them at the end of the course — what is done on the grass, and nothing else
+- An assessor's course page: its coaches, each opening onto their deliveries, feedback and rating — with the roll for one day a click away
 - An hours desk: who is short, what they owe, and where it is being made up — across every course at once
 - A post-course support desk: who was rated below the pass mark, who is booked in, whose film is waiting to be reviewed
 - A staff progress dashboard — completion, overdue counts, and averages per coach, filterable by course
@@ -138,13 +138,24 @@ and what that rating means, and every write-up an educator left them.
 The register is the shape of the course at the end of it. It is the wrong shape
 for the three things somebody standing on the grass actually does, so those have
 a page of their own at `/admin/courses/<id>/assess` — the page an educator lands
-on from Manage, and the only one they need on the day:
+on from Manage, and the only one they need on the day.
+
+**It opens on the coaches**, because a course is a list of people to an
+assessor: a name, what they have delivered, what was said about it, where their
+rating stands. Taking the roll is one click away at
+`/admin/courses/<id>/assess/attendance` rather than sitting above the names —
+it is an errand of its own, known about before you arrive, and nine days of tick
+boxes in front of the list buried the work somebody sits down to do afterwards.
+The header carries both doors, the way it already carried the full register.
 
 - **Take the roll, one day at a time.** Pick the day — it opens on today, or on
   the last day the course ran — and tick a list of names with a face beside
   each. *Part day* records the hours actually sat, exactly as the grid does.
   Nothing is written until you save, and Save posts every day the register has
-  marks for, so correcting yesterday from today's screen doesn't lose it.
+  marks for, so correcting yesterday from today's screen doesn't lose it. How
+  far it has got — "6 of 9 days marked" — rides on the coaches page's subtitle,
+  which is the one thing about attendance worth knowing from a page that no
+  longer shows it.
 - **Write up a delivery.** The register's own form, field by field: assessor,
   when, component, topic, comment, a numbered action plan, and the session's
   rating out of five. It saves the parsed columns *and* the whole form as text

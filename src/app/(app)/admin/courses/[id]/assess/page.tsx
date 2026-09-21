@@ -3,17 +3,11 @@ import { notFound } from "next/navigation";
 import { EmptyState, PageHeader } from "@/components/ui";
 import { assertCourseStaff } from "@/lib/access";
 import { isAdmin, requireStaff } from "@/lib/auth";
-import { dayMinutes, formatHours, summariseAttendance, withinWindow } from "@/lib/attendance";
+import { formatHours, summariseAttendance } from "@/lib/attendance";
 import { prisma } from "@/lib/db";
-import { displayName, formatDate } from "@/lib/format";
+import { displayName } from "@/lib/format";
 import { DEFAULT_RATING_THRESHOLD } from "@/lib/support-rubric";
-import {
-  CoachPanel,
-  DayAttendance,
-  type AssessDay,
-  type AttendanceRow,
-  type CoachEntry,
-} from "./assess-forms";
+import { CoachPanel, type CoachEntry } from "./assess-forms";
 
 export const metadata = { title: "Course" };
 
@@ -26,18 +20,20 @@ function planSteps(actionPlan: string | null) {
     .filter(Boolean);
 }
 
-/** A date as a plain day, so today is compared with the day and not the hour. */
-const asDay = (date: Date) =>
-  Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-
 /**
- * The course page an assessor works from.
+ * The course page an assessor works from: its coaches.
  *
- * Three jobs, and nothing else on it: mark who was here today, write up a
- * delivery, say how the coach is going. Everything else a course carries —
- * moves and part intakes, the hours ledger, the result block, the course
- * settings — is the program's paperwork rather than the assessor's, and lives
- * on the full register a link away.
+ * A course is a list of people to an assessor, so that is what the page is.
+ * Open a name and everything about that coach is under it — what they have
+ * delivered, what was said about it, where their rating stands.
+ *
+ * Taking the roll is a page away rather than the first thing on this one. It is
+ * an errand of its own, done on the grass and known about before you arrive,
+ * and nine days of tick boxes above the names buried the work somebody sits
+ * down to do afterwards. Everything else a course carries — moves and part
+ * intakes, the hours ledger, the result block, the course settings — is the
+ * program's paperwork rather than the assessor's, and lives on the full
+ * register, a link away in the same place.
  */
 export default async function AssessCoursePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireStaff();
@@ -68,36 +64,6 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
     ...course.enrollments.filter((e) => e.track === "MAIN"),
     ...course.enrollments.filter((e) => e.track === "CATCH_UP"),
   ];
-
-  const days: AssessDay[] = course.days.map((day) => ({
-    id: day.id,
-    dayNo: day.dayNo,
-    label: `${day.weekday ? `${day.weekday}, ` : ""}${formatDate(day.date)}`,
-    minutes: dayMinutes(day),
-  }));
-
-  // The day the page opens on: today if the course is running today, otherwise
-  // the most recent day it ran — which is the one somebody catching up on
-  // paperwork in the evening is looking for.
-  const today = asDay(new Date());
-  const past = course.days.filter((d) => asDay(d.date) <= today);
-  const defaultDayId =
-    course.days.find((d) => asDay(d.date) === today)?.id ??
-    past.at(-1)?.id ??
-    course.days[0]?.id ??
-    "";
-
-  const attendanceRows: AttendanceRow[] = roster.map((e) => ({
-    id: e.id,
-    name: displayName(e.user),
-    email: e.user.email,
-    photoId: e.user.photoId,
-    subtitle: e.track === "CATCH_UP" ? e.catchUpNote : e.clubName,
-    marks: Object.fromEntries(e.attendance.map((a) => [a.courseDayId, a.minutes])),
-    outsideDayIds: course.days
-      .filter((d) => !withinWindow(d, e.joinedAt, e.leftAt))
-      .map((d) => d.id),
-  }));
 
   const coaches: CoachEntry[] = roster.map((e) => {
     const summary = summariseAttendance({
@@ -142,6 +108,11 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
   const threshold = course.ratingThreshold ?? DEFAULT_RATING_THRESHOLD;
   const written = coaches.reduce((sum, c) => sum + c.deliveries.length, 0);
   const rated = coaches.filter((c) => c.rating !== null).length;
+  // Days the roll has been taken on. On the subtitle because it is the one
+  // thing about attendance worth knowing from a page that no longer shows it.
+  const marked = course.days.filter((d) =>
+    roster.some((e) => e.attendance.some((a) => a.courseDayId === d.id)),
+  ).length;
 
   return (
     <>
@@ -158,45 +129,28 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
             <span>
               · {roster.length} coach{roster.length === 1 ? "" : "es"} · {written} deliver
               {written === 1 ? "y" : "ies"} written up · {rated} rated
+              {course.days.length > 0 && ` · ${marked} of ${course.days.length} days marked`}
             </span>
           </span>
         }
         action={
-          <Link href={`/admin/courses/${course.id}/register`} className="btn-secondary btn-sm">
-            Full register →
-          </Link>
+          <span className="flex flex-wrap gap-2">
+            {/* The roll is the errand you arrive knowing you are here for, so
+                it is a door rather than the first thing in the way. */}
+            <Link
+              href={`/admin/courses/${course.id}/assess/attendance`}
+              className="btn-primary btn-sm"
+            >
+              Attendance →
+            </Link>
+            <Link href={`/admin/courses/${course.id}/register`} className="btn-secondary btn-sm">
+              Full register →
+            </Link>
+          </span>
         }
       />
 
-      <section className="mb-10">
-        <h2 className="mb-1 text-lg font-semibold text-ink-900">Attendance</h2>
-        <p className="mb-3 text-sm text-ink-500">
-          Pick the day and tick who is here. Nothing is written until you save.
-        </p>
-        {days.length === 0 ? (
-          <EmptyState
-            title="This course has no days yet"
-            description="A register needs delivery days to keep. An admin adds them to the course before the roll can be taken."
-          />
-        ) : (
-          <DayAttendance
-            courseId={course.id}
-            days={days}
-            rows={attendanceRows}
-            defaultDayId={defaultDayId}
-          />
-        )}
-      </section>
-
       <section>
-        <h2 className="mb-1 text-lg font-semibold text-ink-900">Coaches</h2>
-        <p className="mb-3 text-sm text-ink-500">
-          Open a coach to write up a delivery you watched, or to leave a general comment about how
-          they are going. The write-up is theirs to read on their own course page; the comment
-          stays on the register, with the course team. Their course rating — the judgement across
-          everything they delivered — is set in the same place at the end of the course, and moves
-          the outcome with it.
-        </p>
         {coaches.length === 0 ? (
           <EmptyState
             title="Nobody on this course yet"

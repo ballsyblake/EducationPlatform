@@ -112,7 +112,7 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
             {course._count.days > 0 && (
               <>
                 <Link href={`/admin/courses/${course.id}/assess`} className="btn-primary btn-sm">
-                  Attendance &amp; feedback
+                  Coaches &amp; feedback
                 </Link>
                 <Link
                   href={`/admin/courses/${course.id}/register`}
@@ -348,7 +348,10 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                 </p>
               </div>
               <span className="flex flex-wrap gap-2">
-                <Link href={`/admin/courses/${course.id}/assess`} className="btn-secondary btn-sm">
+                <Link
+                  href={`/admin/courses/${course.id}/assess/attendance`}
+                  className="btn-secondary btn-sm"
+                >
                   Take the roll
                 </Link>
                 <Link
