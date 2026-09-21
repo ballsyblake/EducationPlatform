@@ -175,7 +175,7 @@ export async function setEnrollment(formData: FormData) {
   }
 
   revalidatePath(`/admin/courses/${courseId}`);
-  revalidatePath("/admin/progress");
+  revalidatePath("/admin/cohorts");
 }
 
 export async function enrollAllCoaches(formData: FormData) {

@@ -204,7 +204,7 @@ export async function saveCoachResult(
   revalidatePath(`/admin/courses/${enrollment.courseId}/assess`);
   revalidatePath(`/admin/courses/${enrollment.courseId}/register`);
   revalidatePath("/admin/support");
-  revalidatePath("/admin/progress");
+  revalidatePath("/admin/cohorts");
   revalidatePath("/admin/coaches");
   revalidatePath("/grades");
   revalidatePath(`/courses/${enrollment.courseId}`);
@@ -300,7 +300,7 @@ export async function saveResults(
 
   revalidatePath(`/admin/courses/${courseId}/register`);
   revalidatePath("/admin/support");
-  revalidatePath("/admin/progress");
+  revalidatePath("/admin/cohorts");
   revalidatePath("/grades");
   return { status: "ok", message: "Results saved." };
 }
