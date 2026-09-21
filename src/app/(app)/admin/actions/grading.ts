@@ -45,7 +45,7 @@ export async function gradeSubmission(_prev: GradeState, formData: FormData): Pr
   });
 
   revalidatePath("/admin/grading");
-  revalidatePath("/admin/progress");
+  revalidatePath("/admin/cohorts");
   revalidatePath(`/assignments/${submission.assignmentId}`);
   revalidatePath("/grades");
   return { status: "ok", message: "Feedback sent." };
@@ -102,7 +102,7 @@ export async function reviewAttempt(_prev: GradeState, formData: FormData): Prom
   await recalculateAttemptScore(attemptId, admin.id);
 
   revalidatePath("/admin/grading");
-  revalidatePath("/admin/progress");
+  revalidatePath("/admin/cohorts");
   revalidatePath(`/quizzes/${attempt.quizId}/attempt/${attemptId}`);
   revalidatePath("/grades");
   return { status: "ok", message: "Review saved." };

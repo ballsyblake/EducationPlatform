@@ -33,11 +33,11 @@ const CASE_TONE: Record<string, Tone> = {
 /**
  * Every coach, and where each one stands on each course.
  *
- * Progress answers a different question — how much coursework is done — which
- * is the right question for the online courses and no question at all for a
- * diploma, where a coach's standing is hours sat, a rating out of five and an
- * outcome. Those live on nine separate registers, so this is the one page that
- * reads across them.
+ * A coach's standing on a diploma is hours sat, a rating out of five and an
+ * outcome, and those live on nine separate registers — so this is the one page
+ * that reads across them, a row per enrolment. Cohorts answers the other half
+ * of the same question, a row per course: not who is short, but which cohort
+ * still owes somebody something.
  *
  * The row is the enrolment. A coach on two courses appears twice, because they
  * are two standings.
@@ -370,10 +370,10 @@ export default async function CoachesPage({
       )}
 
       <p className="mt-4 text-xs text-ink-500">
-        Hours and ratings come from each course&apos;s register, and change there. Coursework
-        completion for the online courses is on{" "}
-        <Link href="/admin/progress" className="underline">
-          Progress
+        Hours and ratings come from each course&apos;s register, and change there. For the same
+        picture a course at a time — what each cohort still owes before it can be closed — see{" "}
+        <Link href="/admin/cohorts" className="underline">
+          Cohorts
         </Link>
         .
       </p>

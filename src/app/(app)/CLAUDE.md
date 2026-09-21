@@ -91,6 +91,21 @@ approximations of it. **Keep database access out of them.**
   is the educator's clock to answer for, and calling it lapsed blames the coach
   for somebody else's backlog. Same rule `cda/review.ts` applies to the Unit's
   own overdue response.
+- **Cohorts is a row per course; Coaches is a row per enrolment.** They answer
+  the two halves of the same question — which cohort still owes something, and
+  which coach is short — and neither is a filter of the other. Cohorts replaced
+  a per-coach coursework page: all three B Diploma cohorts carry no assignments
+  and no quizzes, so it drew eighty-odd rows of "0/0 — no grades" under headline
+  figures computed entirely from the two demonstration courses. Don't put
+  coursework percentages back on it without checking there is coursework.
+- **Never loop a per-coach read over a roster.** `getTasksForCoaches` takes a
+  list of user ids and answers in six queries whatever the roster size;
+  `getTasksForCoach` is a one-element wrapper on it, so the dashboard and the
+  progress page cannot disagree. The progress page used to call the single-coach
+  version once per coach — 624 queries for 88 coaches, against 5-32 for every
+  other page here. It looked fine locally because SQLite is a function call
+  away; production talks to Turso over the network, where round trips are the
+  whole cost. If you add a column to that page, add it to the batch.
 - **Film is a link, never an upload.** Session footage is hundreds of megabytes
   and this app stores files as database rows.
 
