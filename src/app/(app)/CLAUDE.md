@@ -20,7 +20,7 @@ admin/
   coaches/          Every coach, one row per enrolment, across all registers
   grading/          The queue: submissions and written quiz answers
   support/          The post-course support desk
-  make-ups/         The hours desk — debts that follow a coach across courses
+  make-ups/         Make-up days — debts that follow a coach across courses
   progress/         Coursework completion (the online courses' measure)
   people/           Accounts and roles (ADMIN only)
   actions/          Every server action for the above

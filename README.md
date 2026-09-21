@@ -46,7 +46,7 @@ for the accounts that are in both.
 - A coaches list: every coach and where they stand on each course — hours, rating, outcome — filterable by course and outcome, searchable by name or club
 - The attendance register: nine delivery days, the roster, catch-ups, the CET team, and the results block — one screen per course
 - An assessor's course page: take the roll for one day, write up a coach's delivery on the register's own form, leave a general comment, and rate them at the end of the course — what is done on the grass, and nothing else
-- An hours desk: who is short, what they owe, and where it is being made up — across every course at once
+- A make-ups desk: how many days each coach owes, and where they are being sat — across every course at once
 - A post-course support desk: who was rated below the pass mark, who is booked in, whose film is waiting to be reviewed
 - A staff progress dashboard — completion, overdue counts, and averages per coach, filterable by course
 - Staff management: add coaches by email, hand out sign-in links, promote to admin, deactivate
@@ -85,7 +85,7 @@ Grading lives, come back on a clear morning, and find it gone.
 
 **An educator's courses** are the ones they are rostered onto as `CourseStaff` —
 the CET1–CET5 seats the registers already record. Everything they can reach is
-filtered to those courses: the grading queue, the support desk, the hours desk,
+filtered to those courses: the grading queue, the support desk, the make-ups desk,
 the coaches list, progress, and the course list itself. Another course's
 register is a redirect, not a 403, for the same reason a coach gets a 404 on a
 course they aren't on.
@@ -313,11 +313,20 @@ Two numbers do most of the work, and the difference between them is the point:
 
 Days outside a coach's window count towards neither.
 
-The hours desk at `/admin/make-ups` shows both, across every course: the open
+The make-ups desk at `/admin/make-ups` shows both, across every course: the open
 ledger, and everybody short with nothing raised — each with a form to raise the
 debt on the spot. The same panel appears on a course register, scoped to that
-course. A coach sees their own outstanding hours on their dashboard and on their
-course page.
+course. A coach sees what they owe on their dashboard and on their course page.
+
+**It counts in days, not hours.** A day is the unit of the thing being arranged
+— nobody sits four hours of somebody else's course — so what is owed reads as
+"3 days" against the course's own day length, taken from its register rather
+than from a constant. Hours are still what is stored, and they surface as a note
+wherever what is owed isn't a whole day: "3 h · part day — 3 h of 8 h". That
+half of the ledger is real, and rounding it up to a day would have a coach
+sitting five hours they never missed. Raising a make-up asks for a number and a
+unit, and the day length is applied on the server rather than posted with the
+form.
 
 **The importer reads the margins.** `courses:import` understands three shapes in
 the Comments column — "Missed Day N AM/PM", "N hours missed on Day N", "full day
