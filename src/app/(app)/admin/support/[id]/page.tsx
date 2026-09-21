@@ -515,11 +515,15 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
                 )}
               </div>
             </div>
+            {/* This used to point at a per-coach coursework page. There is no
+                such page now, and there was no such coursework either — the
+                diploma cohorts carry none. Their register is the thing worth
+                reaching from here. */}
             <Link
-              href={`/admin/progress?course=${supportCase.courseId}`}
+              href={`/admin/courses/${supportCase.courseId}/register`}
               className="mt-3 inline-block text-sm font-medium text-maroon-700 hover:underline"
             >
-              Their coursework →
+              Their register →
             </Link>
           </section>
 

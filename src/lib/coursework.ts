@@ -226,56 +226,6 @@ export function summarizeTasks(tasks: TaskItem[], now = new Date()) {
   };
 }
 
-export type StaffProgressRow = {
-  user: { id: string; name: string | null; email: string; title: string | null };
-  summary: ReturnType<typeof summarizeTasks>;
-  tasks: TaskItem[];
-};
-
-/**
- * Per-coach rollup for the admin progress dashboard.
- *
- * `scope` is the courses the viewer may see, or null for every course — an
- * educator is staff on the courses they are rostered onto and nowhere else, and
- * a dashboard that quietly showed them the whole program would make the role
- * decorative.
- */
-export async function getStaffProgress(
-  courseId?: string,
-  scope: string[] | null = null,
-): Promise<StaffProgressRow[]> {
-  const within = (id: string) => scope === null || scope.includes(id);
-  if (courseId && !within(courseId)) return [];
-
-  const coaches = await prisma.user.findMany({
-    where: {
-      role: "COACH",
-      active: true,
-      ...(courseId
-        ? { enrollments: { some: { courseId } } }
-        : scope === null
-          ? {}
-          : { enrollments: { some: { courseId: { in: scope } } } }),
-    },
-    orderBy: [{ name: "asc" }, { email: "asc" }],
-    select: { id: true, name: true, email: true, title: true },
-  });
-
-  // One batched read for the whole roster, and the course filter pushed into it
-  // rather than applied after the fact — the old version fetched every coach's
-  // every course and then threw most of it away.
-  const byUser = await getTasksForCoaches(
-    coaches.map((c) => c.id),
-    courseId ? [courseId] : scope,
-  );
-
-  return coaches.map((user) => {
-    const tasks = byUser.get(user.id) ?? [];
-    return { user, tasks, summary: summarizeTasks(tasks) };
-  });
-}
-
-/** Counts of work waiting on a human grader, within the viewer's courses. */
 export async function getGradingQueueCounts(scope: string[] | null = null) {
   const [submissions, attempts] = await Promise.all([
     prisma.submission.count({

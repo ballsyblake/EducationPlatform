@@ -180,7 +180,7 @@ export async function referToSupport(
   });
 
   refreshCase(created.id);
-  revalidatePath("/admin/progress");
+  revalidatePath("/admin/cohorts");
   redirect(`/admin/support/${created.id}`);
 }
 
