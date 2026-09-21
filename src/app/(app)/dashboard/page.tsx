@@ -3,27 +3,33 @@ import { TaskList } from "@/components/task-list";
 import { EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { staffCourseIds } from "@/lib/access";
 import { formatHours, makeUpBalance } from "@/lib/attendance";
-import { isAdmin, isStaff, requireUser } from "@/lib/auth";
-import { getGradingQueueCounts, getTasksForCoach, summarizeTasks } from "@/lib/coursework";
+import { isStaff, requireUser } from "@/lib/auth";
+import { getTasksForCoach, summarizeTasks } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
-import {
-  deadlineInForce,
-  getSupportCasesForCoach,
-  getSupportQueueCount,
-} from "@/lib/support";
+import { deadlineInForce, getSupportCasesForCoach } from "@/lib/support";
 import { stageOf } from "@/lib/support-rubric";
+import { StaffSummary } from "./staff-summary";
 
 export const metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const tasks = await getTasksForCoach(user.id);
+  const staff = isStaff(user);
+  // Scoped: an educator is shown what is waiting on them, never what is waiting
+  // on the program.
+  const scope = staff ? await staffCourseIds(user) : [];
+
+  // Their own coursework, which most staff have none of. An educator sitting
+  // their own diploma is not unusual, so the coach half of this page stays —
+  // it just no longer greets somebody who has never been enrolled with an empty
+  // task list and an invitation to go and find a course.
+  const courseCount = await prisma.enrollment.count({
+    where: { userId: user.id, course: { published: true } },
+  });
+  const enrolled = courseCount > 0;
+
+  const tasks = enrolled ? await getTasksForCoach(user.id) : [];
   const summary = summarizeTasks(tasks);
-  // Both queues are scoped: an educator is shown what is waiting on them, not
-  // what is waiting on the program.
-  const scope = isStaff(user) ? await staffCourseIds(user) : [];
-  const queue = isStaff(user) ? await getGradingQueueCounts(scope) : null;
-  const supportQueue = isStaff(user) ? await getSupportQueueCount(new Date(), scope) : 0;
 
   // A coach's open support case outranks everything else on this page: it has a
   // date attached and it is the one thing here they can fall behind on without
@@ -50,10 +56,6 @@ export default async function DashboardPage() {
     .sort((a, b) => (b.dueAt?.getTime() ?? 0) - (a.dueAt?.getTime() ?? 0))
     .slice(0, 5);
 
-  const courseCount = await prisma.enrollment.count({
-    where: { userId: user.id, course: { published: true } },
-  });
-
   const firstName = user.name?.trim().split(/\s+/)[0];
 
   return (
@@ -61,11 +63,17 @@ export default async function DashboardPage() {
       <PageHeader
         title={firstName ? `Good to see you, ${firstName}` : "Your dashboard"}
         subtitle={
-          summary.outstanding > 0
+          // Staff are told what is waiting on them below, in figures this line
+          // can't hold. A coach's own coursework is the only thing it counts,
+          // and saying "you're all caught up" to somebody with a support desk
+          // full of overdue cases was the old page in one sentence.
+          enrolled && summary.outstanding > 0
             ? `${summary.outstanding} item${summary.outstanding === 1 ? "" : "s"} still open${
                 summary.overdue ? ` · ${summary.overdue} overdue` : ""
               }`
-            : "You're all caught up."
+            : staff
+              ? "What's waiting on you, across the courses you're on."
+              : "You're all caught up."
         }
       />
 
@@ -107,43 +115,10 @@ export default async function DashboardPage() {
         </Link>
       )}
 
-      {supportQueue > 0 && (
-        <Link
-          href="/admin/support"
-          className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-maroon-300 bg-maroon-50 px-5 py-4 transition-colors hover:bg-maroon-100"
-        >
-          <div>
-            <p className="font-semibold text-maroon-800">
-              {supportQueue} session deliver{supportQueue === 1 ? "y" : "ies"} to assess
-            </p>
-            <p className="text-sm text-maroon-700">
-              Film that has come in, and observations still to be written up.
-            </p>
-          </div>
-          <span className="text-sm font-semibold whitespace-nowrap text-maroon-800">
-            Open support →
-          </span>
-        </Link>
-      )}
+      {staff && <StaffSummary scope={scope} />}
 
-      {queue && queue.total > 0 && (
-        <Link
-          href="/admin/grading"
-          className="mb-6 flex items-center justify-between rounded-xl border border-highlight-orange/40 bg-status-orange-bg px-5 py-4 transition-colors hover:bg-status-orange-bg"
-        >
-          <div>
-            <p className="font-semibold text-status-orange-fg">
-              {queue.total} item{queue.total === 1 ? "" : "s"} waiting on your feedback
-            </p>
-            <p className="text-sm text-status-orange-fg">
-              {queue.submissions} submission{queue.submissions === 1 ? "" : "s"} ·{" "}
-              {queue.attempts} quiz attempt{queue.attempts === 1 ? "" : "s"}
-            </p>
-          </div>
-          <span className="text-sm font-semibold text-status-orange-fg">Open grading →</span>
-        </Link>
-      )}
-
+      {enrolled && (
+        <>
       <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile label="Courses" value={courseCount} />
         <StatTile
@@ -184,7 +159,7 @@ export default async function DashboardPage() {
             description={
               summary.total
                 ? "Every assignment and quiz assigned to you has been turned in."
-                : "You haven't been enrolled in a course yet. Your coordinator assigns coursework."
+                : "No coursework has been set on your course yet."
             }
             action={
               <Link href="/courses" className="btn-secondary btn-sm">
@@ -205,6 +180,8 @@ export default async function DashboardPage() {
           </div>
           <TaskList tasks={recentlyGraded} />
         </section>
+      )}
+        </>
       )}
     </>
   );

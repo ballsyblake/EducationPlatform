@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BrandLogo } from "@/components/brand";
 import { NavLinks, type NavLink } from "@/components/nav";
-import { homePathFor, isAdmin, isCdu, isStaff, requireUser } from "@/lib/auth";
+import { homePathFor, isAdmin, isCdu, isEducator, isStaff, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, initials } from "@/lib/format";
 
@@ -125,7 +125,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-medium">{displayName(user)}</p>
                 <p className="text-xs text-white/70">
-                  {user.title ?? (isAdmin(user) ? "Program admin" : "Coach")}
+                  {/* An educator with no title of their own read as "Coach",
+                      on every page of the product they run. */}
+                  {user.title ??
+                    (isAdmin(user) ? "Program admin" : isEducator(user) ? "Educator" : "Coach")}
                 </p>
               </div>
               <span
