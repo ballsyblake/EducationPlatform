@@ -6,7 +6,9 @@ import { SubmitButton } from "@/components/submit-button";
 import { Badge, FormError, FormSuccess } from "@/components/ui";
 import { formatHours } from "@/lib/attendance";
 import { bandFor, RATING_SCALE, VERDICT_LABEL } from "@/lib/support-rubric";
+import type { FootageView } from "@/components/footage-player";
 import { deleteDelivery, saveDelivery, type DeliveryState } from "../../../actions/deliveries";
+import { FootageSection } from "./footage-forms";
 import {
   saveAttendance,
   saveCoachResult,
@@ -327,6 +329,8 @@ export type DeliveryEntry = {
   /// The action plan as its numbered steps, with the numbering stripped.
   actions: string[];
   rating: number | null;
+  /// Film of the session, with the notes pinned into it.
+  footage: FootageView[];
 };
 
 export type CoachEntry = {
@@ -482,6 +486,13 @@ function DeliveryCard({
           </ol>
         </>
       )}
+
+      <FootageSection
+        deliveryId={delivery.id}
+        deliveryNo={delivery.deliveryNo}
+        coachName={coach.name}
+        footage={delivery.footage}
+      />
 
       <details className="mt-3">
         <summary className="cursor-pointer text-xs font-medium text-maroon-700">Edit</summary>

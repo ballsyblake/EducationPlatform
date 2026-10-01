@@ -36,6 +36,7 @@ admin/
 | `lib/support.ts` | Support-case queries. `server-only`. |
 | `lib/coaches.ts` | The cross-course roster: one row per enrolment. `server-only`. |
 | `lib/coursework.ts` | Task aggregation and progress summaries. |
+| `lib/footage.ts` | Timecodes, and what a player can do with a film link. Pure, client-safe. |
 | `lib/grading.ts` | Auto-grading and score rollups. |
 
 `attendance.ts` and `support-rubric.ts` are deliberately pure — the register,
@@ -107,7 +108,17 @@ approximations of it. **Keep database access out of them.**
   away; production talks to Turso over the network, where round trips are the
   whole cost. If you add a column to that page, add it to the batch.
 - **Film is a link, never an upload.** Session footage is hundreds of megabytes
-  and this app stores files as database rows.
+  and this app stores files as database rows. `DeliveryFootage` hangs a link off
+  a `PracticalDelivery`, and `FootageNote` pins feedback to a second in it;
+  `lib/footage.ts` is the pure part — timecode parsing and what a player can do
+  with a given link — and is client-safe on purpose, because the educator's form
+  and the coach's player have to agree about what "1:07" means.
+- **The player seeks without loading anybody's SDK.** A direct video file is a
+  `<video>` element; YouTube and Vimeo take `seekTo` over `postMessage`. A
+  command sent at an iframe that hasn't finished loading is dropped silently, so
+  until the player has said something back the seek is done by remounting the
+  iframe at the timecode. Don't take the remount out — it is the only branch
+  that works on first click.
 
 ## Loading real course data
 

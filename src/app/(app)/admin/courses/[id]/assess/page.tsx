@@ -55,7 +55,17 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
           user: true,
           attendance: true,
           makeUps: true,
-          deliveries: { orderBy: { deliveryNo: "asc" } },
+          deliveries: {
+            orderBy: { deliveryNo: "asc" },
+            include: {
+              footage: {
+                orderBy: { createdAt: "asc" },
+                include: {
+                  notes: { orderBy: { atSeconds: "asc" }, include: { author: true } },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -130,6 +140,17 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
         comment: d.comment,
         actions: planSteps(d.actionPlan),
         rating: d.rating,
+        footage: d.footage.map((f) => ({
+          id: f.id,
+          title: f.title,
+          url: f.url,
+          notes: f.notes.map((n) => ({
+            id: n.id,
+            atSeconds: n.atSeconds,
+            body: n.body,
+            author: n.author ? displayName(n.author) : null,
+          })),
+        })),
       })),
     };
   });
@@ -191,8 +212,9 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
       <section>
         <h2 className="mb-1 text-lg font-semibold text-ink-900">Coaches</h2>
         <p className="mb-3 text-sm text-ink-500">
-          Open a coach to write up a delivery you watched, or to leave a general comment about how
-          they are going. The write-up is theirs to read on their own course page; the comment
+          Open a coach to write up a delivery you watched, post film of it, and pin your notes to
+          the moments they are about. You can also leave a general comment about how they are
+          going. The write-up is theirs to read on their own course page; the comment
           stays on the register, with the course team. Their course rating — the judgement across
           everything they delivered — is set in the same place at the end of the course, and moves
           the outcome with it.

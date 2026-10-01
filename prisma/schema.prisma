@@ -115,6 +115,11 @@ model User {
   assessedDeliveries PracticalDelivery[] @relation("DeliveryAssessor")
   openedMakeUps      AttendanceMakeUp[]  @relation("MakeUpOpener")
 
+  // Session footage: the film an educator posted, and the notes they pinned to
+  // moments in it.
+  postedFootage    DeliveryFootage[] @relation("FootagePoster")
+  footageNotes     FootageNote[]     @relation("FootageNoteAuthor")
+
   // Post-course support. A coach holds cases; an educator is named on the ones
   // they run and on every attempt they have written up.
   supportCases     SupportCase[]    @relation("SupportCoach")
@@ -722,9 +727,70 @@ model PracticalDelivery {
   raw       String?
   createdAt DateTime @default(now())
 
+  footage DeliveryFootage[]
+
   @@unique([enrollmentId, deliveryNo])
   @@index([enrollmentId])
   @@index([assessorId])
+}
+
+/// Film of one assessed delivery, for the coach to watch back.
+///
+/// A link, never an upload. A phone's recording of a ninety-minute session is
+/// hundreds of megabytes and this app stores files as database rows — see
+/// `Upload`. So the row holds a URL and the player works out what it can do
+/// with it: a YouTube or Vimeo link is embedded, and anything ending in a
+/// media extension plays natively, which is what a Drive or S3 direct link is.
+///
+/// Several rows per delivery rather than one, because a session gets filmed in
+/// halves as often as not, and two clips with their own notes is the honest
+/// shape of that. The notes are what this is for; the row without them is just
+/// a link an educator could have emailed.
+model DeliveryFootage {
+  id         String            @id @default(cuid())
+  deliveryId String
+  delivery   PracticalDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  /// What the coach sees above the player: "First half", "Practice phase".
+  /// Optional — one clip on a delivery needs no label.
+  title String?
+  url   String
+
+  /// The educator who posted it. Nullable so deleting an account doesn't take
+  /// the film off a coach's record with it.
+  postedById String?
+  postedBy   User?   @relation("FootagePoster", fields: [postedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  notes FootageNote[]
+
+  @@index([deliveryId])
+  @@index([postedById])
+}
+
+/// One piece of feedback, pinned to a moment in the film.
+///
+/// `atSeconds` is whole seconds from the start of the recording. Seconds and
+/// not a timecode string: the player seeks with a number, the list sorts by
+/// one, and the one place a timecode belongs is the input an educator types
+/// into and the label they read back.
+model FootageNote {
+  id        String          @id @default(cuid())
+  footageId String
+  footage   DeliveryFootage @relation(fields: [footageId], references: [id], onDelete: Cascade)
+
+  atSeconds Int
+  body      String
+
+  authorId String?
+  author   User?   @relation("FootageNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([footageId, atSeconds])
+  @@index([authorId])
 }
 
 /// Whether a debt has been settled, and how far along it is.
