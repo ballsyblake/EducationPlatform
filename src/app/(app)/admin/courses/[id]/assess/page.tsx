@@ -55,7 +55,13 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
           user: true,
           attendance: true,
           makeUps: true,
-          deliveries: { orderBy: { deliveryNo: "asc" } },
+          deliveries: {
+            orderBy: { deliveryNo: "asc" },
+            // The count rather than the rows: the roster needs to know a
+            // scoresheet exists, and the scores themselves are read on the page
+            // that edits them.
+            include: { _count: { select: { scores: true } } },
+          },
         },
       },
     },
@@ -125,11 +131,14 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
         deliveryNo: d.deliveryNo,
         assessor: d.assessor,
         block: d.block,
+        session: d.session,
         component: d.component,
         topic: d.topic,
+        deliveredOn: d.deliveredOn ? d.deliveredOn.toISOString().slice(0, 10) : null,
         comment: d.comment,
         actions: planSteps(d.actionPlan),
         rating: d.rating,
+        scored: d._count.scores,
       })),
     };
   });

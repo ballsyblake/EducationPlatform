@@ -33,6 +33,7 @@ admin/
 |---|---|
 | `lib/attendance.ts` | Pure hours. Day lengths, totals, debts, enrolment windows. No database. |
 | `lib/support-rubric.ts` | FA's rubric: 7 criteria, 1–5 in half steps, bands, verdicts. Client-safe. |
+| `lib/delivery-rubric.ts` | FA's assessor guide: 6 areas, 0–3 each, 18 points, thresholds per diploma. Client-safe. |
 | `lib/courses.ts` | Where a cohort stands: delivered, what it still owes, closed. Pure. |
 | `lib/support.ts` | Support-case queries. `server-only`. |
 | `lib/coaches.ts` | The cross-course roster: one row per enrolment. `server-only`. |
@@ -60,6 +61,15 @@ approximations of it. **Keep database access out of them.**
 - **Hours are not carried across a transfer automatically.** A coach who sat
   Block 1 twice has not done three-quarters of the qualification. The link makes
   the hours visible; crediting them is a judgement, written on the ledger.
+- **Two instruments, and neither converts into the other.** `support-rubric.ts`
+  rates a coach 1–5 in half steps and is what the register's columns, the pass
+  mark, the support desk and every imported 2026 score are in.
+  `delivery-rubric.ts` scores one session 0–3 across six areas out of eighteen,
+  which is what Football Australia's assessor guide asks of a tutor on the
+  grass, and what `/educator/grading/<enrolment>` writes. A delivery can carry
+  both; nothing derives one from the other, because nobody has published a
+  conversion. The *outcome* of a scoresheet is arithmetic and is derived; the
+  course rating is a judgement and stays a person's to set.
 - **A rating decides an outcome, and the action enforces it.** Below the
   threshold cannot be "Passed"; the form won't offer it and `saveResults`
   refuses it. An educator who means to pass somebody short has to move the

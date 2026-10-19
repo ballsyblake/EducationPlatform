@@ -203,6 +203,12 @@ export async function saveCoachResult(
 
   revalidatePath(`/admin/courses/${enrollment.courseId}/assess`);
   revalidatePath(`/admin/courses/${enrollment.courseId}/register`);
+  // The rating is half of what the grading queue is counting — a coach with a
+  // delivery in and no course rating sits on it as "needs a rating" — so the
+  // queue and the educator's dashboard are stale the moment it is set.
+  revalidatePath(`/educator/grading/${enrollment.id}`);
+  revalidatePath("/educator/grading");
+  revalidatePath("/dashboard");
   revalidatePath("/admin/support");
   revalidatePath("/admin/cohorts");
   revalidatePath("/admin/coaches");

@@ -321,12 +321,19 @@ export type DeliveryEntry = {
   deliveryNo: number;
   assessor: string | null;
   block: string | null;
+  session: string | null;
   component: string | null;
   topic: string | null;
+  /// "2026-03-04" — the day it was delivered, for a date input.
+  deliveredOn: string | null;
   comment: string | null;
   /// The action plan as its numbered steps, with the numbering stripped.
   actions: string[];
   rating: number | null;
+  /// How much of Football Australia's rubric this delivery was scored on.
+  /// Scoring happens on the assessment page; this is only here so a card can
+  /// say the scoresheet exists rather than implying the write-up is all of it.
+  scored: number;
 };
 
 export type CoachEntry = {
@@ -417,9 +424,19 @@ export function CoachPanel({
         ))}
 
         <div className="card card-pad">
-          <p className="mb-3 text-sm font-semibold text-ink-900">
-            {coach.deliveries.length ? "Another delivery" : "Write up a delivery"}
-          </p>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-ink-900">
+              {coach.deliveries.length ? "Another delivery" : "Write up a delivery"}
+            </p>
+            {/* The short form here is the register's columns, which is what
+                somebody working down a roster wants. Football Australia's own
+                scoresheet — six areas out of eighteen, and the outcome off the
+                diploma's threshold — is a page per coach, and this is the way
+                to it. */}
+            <a href={`/educator/grading/${coach.id}`} className="text-xs font-medium text-maroon-700 hover:underline">
+              Score it on FA&apos;s rubric →
+            </a>
+          </div>
           <DeliveryForm
             coach={coach}
             assessors={assessors}
@@ -457,7 +474,13 @@ function DeliveryCard({
             {delivery.topic ? ` — ${delivery.topic}` : ""}
           </p>
           <p className="mt-0.5 text-xs text-ink-500">
-            {[delivery.block, delivery.component, delivery.assessor && `by ${delivery.assessor}`]
+            {[
+              delivery.deliveredOn,
+              delivery.block,
+              delivery.session,
+              delivery.component,
+              delivery.assessor && `by ${delivery.assessor}`,
+            ]
               .filter(Boolean)
               .join(" · ")}
           </p>
@@ -481,6 +504,19 @@ function DeliveryCard({
             ))}
           </ol>
         </>
+      )}
+
+      {delivery.scored > 0 && (
+        <p className="mt-3 text-xs text-ink-500">
+          Scored on {delivery.scored} of Football Australia&apos;s six areas —{" "}
+          <a
+            href={`/educator/grading/${coach.id}?delivery=${delivery.id}`}
+            className="font-medium text-maroon-700 hover:underline"
+          >
+            open the scoresheet
+          </a>
+          .
+        </p>
       )}
 
       <details className="mt-3">
@@ -596,11 +632,31 @@ function DeliveryForm({
         </label>
 
         <label className="block">
+          <span className="label">Session</span>
+          <input
+            name="session"
+            defaultValue={delivery?.session ?? ""}
+            placeholder="Session 3"
+            className="input"
+          />
+        </label>
+
+        <label className="block">
           <span className="label">Topic</span>
           <input
             name="topic"
             defaultValue={delivery?.topic ?? ""}
             placeholder="Staying on ball to escape pressure"
+            className="input"
+          />
+        </label>
+
+        <label className="block">
+          <span className="label">Date delivered</span>
+          <input
+            type="date"
+            name="deliveredOn"
+            defaultValue={delivery?.deliveredOn ?? ""}
             className="input"
           />
         </label>

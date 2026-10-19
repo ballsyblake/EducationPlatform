@@ -356,6 +356,45 @@ rated 2 as having passed is refused, both in the form and again on save.
 Withdrawing is always available, because leaving a course is not a judgement
 about a delivery.
 
+### How one delivery is assessed
+
+The course rating above is a judgement across everything a coach delivered. One
+session is assessed on a different instrument — the one in Football Australia's
+*Coach Education Assessor Guide*, transcribed in `src/lib/delivery-rubric.ts`.
+Six areas, each scored 0 to 3 on the best fit of what the session showed:
+
+| Score | Level       | Means                                                              |
+| ----- | ----------- | ------------------------------------------------------------------ |
+| 0     | Not Evident | Absent, vague, or entirely ineffective.                            |
+| 1     | Developing  | Present, but inconsistent or not aligned with the objective.       |
+| 2     | Proficient  | Clear and consistent; supports understanding and engagement.       |
+| 3     | Expertise   | Exemplary and seamlessly integrated.                               |
+
+Objective, Content, Organisation, Presenting, Coaching, Environment — eighteen
+points in all, and never averaged across the areas. The total gives the
+outcome, and where the line falls depends on the diploma:
+
+| Diploma | Competent at | Highly Competent at |
+| ------- | ------------ | ------------------- |
+| C       | 9            | 12                  |
+| B       | 12           | 15                  |
+| A       | 15           | 18                  |
+
+The minimums are the guide's own table. The Highly Competent column is Football
+Australia's clarification of 15 October 2026 for the C Diploma — 9 to 11 is
+Competent, 12 and up is Highly Competent — and the same three-point step
+**inferred** for B and A, which nobody has confirmed. A course whose title and
+qualification name no diploma gets the C Diploma's lines, and the page says so.
+
+An educator assesses a delivery at `/educator/grading/<enrolment>`, reached from
+the grading queue. The write-up it saves is an ordinary `PracticalDelivery` —
+the same row the register's short form writes, with a `DeliveryScore` per area
+beside it — so a session scored here shows on the register, on the assessor's
+course page and on the coach's own course page without anything being kept in
+step by hand. Every delivery imported from a 2026 register carries its 1-5
+figure and no scoresheet, which is the truth about it: nobody scored those on
+this rubric.
+
 ## Post-course support
 
 Rated below the mark, and the rubric's own name for what happens next is
@@ -950,6 +989,7 @@ src/
     attendance.ts      Pure hours: day lengths, totals, debts and shortfalls
     coaches.ts         The cross-course roster: one row per enrolment
     support-rubric.ts  FA's 1-5 rubric, bands, and the support pathway
+    delivery-rubric.ts FA's assessor guide: six areas out of 18, per diploma
     uploads.ts         File validation, database-backed storage, photo caps
     adapter.ts         Picks SQLite or Turso from DATABASE_URL
     cda/
