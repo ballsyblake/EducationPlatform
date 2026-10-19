@@ -5,7 +5,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { Avatar } from "@/components/avatar";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
 import { assertCourseStaff } from "@/lib/access";
-import { requireStaff } from "@/lib/auth";
+import { isAdmin, requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate, formatDateTime, relativeDue } from "@/lib/format";
 import {
@@ -109,7 +109,12 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
   return (
     <>
       <PageHeader
-        breadcrumb={{ href: "/admin/support", label: "Post-course support" }}
+        // Back where they came from. The desk is the program's page; an
+        // educator's own list of this work is the one they opened it from.
+        breadcrumb={{
+          href: isAdmin(user) ? "/admin/support" : "/educator/support",
+          label: "Post-course support",
+        }}
         title={displayName(supportCase.user)}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">

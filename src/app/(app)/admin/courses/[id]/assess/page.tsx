@@ -146,7 +146,13 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
   return (
     <>
       <PageHeader
-        breadcrumb={{ href: "/admin", label: isAdmin(user) ? "Manage" : "Your courses" }}
+        // An educator reaches this from their grading list rather than from
+        // Manage, which they are no longer shown.
+        breadcrumb={
+          isAdmin(user)
+            ? { href: "/admin", label: "Manage" }
+            : { href: "/educator/grading", label: "Grading" }
+        }
         title={course.title}
         subtitle={
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
