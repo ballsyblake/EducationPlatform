@@ -25,3 +25,8 @@ next-env.d.ts
 
 # Python bytecode from scripts/extract-fq-2026.py
 __pycache__/
+
+# The post-course support extract. Real addresses, unlike the register extract
+# beside it — see "Loading the post-course support register" in the README.
+# Keep it out of the repository; on a host it goes in as a secret file.
+prisma/data/post-course-support.json
