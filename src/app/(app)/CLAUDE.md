@@ -39,6 +39,7 @@ admin/
 | `lib/coursework.ts` | Task aggregation and progress summaries. |
 | `lib/educator.ts` | The three questions an educator opens the app with. `server-only`. |
 | `lib/grading.ts` | Auto-grading and score rollups. |
+| `lib/diploma-coursework.ts` | What a B or C Diploma requires, and putting it on the courses that owe it. |
 
 `attendance.ts` and `support-rubric.ts` are deliberately pure — the register,
 the desks and the coach's own page all total the same way rather than three
@@ -116,6 +117,21 @@ approximations of it. **Keep database access out of them.**
   other page here. It looked fine locally because SQLite is a function call
   away; production talks to Turso over the network, where round trips are the
   whole cost. If you add a column to that page, add it to the batch.
+- **A diploma's coursework belongs to the diploma, not to the cohort.** Two
+  session plans on a C Diploma, a journal on a B Diploma, from the catalogue in
+  `lib/diploma-coursework.ts` and marked by `Assignment.requirement`.
+  `ensureDiplomaCoursework` creates and never edits or deletes, and runs on
+  course create, on the settings save that names the qualification, on
+  enrolment, on a transfer, in the importer and from `scripts/boot.ts` — which
+  is what covers the cohorts imported before any of it existed. Withdraw one
+  from a cohort by unpublishing it; delete it and the next boot puts it back.
+  The level is read from `Course.qualification`, falling back to the title,
+  because the create form has no qualification field.
+- **The journal tick and the journal are two different facts.** The register's
+  `journalComplete` is an educator's sign-off; the JOURNAL assignment is what
+  the coach hands in. Neither sets the other — nothing here is decided
+  automatically that a person should decide — and the register shows both
+  side by side.
 - **Film is a link, never an upload.** Session footage is hundreds of megabytes
   and this app stores files as database rows.
 

@@ -31,6 +31,7 @@ for the accounts that are in both.
 - A dashboard of everything assigned, sorted by due date, with overdue items flagged
 - Course pages with a library of session plans, resources and video (uploaded files or YouTube/Vimeo links)
 - Assignments accepting a written response, file attachments, or both — with drafts you can save and come back to
+- The coursework the diploma itself requires, on the list from the day you enrol: two session plans on a C Diploma, a coaching journal on a B Diploma
 - Quizzes with multiple-choice, true/false, and written questions
 - A Grades & Feedback page collecting every score and written comment in one place, and where each course stands against its pass mark
 - Your own row of the course register: the hours you sat on each day, your rating out of five, and the write-up of every session an educator watched you deliver
@@ -40,6 +41,7 @@ for the accounts that are in both.
 **For admins (coach educators / technical staff)**
 
 - Create courses, enroll staff, and publish or hide coursework
+- The diploma's own coursework put on every B and C Diploma cohort, so nobody has to remember to set it
 - Author assignments and build quizzes question by question
 - A grading queue: score submissions, review written quiz answers, add feedback, or send work back for revision
 - A photo of each coach, taken on the phone from the register, so whoever assesses their delivery in Block 3 knows who is who
@@ -943,6 +945,8 @@ src/
     access.ts          Course and upload authorization
     grading.ts         Auto-grading and score rollups
     coursework.ts      Task aggregation and progress summaries
+    diploma-coursework.ts
+                       What each diploma requires, and putting it on courses
     attendance.ts      Pure hours: day lengths, totals, debts and shortfalls
     coaches.ts         The cross-course roster: one row per enrolment
     support-rubric.ts  FA's 1-5 rubric, bands, and the support pathway
