@@ -867,20 +867,30 @@ links are correct on the first deploy, before you know your hostname. Set
 `APP_URL` only when you put a custom domain in front.
 
 **3. Sign in.** The first boot applies the migrations, creates your admin
-account, and prints a sign-in link to the deploy logs. Open Render's log viewer,
-click the link, and add your staff from the Staff page.
+account, and issues a sign-in link. With `SMTP_*` set the link is emailed to
+that address and the log says only that it was sent. Without a mail server there
+is nowhere safe to put it, so nothing is sent: set `ADMIN_LINK=print` and
+redeploy to have the token written to the deploy log, use it, then remove the
+variable. Once you're in, add your staff from the Staff page.
 
 If you do set `APP_URL`, it has to be right before you invite anyone — it's the
 base of every sign-in link. Get it wrong and you can just fix it and redeploy: a
-fresh link is printed whenever an admin has no active session.
+fresh link is issued whenever an admin has no active session.
 
-**Locked out?** Set `ADMIN_LINK=1` and save. The next boot prints a fresh
+**Locked out?** Set `ADMIN_LINK=1` and save. The next boot issues a fresh
 sign-in link for every `ADMIN_EMAILS` address, whatever the database thinks
-about their sessions. Remove it once you're in.
+about their sessions, and emails it. Remove it once you're in.
 
-A link is normally only printed for an admin with **no live session**, so that a
-working credential doesn't land in the deploy log every time the service
-restarts. The trap is that a session row lives for sixty idle days: an admin who
+A sign-in link is a credential that needs no password, so it is **never written
+to the deploy log** unless you ask for that by name with `ADMIN_LINK=print` —
+logs are read from the host's dashboard, shipped off-box and pasted into tickets
+and chats. Treat a token printed that way as spent: sign in with it, then remove
+`ADMIN_LINK`. With no mail server and no `print`, the link is issued and simply
+not delivered, and the log says so.
+
+A link is also only issued for an admin with **no live session**, so a redeploy
+doesn't retire a link they may still be holding. The trap is that a session row
+lives for sixty idle days: an admin who
 cleared their cookies, changed browser or lost the laptop stays locked out for
 two months while every redeploy reports *"has an active session; no link
 needed"*. The check can only ask whether a session row exists; only you know
@@ -932,17 +942,19 @@ runner refuses to start if an already-applied migration file has been edited.
 | `B_DIPLOMA_IMPORT_2026` | – | Set to `1` to load the 2026 B Diploma registers on the next boot; `force` re-runs |
 | `SUPPORT_IMPORT_2026` | –  | Set to `1` to load the post-course support register on the next boot; `force` re-runs |
 | `SUPPORT_DATA_FILE` | –    | Where that register's extract is, e.g. `/etc/secrets/post-course-support.json` |
-| `ADMIN_LINK`    | –        | Set to `1` to print a fresh admin sign-in link on the next boot; `reset` also ends their sessions |
+| `ADMIN_LINK`    | –        | Set to `1` to email a fresh admin sign-in link on the next boot; `reset` also ends their sessions; `print` writes the token to the deploy log instead |
 | `DATA_DIR`      | –        | Only for local SQLite. Disk mount point, defaults to `/data`          |
 
 Set `APP_URL` correctly before inviting anyone. It's the base of every sign-in
 link that goes out, and a wrong value produces links that point elsewhere.
 
-SMTP is optional. Without it, the login form is hidden and you hand out sign-in
-links from the staff page — see [Signing in](#signing-in). On a brand-new
-deploy the first admin's sign-in link is printed to the boot logs, so open the
-host's log viewer after the first deploy. A later deploy prints a fresh link
-whenever an admin has no active session, so a lost link is never a lockout.
+SMTP is optional for coaches: without it the login form is hidden and you hand
+out sign-in links from the staff page — see [Signing in](#signing-in). The first
+admin is the exception. Their link is emailed when SMTP is configured, and
+otherwise issued but not delivered, because a sign-in link in a deploy log is a
+credential anybody reading that log can use. `ADMIN_LINK=print` puts it in the
+log when that is the only way in; a fresh link is issued whenever an admin has
+no active session, so a lost link is never a lockout.
 
 ### Running the image locally
 
