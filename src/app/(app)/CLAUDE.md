@@ -9,7 +9,8 @@ before changing anything about how a coach is rated.
 ## The shape of it
 
 ```
-dashboard/          Coach home; also carries the staff queues and banners
+dashboard/          Coach home; educators get `educator-dashboard.tsx` instead
+educator/           An educator's whole view: grading, and post-course support
 courses/[id]/       What a coach sees: library, their own register row, results
 assignments/ quizzes/ grades/   Coursework and its feedback
 support/[id]/       A coach's own post-course support case
@@ -36,6 +37,7 @@ admin/
 | `lib/support.ts` | Support-case queries. `server-only`. |
 | `lib/coaches.ts` | The cross-course roster: one row per enrolment. `server-only`. |
 | `lib/coursework.ts` | Task aggregation and progress summaries. |
+| `lib/educator.ts` | The three questions an educator opens the app with. `server-only`. |
 | `lib/grading.ts` | Auto-grading and score rollups. |
 | `lib/diploma-coursework.ts` | What a B or C Diploma requires, and putting it on the courses that owe it. |
 
@@ -73,6 +75,14 @@ approximations of it. **Keep database access out of them.**
 - **Educators are scoped.** `staffCourseIds(user)` returns `null` for an admin —
   the absence of a filter — and a list of course ids for an educator. Every list
   page here filters by it, and every action calls `assertCourseStaff`.
+- **An educator's view is `/dashboard` and `/educator/*`, and that is all.** The
+  pages under `admin/` are the program's and are an admin's in the navigation:
+  an educator was given all six of them scoped, which is six pages of somebody
+  else's job to read past. They still work and are still scoped — an educator
+  who follows a link into one is not stopped — they are simply not offered.
+  "Attached" is the course roster rather than a coach-to-educator table: the
+  register is what FQ keeps, and a second attachment would be a second thing to
+  disagree with it.
 - **A course ends twice.** *Delivered* is derived — the last `CourseDay.date`
   has passed — and moves if the register does, because if a tenth day is added
   delivery finished later. *Closed* is `Course.closedAt`, somebody's judgement
