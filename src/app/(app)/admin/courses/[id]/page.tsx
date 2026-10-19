@@ -6,6 +6,7 @@ import { Badge, PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { courseStanding } from "@/lib/courses";
 import { getGradingQueueCounts } from "@/lib/coursework";
+import { diplomaLevelOf, levelLabel, levelOfRequirement } from "@/lib/diploma-coursework";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate, formatDateTime, toDateTimeLocal } from "@/lib/format";
 import { formatBytes } from "@/lib/uploads";
@@ -53,6 +54,10 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
     },
   });
   if (!course) notFound();
+
+  // Which diploma this is, for labelling the coursework the diploma itself
+  // requires rather than this cohort's author.
+  const level = diplomaLevelOf(course);
 
   // Six months after the last delivery day: near the dates FQ actually uses,
   // and offered as a suggestion rather than written in. See SupportDeadlineField.
@@ -489,7 +494,18 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
 
         {/* ----------------------------- Assignments --------------------------- */}
         <section>
-          <h2 className="mb-3 text-lg font-semibold text-ink-900">Assignments</h2>
+          <h2 className="mb-1 text-lg font-semibold text-ink-900">Assignments</h2>
+          {/* Why two of these appeared without anybody adding them. Said here
+              rather than left to be discovered, because the first reaction to
+              coursework you did not write is to delete it. */}
+          <p className="mb-3 text-sm text-ink-500">
+            {level
+              ? `The ${levelLabel(level)} carries its own coursework, and it is put on every ` +
+                "cohort on that diploma. Reword it to suit this intake; to take one off this " +
+                "course, hide it rather than deleting it."
+              : "Coursework you author for this cohort. A course named as a B or C Diploma also " +
+                "carries that diploma's own work."}
+          </p>
           <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
             <div className="space-y-3">
               {course.assignments.length ? (
@@ -509,7 +525,18 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                           {assignment._count.submissions === 1 ? "" : "s"}
                         </p>
                       </div>
-                      {!assignment.published && <Badge tone="warn">Hidden</Badge>}
+                      <span className="flex shrink-0 items-center gap-2">
+                        {assignment.requirement &&
+                          (() => {
+                            // From the row, not from the course: see
+                            // levelOfRequirement.
+                            const owner = levelOfRequirement(assignment.requirement);
+                            return owner ? (
+                              <Badge tone="ok">{levelLabel(owner)} requirement</Badge>
+                            ) : null;
+                          })()}
+                        {!assignment.published && <Badge tone="warn">Hidden</Badge>}
+                      </span>
                     </div>
 
                     <details className="mt-3">
@@ -536,7 +563,13 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                           <SubmitButton
                             className="btn-danger btn-sm"
                             pendingLabel="Deleting…"
-                            confirm="Delete this assignment and every submission for it?"
+                            confirm={
+                              assignment.requirement
+                                ? "This is the diploma's own coursework and will be put back on " +
+                                  "the next deploy. Hide it instead unless you mean to lose the " +
+                                  "submissions on it. Delete anyway?"
+                                : "Delete this assignment and every submission for it?"
+                            }
                           >
                             Delete assignment
                           </SubmitButton>

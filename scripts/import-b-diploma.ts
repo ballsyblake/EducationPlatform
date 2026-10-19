@@ -32,6 +32,7 @@ import { pathToFileURL } from "node:url";
 import { PrismaClient } from "../generated/prisma/client.ts";
 import { createAdapter } from "../src/lib/adapter.ts";
 import { dayMinutes } from "../src/lib/attendance.ts";
+import { ensureDiplomaCoursework } from "../src/lib/diploma-coursework.ts";
 
 const DATA = path.join(process.cwd(), "prisma", "data", "b-diploma-2026.json");
 
@@ -258,6 +259,12 @@ export async function importBDiploma(prisma: PrismaClient, { dry = false } = {})
       ? await prisma.course.update({ where: { id: existing.id }, data: record })
       : await prisma.course.create({ data: record });
     counts.courses += 1;
+
+    // The journal every coach on a B Diploma owes. These registers were
+    // imported with no coursework at all, which is how eighty-seven coaches
+    // came to have an empty to-do list on a diploma that requires one.
+    // Idempotent, like every other write here.
+    await ensureDiplomaCoursework(prisma, [saved.id]);
 
     // ---- Days -------------------------------------------------------------
     const dayIds = new Map<number, string>();
