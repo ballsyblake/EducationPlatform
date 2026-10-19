@@ -23,6 +23,7 @@
     "boot": "tsx scripts/boot.ts",
     "cda:import-2026": "tsx scripts/import-fq-2026.ts",
     "courses:import": "tsx scripts/import-b-diploma.ts",
+    "support:import": "tsx scripts/import-support.ts",
     "teams:demote": "tsx scripts/demote-course-teams.ts"
   },
   "repository": {

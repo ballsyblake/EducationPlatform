@@ -4,6 +4,7 @@ import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
 import { assertCourseStaff } from "@/lib/access";
 import { isAdmin, requireStaff } from "@/lib/auth";
 import { shortCourseTitle } from "@/lib/coaches";
+import { getRequiredCourseworkByCoach } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate } from "@/lib/format";
 import { DEFAULT_RATING_THRESHOLD } from "@/lib/support-rubric";
@@ -229,6 +230,11 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
     coachName: displayName(e.user),
   });
 
+  // The coursework the diploma itself requires, for the whole roster in one
+  // read. The column is there because this is the page an educator works from,
+  // and a journal nobody can see is a journal nobody chases.
+  const required = await getRequiredCourseworkByCoach(id);
+
   const results: ResultRow[] = course.enrollments.map((e) => ({
     id: e.id,
     name: displayName(e.user),
@@ -244,6 +250,7 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
     readiness: e.readiness,
     comments: e.registerComments,
     deliveries: e._count.deliveries,
+    required: required.get(e.userId) ?? [],
   }));
 
   const rated = course.enrollments.filter((e) => e.rating !== null);

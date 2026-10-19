@@ -31,6 +31,7 @@ for the accounts that are in both.
 - A dashboard of everything assigned, sorted by due date, with overdue items flagged
 - Course pages with a library of session plans, resources and video (uploaded files or YouTube/Vimeo links)
 - Assignments accepting a written response, file attachments, or both — with drafts you can save and come back to
+- The coursework the diploma itself requires, on the list from the day you enrol: two session plans on a C Diploma, a coaching journal on a B Diploma
 - Quizzes with multiple-choice, true/false, and written questions
 - A Grades & Feedback page collecting every score and written comment in one place, and where each course stands against its pass mark
 - Your own row of the course register: the hours you sat on each day, your rating out of five, and the write-up of every session an educator watched you deliver
@@ -40,6 +41,7 @@ for the accounts that are in both.
 **For admins (coach educators / technical staff)**
 
 - Create courses, enroll staff, and publish or hide coursework
+- The diploma's own coursework put on every B and C Diploma cohort, so nobody has to remember to set it
 - Author assignments and build quizzes question by question
 - A grading queue: score submissions, review written quiz answers, add feedback, or send work back for revision
 - A photo of each coach, taken on the phone from the register, so whoever assesses their delivery in Block 3 knows who is who
@@ -450,6 +452,60 @@ to the importer needs applying to a database that already ran it.
 
 `FQ_IMPORT_2026` does the same for the Club Development season.
 
+## Loading the post-course support register
+
+FQ keeps a second set of workbooks: every coach on more support, across the
+2023-26 B Diplomas and the 2026 C Diplomas, with who is running each case, what
+the coach was told to do, the deadline, and a Notes cell holding a year of
+history. Same two steps as the registers:
+
+```bash
+python3 scripts/extract-post-course-support.py \
+    "2023-2026 B Diplomas - More Support.xlsx" \
+    "2026 C Diplomas - More Support.xlsx" \
+    -o prisma/data/post-course-support.json
+
+npm run support:import -- --dry-run    # say what would change, write nothing
+npm run support:import -- --yes        # do it
+```
+
+**That extract is not committed, and must not be.** It carries real addresses,
+which the register extract does not: a case has to reach the coach it belongs
+to, and a coach on a 2023 intake whose register was never loaded is identified
+by nothing else. Keep it out of the repository and off anything public. On
+Render it goes in as a Secret File, with `SUPPORT_DATA_FILE` naming the mount
+path and `SUPPORT_IMPORT_2026=1` arming the import — same shape, same two
+guards and the same log line as `B_DIPLOMA_IMPORT_2026` above.
+
+The cohorts on those sheets mostly have no attendance register in this system,
+so each one is created as a course with a name, a year and the intake's support
+deadline, and nothing else: no days, and a roster that is the coaches who were
+referred. Where a register has since been imported under the same title, only
+the deadline is written.
+
+What it reads, and what it leaves alone:
+
+- The outcome column becomes the case's status. "Failed to submit" is `LAPSED`
+  rather than unsuccessful — nobody assessed a delivery and fell short — and
+  anything it cannot read leaves the case open and says so.
+- The Notes cell is split: what the coach was told to do becomes the plan, and
+  every dated entry in it becomes a line in the case history. A sentence with
+  no date is never given one.
+- The Microsoft Form beside those sheets — when a coach is free to be visited —
+  lands on the case, which is what the "filled the form? Y/N" column was for.
+- **No attempts.** A `SupportAttempt` is an assessed delivery with marks
+  against the rubric, and the register keeps outcomes, not marks. A rated
+  delivery nobody rated is worse than no delivery.
+- **Nothing is closed or deleted.** A row that disappears from a spreadsheet is
+  somebody tidying. A case an educator has closed here but the sheet still
+  shows as open is left closed, and reported.
+- A coach who already has an account under the address the register extractor
+  invented for them (`first.last@example.com`) is reported as a possible
+  duplicate, not merged: it is a name match, and handing one coach another's
+  address hands a stranger their assessment history. `--link` merges them,
+  after somebody has read the names.
+
+
 **Addresses in that file are anonymised.** The registers carry every coach's
 real address and this repository is public to whoever can read it; names are
 kept, because they are what makes the data worth testing against, but each
@@ -845,17 +901,21 @@ runner refuses to start if an already-applied migration file has been edited.
 | `MAX_UPLOAD_MB` | –        | Per-file upload cap. Defaults to 10                                  |
 | `FQ_IMPORT_2026` | –       | Set to `1` to load the 2026 CDA season on the next boot; `force` re-runs |
 | `B_DIPLOMA_IMPORT_2026` | – | Set to `1` to load the 2026 B Diploma registers on the next boot; `force` re-runs |
+| `SUPPORT_IMPORT_2026` | –  | Set to `1` to load the post-course support register on the next boot; `force` re-runs |
+| `SUPPORT_DATA_FILE` | –    | Where that register's extract is, e.g. `/etc/secrets/post-course-support.json` |
 | `ADMIN_LINK`    | –        | Set to `1` to email a fresh admin sign-in link on the next boot; `reset` also ends their sessions; `print` writes the token to the deploy log instead |
 | `DATA_DIR`      | –        | Only for local SQLite. Disk mount point, defaults to `/data`          |
 
 Set `APP_URL` correctly before inviting anyone. It's the base of every sign-in
 link that goes out, and a wrong value produces links that point elsewhere.
 
-SMTP is optional. Without it, the login form is hidden and you hand out sign-in
-links from the staff page — see [Signing in](#signing-in). On a brand-new
-deploy the first admin's sign-in link is printed to the boot logs, so open the
-host's log viewer after the first deploy. A later deploy prints a fresh link
-whenever an admin has no active session, so a lost link is never a lockout.
+SMTP is optional for coaches: without it the login form is hidden and you hand
+out sign-in links from the staff page — see [Signing in](#signing-in). The first
+admin is the exception. Their link is emailed when SMTP is configured, and
+otherwise issued but not delivered, because a sign-in link in a deploy log is a
+credential anybody reading that log can use. `ADMIN_LINK=print` puts it in the
+log when that is the only way in; a fresh link is issued whenever an admin has
+no active session, so a lost link is never a lockout.
 
 ### Running the image locally
 
@@ -901,6 +961,8 @@ a hosted database.
 | `npm run db:reset`   | Drop the database, re-migrate, and re-seed both products |
 | `npm run db:studio`  | Browse the database in Prisma Studio               |
 | `npm run bootstrap:admin` | Grant admin access to `ADMIN_EMAILS` and print a sign-in link |
+| `npm run courses:import` | Load the B Diploma registers from `prisma/data/b-diploma-2026.json` |
+| `npm run support:import` | Load the post-course support register (see `SUPPORT_DATA_FILE`) |
 
 `prisma`, `tsx`, and `dotenv` are runtime dependencies rather than dev ones
 because the container runs migrations and the admin bootstrap on boot.
@@ -953,6 +1015,8 @@ src/
     access.ts          Course and upload authorization
     grading.ts         Auto-grading and score rollups
     coursework.ts      Task aggregation and progress summaries
+    diploma-coursework.ts
+                       What each diploma requires, and putting it on courses
     attendance.ts      Pure hours: day lengths, totals, debts and shortfalls
     coaches.ts         The cross-course roster: one row per enrolment
     support-rubric.ts  FA's 1-5 rubric, bands, and the support pathway

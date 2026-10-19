@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { assertCourseStaff } from "@/lib/access";
 import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { ensureDiplomaCoursework } from "@/lib/diploma-coursework";
 
 export type TransferState = { status: "idle" | "ok" | "error"; message?: string };
 
@@ -209,6 +210,11 @@ export async function transferEnrolment(
 
     return { targetId: target.id, carried: carried.count, reused: Boolean(existing) };
   });
+
+  // The destination is a diploma of its own, and a coach who has just landed on
+  // it owes its coursework. Outside the transaction on purpose: a course that
+  // somehow cannot be provisioned is not a reason to lose a recorded move.
+  await ensureDiplomaCoursework(prisma, [destination.id]);
 
   revalidateFor(origin.courseId, destination.id);
   return {

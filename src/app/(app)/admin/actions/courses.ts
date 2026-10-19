@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { assertCourseStaff } from "@/lib/access";
 import { requireAdmin, requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { ensureDiplomaCoursework } from "@/lib/diploma-coursework";
 import { deleteUpload, storeUpload, UploadError } from "@/lib/uploads";
 
 export type ActionState = { status: "idle" | "ok" | "error"; message?: string };
@@ -52,6 +53,12 @@ export async function createCourse(_prev: ActionState, formData: FormData): Prom
     },
   });
 
+  // A C Diploma's two session plans and a B Diploma's journal are the diploma's
+  // work, not this cohort's author's, so they are put on the course rather than
+  // left to whoever remembers. Read off the title here: the create form has no
+  // qualification field, and the settings page below is where that gets set.
+  await ensureDiplomaCoursework(prisma, [course.id]);
+
   revalidatePath("/admin");
   redirect(`/admin/courses/${course.id}`);
 }
@@ -91,6 +98,11 @@ export async function updateCourse(formData: FormData) {
       published: formData.get("published") === "on",
     },
   });
+
+  // Naming the qualification is usually how a course becomes a B or a C
+  // Diploma as far as this app is concerned — the create form cannot say it.
+  // Creates only, so a requirement an educator has reworded is left as it is.
+  await ensureDiplomaCoursework(prisma, [id]);
 
   revalidatePath(`/admin/courses/${id}`);
   revalidatePath("/admin");
@@ -170,6 +182,11 @@ export async function setEnrollment(formData: FormData) {
       create: { userId, courseId },
       update: {},
     });
+    // Nobody joins a diploma without its coursework. Assignments hang off the
+    // course, so this is three queries that usually find everything already
+    // there — and it is what covers a cohort imported or created before any of
+    // this existed, without a backfill per coach.
+    await ensureDiplomaCoursework(prisma, [courseId]);
   } else {
     await prisma.enrollment.deleteMany({ where: { userId, courseId } });
   }
@@ -195,6 +212,8 @@ export async function enrollAllCoaches(formData: FormData) {
       data: missing.map((c) => ({ courseId, userId: c.id })),
     });
   }
+
+  await ensureDiplomaCoursework(prisma, [courseId]);
 
   revalidatePath(`/admin/courses/${courseId}`);
 }

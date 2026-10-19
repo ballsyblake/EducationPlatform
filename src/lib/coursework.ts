@@ -1,6 +1,9 @@
 import "server-only";
 
 import { prisma } from "@/lib/db";
+import { DIPLOMA_COURSEWORK } from "@/lib/diploma-coursework";
+
+const DIPLOMA_COURSEWORK_ITEMS = Object.values(DIPLOMA_COURSEWORK).flat();
 
 export type TaskState = "not_started" | "in_progress" | "submitted" | "graded";
 
@@ -242,4 +245,73 @@ export async function getGradingQueueCounts(scope: string[] | null = null) {
     }),
   ]);
   return { submissions, attempts, total: submissions + attempts };
+}
+
+/* ------------------------- Diploma requirements --------------------------- */
+
+/** One standing requirement, as it stands for one coach. */
+export type RequiredItem = {
+  assignmentId: string;
+  /** "Plan 1", "Journal" — the catalogue's short form, or the title if it has been renamed. */
+  short: string;
+  /** Handed in: submitted, graded, or sent back for revision having been in once. */
+  handedIn: boolean;
+};
+
+/**
+ * Where every coach on a course stands on the work the diploma itself requires.
+ *
+ * The register and the course page both want this as a column, so it is one
+ * read for the whole roster rather than a question asked per row — the same
+ * rule `getTasksForCoaches` exists for.
+ *
+ * Only `Assignment.requirement` rows count here, not everything a cohort's
+ * author wrote: the point of the column is whether the coach has met the
+ * diploma's own standing requirement, which is a different question from
+ * whether they have finished this intake's coursework.
+ */
+export async function getRequiredCourseworkByCoach(
+  courseId: string,
+): Promise<Map<string, RequiredItem[]>> {
+  const byUser = new Map<string, RequiredItem[]>();
+
+  const assignments = await prisma.assignment.findMany({
+    where: { courseId, requirement: { not: null } },
+    orderBy: { requirement: "asc" },
+    select: { id: true, title: true, requirement: true },
+  });
+  if (assignments.length === 0) return byUser;
+
+  const [enrollments, submissions] = await Promise.all([
+    prisma.enrollment.findMany({ where: { courseId }, select: { userId: true } }),
+    prisma.submission.findMany({
+      where: { assignmentId: { in: assignments.map((a) => a.id) } },
+      select: { assignmentId: true, userId: true, status: true },
+    }),
+  ]);
+
+  const shortFor = new Map(
+    DIPLOMA_COURSEWORK_ITEMS.map((item) => [item.code, item.short] as const),
+  );
+  // A draft is work started, not work handed in. RETURNED has been in once and
+  // is back with the coach, so it counts as in: the educator has it on their
+  // own queue and the register should not read as if nothing ever arrived.
+  const handedIn = new Set(
+    submissions
+      .filter((s) => s.status !== "DRAFT")
+      .map((s) => `${s.userId}:${s.assignmentId}`),
+  );
+
+  for (const { userId } of enrollments) {
+    byUser.set(
+      userId,
+      assignments.map((a) => ({
+        assignmentId: a.id,
+        short: (a.requirement && shortFor.get(a.requirement)) || a.title,
+        handedIn: handedIn.has(`${userId}:${a.id}`),
+      })),
+    );
+  }
+
+  return byUser;
 }

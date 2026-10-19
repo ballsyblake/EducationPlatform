@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { SubmitButton } from "@/components/submit-button";
@@ -499,6 +500,9 @@ export type ResultRow = {
   readiness: string | null;
   comments: string | null;
   deliveries: number;
+  /// The diploma's own coursework, as it stands for this coach. Read-only here:
+  /// handing it in is the coach's act and marking it is done on the submission.
+  required: { assignmentId: string; short: string; handedIn: boolean }[];
 };
 
 const READINESS = ["Now", "1-3 Years", "3-5 Years", "Never"];
@@ -545,6 +549,7 @@ export function ResultsTable({
               <th className="px-2 py-2">Hours</th>
               <th className="px-2 py-2 text-center">Att.</th>
               <th className="px-2 py-2 text-center">Journal</th>
+              <th className="px-2 py-2">Coursework</th>
               <th className="px-2 py-2">Rating</th>
               <th className="px-2 py-2">Outcome</th>
               <th className="px-2 py-2">Readiness</th>
@@ -612,6 +617,39 @@ export function ResultsTable({
                       aria-label={`${row.name} journal complete`}
                       className="h-4 w-4 accent-maroon-600"
                     />
+                  </td>
+                  {/* What the diploma requires, and whether it has arrived.
+                      Not a checkbox: the Journal tick beside it is the
+                      educator's sign-off, and this is the separate fact of
+                      whether the coach has handed anything in. Collapsing the
+                      two would let a course read as complete with nothing in
+                      the submission. */}
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {row.required.length === 0 ? (
+                      <span className="text-xs text-ink-400">—</span>
+                    ) : (
+                      <span className="flex flex-wrap gap-1">
+                        {row.required.map((item) => (
+                          <Link
+                            key={item.assignmentId}
+                            href={`/assignments/${item.assignmentId}`}
+                            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                              item.handedIn
+                                ? "border-ink-200 bg-ink-50 text-ink-600"
+                                : "border-highlight-orange/40 bg-status-orange-bg text-status-orange-fg"
+                            }`}
+                            title={
+                              item.handedIn
+                                ? `${item.short} handed in`
+                                : `${item.short} not handed in`
+                            }
+                          >
+                            {item.handedIn ? "✓ " : ""}
+                            {item.short}
+                          </Link>
+                        ))}
+                      </span>
+                    )}
                   </td>
                   <td className="px-2 py-2">
                     <select

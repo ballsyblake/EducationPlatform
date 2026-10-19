@@ -400,8 +400,29 @@ model Assignment {
   published    Boolean   @default(true)
   createdAt    DateTime  @default(now())
 
+  /// Which standing diploma requirement this assignment is, if it is one.
+  ///
+  /// The diplomas carry coursework every coach on them owes regardless of who
+  /// authored the cohort: two session plans on a C Diploma, a journal on a B
+  /// Diploma. Those are provisioned from the catalogue in
+  /// `src/lib/diploma-coursework.ts` rather than typed out again per intake —
+  /// all three B Diploma cohorts in the register carried no coursework at all,
+  /// so every coach on them was shown an empty to-do list.
+  ///
+  /// Null is an ordinary assignment somebody wrote for one course, and null is
+  /// what every assignment created through the authoring form stays. The unique
+  /// constraint is what makes provisioning idempotent: SQLite treats nulls as
+  /// distinct, so it binds the requirement rows and leaves the hand-written
+  /// ones alone.
+  ///
+  /// Editing a requirement row is fine — provisioning only ever creates. To
+  /// withdraw one from a cohort, unpublish it; deleting it outright means the
+  /// next boot provisions it again.
+  requirement String?
+
   submissions Submission[]
 
+  @@unique([courseId, requirement])
   @@index([courseId])
 }
 
