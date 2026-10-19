@@ -66,5 +66,12 @@ if [ -n "${B_DIPLOMA_IMPORT_2026}" ]; then
   ./node_modules/.bin/tsx scripts/import-courses.ts &
 fi
 
+# The post-course support register, when SUPPORT_IMPORT_2026 is set. Same
+# shape and same reason again — and this one's data is not in the image:
+# SUPPORT_DATA_FILE points at it, which on Render is a Secret File.
+if [ -n "${SUPPORT_IMPORT_2026}" ]; then
+  ./node_modules/.bin/tsx scripts/import-support-cases.ts &
+fi
+
 echo "[boot] starting server on port ${PORT:-3000}"
 exec ./node_modules/.bin/next start --port "${PORT:-3000}" --hostname 0.0.0.0
