@@ -34,7 +34,7 @@
  *   - Send anybody anything.
  */
 import "dotenv/config";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { PrismaClient } from "../generated/prisma/client.ts";
@@ -156,8 +156,23 @@ export async function importSupport(
 ) {
   const file = dataFile();
   if (!existsSync(file)) {
+    // Name what is actually in the directory. On a host with no shell there is
+    // no other way to tell a secret file that was never added from one added
+    // under a different name, and the first deploy that failed here cost a
+    // round trip to find out which.
+    let neighbours = "";
+    try {
+      const found = readdirSync(path.dirname(file));
+      neighbours = found.length
+        ? `\n${path.dirname(file)} holds: ${found.join(", ")}`
+        : `\n${path.dirname(file)} is empty.`;
+    } catch {
+      neighbours = `\n${path.dirname(file)} does not exist.`;
+    }
     throw new Error(
-      `No support register at ${file}.\n` +
+      `No support register at ${file}.${neighbours}\n` +
+        "The name has to match exactly: on Render the secret file is mounted at " +
+        "/etc/secrets/ plus the filename it was given.\n" +
         "Extract one with scripts/extract-post-course-support.py, or point " +
         "SUPPORT_DATA_FILE at it.",
     );
