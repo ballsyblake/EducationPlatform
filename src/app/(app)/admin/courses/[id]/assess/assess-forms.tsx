@@ -25,295 +25,6 @@ export type AssessDay = {
   minutes: number;
 };
 
-export type AttendanceRow = {
-  id: string;
-  name: string;
-  email: string;
-  photoId: string | null;
-  subtitle: string | null;
-  /// Day id -> minutes attended. A day with no entry is unmarked, which is not
-  /// the same as absent: nobody has taken the roll for it yet.
-  marks: Record<string, number>;
-  /// Days this coach wasn't on the course for. Not absences, and not theirs to
-  /// answer for.
-  outsideDayIds: string[];
-};
-
-/* ----------------------------- One day's roll ----------------------------- */
-
-/**
- * The roll for a single day, as a list of names with a box beside each.
- *
- * The register's own grid — nine days across, twenty-five coaches down — is the
- * right shape for reading a course back at the end of it, and the wrong shape
- * for the thing an assessor actually does, which is stand in front of one
- * morning's group and mark who is in it. So this page takes the roll a day at a
- * time, on a row big enough to hit with a thumb.
- *
- * Nothing is written until Save, and Save posts every day the register has
- * marks for — so switching days to correct yesterday doesn't quietly lose it.
- */
-export function DayAttendance({
-  courseId,
-  days,
-  rows,
-  defaultDayId,
-}: {
-  courseId: string;
-  days: AssessDay[];
-  rows: AttendanceRow[];
-  defaultDayId: string;
-}) {
-  const [state, formAction] = useActionState(saveAttendance, idleRegister);
-  const [dayId, setDayId] = useState(defaultDayId);
-  const [marks, setMarks] = useState<Record<string, number | undefined>>(() => {
-    const initial: Record<string, number | undefined> = {};
-    for (const row of rows) {
-      for (const day of days) initial[`${day.id}:${row.id}`] = row.marks[day.id];
-    }
-    return initial;
-  });
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-
-  // The day the page opens on is rarely the first one, and on a phone the strip
-  // of days is wider than the screen. Bring the open day into view once, on
-  // arrival — never afterwards, so it can't fight a thumb.
-  const strip = useRef<HTMLDivElement>(null);
-  const openDay = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (strip.current && openDay.current) {
-      strip.current.scrollLeft = Math.max(0, openDay.current.offsetLeft - 8);
-    }
-  }, []);
-
-  const day = days.find((d) => d.id === dayId) ?? days[0];
-  const outside = new Map(rows.map((r) => [r.id, new Set(r.outsideDayIds)]));
-  const here = rows.filter((r) => !outside.get(r.id)?.has(day.id));
-
-  /**
-   * Marks one coach, and with them opens the roll for the whole day.
-   *
-   * Marking one name on a day nobody has been marked on says the day was run,
-   * and a day that was run has an answer for everybody on it. The alternative —
-   * one coach marked, the rest blank — reads as a course that ran for one
-   * person.
-   */
-  function set(rowId: string, minutes: number) {
-    setMarks((current) => {
-      const next = { ...current, [`${day.id}:${rowId}`]: minutes };
-      for (const row of here) {
-        const key = `${day.id}:${row.id}`;
-        if (next[key] === undefined) next[key] = 0;
-      }
-      return next;
-    });
-  }
-
-  function markEveryone(minutes: number) {
-    setMarks({
-      ...marks,
-      ...Object.fromEntries(here.map((r) => [`${day.id}:${r.id}`, minutes])),
-    });
-  }
-
-  function commitDraft(rowId: string) {
-    const hours = Number(draft);
-    setEditing(null);
-    if (draft.trim() === "" || !Number.isFinite(hours) || hours < 0) return;
-    const minutes = Math.round(hours * 60);
-    // Clamped rather than rejected: typing 9 into an eight-hour day means "all
-    // of it", and an error mid-roll is a worse answer than the obvious one.
-    set(rowId, day.minutes > 0 ? Math.min(minutes, day.minutes) : minutes);
-  }
-
-  // Every day somebody has a mark on posts with the form, so an edit made on
-  // one day and saved from another still lands. A day nobody has touched posts
-  // nothing, and stays unmarked rather than becoming an absence for everybody.
-  const taken = days.filter((d) => rows.some((r) => marks[`${d.id}:${r.id}`] !== undefined));
-  const present = here.filter((r) => (marks[`${day.id}:${r.id}`] ?? 0) > 0).length;
-  const unmarked = here.every((r) => marks[`${day.id}:${r.id}`] === undefined);
-
-  return (
-    <form action={formAction} className="space-y-3">
-      <input type="hidden" name="courseId" value={courseId} />
-      {taken.map((d) =>
-        rows
-          .filter((r) => !outside.get(r.id)?.has(d.id))
-          .map((r) => (
-            <input
-              key={`${d.id}:${r.id}`}
-              type="hidden"
-              name="cell"
-              value={`${d.id}:${r.id}|${marks[`${d.id}:${r.id}`] ?? 0}`}
-            />
-          )),
-      )}
-
-      <div className="card overflow-hidden">
-        <div
-          ref={strip}
-          className="flex gap-1 overflow-x-auto border-b border-ink-200 bg-ink-50 p-2"
-        >
-          {days.map((d) => {
-            const done = rows.some((r) => marks[`${d.id}:${r.id}`] !== undefined);
-            return (
-              <button
-                key={d.id}
-                ref={d.id === defaultDayId ? openDay : undefined}
-                type="button"
-                onClick={() => setDayId(d.id)}
-                className={`shrink-0 rounded-lg px-3 py-1.5 text-left text-xs ${
-                  d.id === day.id
-                    ? "bg-maroon-600 text-white"
-                    : "text-ink-600 hover:bg-ink-200"
-                }`}
-              >
-                <span className="block font-semibold">Day {d.dayNo}</span>
-                <span
-                  className={`block ${d.id === day.id ? "text-white/80" : "text-ink-500"}`}
-                >
-                  {d.label}
-                </span>
-                <span
-                  className={`block ${d.id === day.id ? "text-white/70" : "text-ink-400"}`}
-                >
-                  {done ? "marked" : "not taken"}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <p className="text-sm text-ink-600">
-            <span className="font-semibold text-ink-900">Day {day.dayNo}</span> · {day.label}
-            {day.minutes > 0 && ` · ${formatHours(day.minutes)}`}
-            {unmarked ? (
-              <span className="ml-2 text-xs text-ink-400">not taken yet</span>
-            ) : (
-              <span className="ml-2 text-xs text-ink-500">
-                {present} of {here.length} present
-              </span>
-            )}
-          </p>
-          <span className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => markEveryone(day.minutes)}
-              className="btn-secondary btn-sm"
-            >
-              Everyone present
-            </button>
-            <button
-              type="button"
-              onClick={() => markEveryone(0)}
-              className="btn-secondary btn-sm"
-            >
-              Clear
-            </button>
-          </span>
-        </div>
-
-        <ul className="divide-y divide-ink-200 border-t border-ink-200">
-          {rows.map((row) => {
-            const key = `${day.id}:${row.id}`;
-            const notTheirs = outside.get(row.id)?.has(day.id) ?? false;
-            const marked = marks[key];
-            const minutes = marked ?? 0;
-            const full = day.minutes > 0 && minutes >= day.minutes;
-
-            return (
-              <li key={row.id} className="flex items-center gap-3 px-4 py-2.5">
-                {/* A coach who wasn't on the course this day gets a dash, not
-                    an empty box: an empty box says "didn't turn up", which is
-                    the wrong thing to say about somebody who had already moved
-                    to another intake. */}
-                {notTheirs ? (
-                  <span
-                    title="Not on the course for this day"
-                    className="flex h-5 w-5 items-center justify-center text-ink-300"
-                  >
-                    —
-                  </span>
-                ) : (
-                  <input
-                    id={`att-${key}`}
-                    type="checkbox"
-                    checked={minutes > 0}
-                    onChange={(e) => set(row.id, e.target.checked ? day.minutes : 0)}
-                    title={marked === undefined ? "Not taken yet" : undefined}
-                    className={`h-5 w-5 accent-maroon-600 ${marked === undefined ? "opacity-40" : ""}`}
-                  />
-                )}
-
-                <Avatar user={row} size="sm" />
-
-                <label
-                  htmlFor={notTheirs ? undefined : `att-${key}`}
-                  className="min-w-0 flex-1 cursor-pointer"
-                >
-                  <span className="block truncate text-sm font-medium text-ink-900">
-                    {row.name}
-                  </span>
-                  {row.subtitle && (
-                    <span className="block truncate text-xs text-ink-500">{row.subtitle}</span>
-                  )}
-                </label>
-
-                {!notTheirs &&
-                  (editing === key ? (
-                    <input
-                      autoFocus
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                      onBlur={() => commitDraft(row.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          commitDraft(row.id);
-                        }
-                        if (e.key === "Escape") setEditing(null);
-                      }}
-                      inputMode="decimal"
-                      aria-label={`${row.name} — hours attended on day ${day.dayNo}`}
-                      className="input w-20 px-2 py-1 text-center text-xs"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDraft(minutes ? String(minutes / 60) : "");
-                        setEditing(key);
-                      }}
-                      title="Record part of a day"
-                      className={`shrink-0 text-xs ${
-                        minutes > 0 && !full
-                          ? "font-semibold text-maroon-700"
-                          : "text-ink-400 hover:text-maroon-700"
-                      }`}
-                    >
-                      {minutes > 0 && !full ? formatHours(minutes) : "part day"}
-                    </button>
-                  ))}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <SubmitButton pendingLabel="Saving…">Save attendance</SubmitButton>
-        <p className="text-xs text-ink-500">
-          A tick is the whole day. For part of one, tap <em>part day</em> and type the hours sat.
-        </p>
-        <FormError message={state.status === "error" ? state.message : null} />
-        <FormSuccess message={state.status === "ok" ? state.message : null} />
-      </div>
-    </form>
-  );
-}
-
 /* ---------------------------- One coach's record --------------------------- */
 
 export type DeliveryEntry = {
@@ -356,19 +67,290 @@ export type CoachEntry = {
 const BLOCKS = ["Block 1", "Block 2", "Block 3"];
 const COMPONENTS = ["Play", "Practice"];
 
+/* ------------------------------- The roster -------------------------------- */
+
+export type RosterEntry = CoachEntry & {
+  /// Day id -> minutes attended. A day with no entry is unmarked, which is not
+  /// the same as absent: nobody has taken the roll for it yet.
+  marks: Record<string, number>;
+  /// Days this coach wasn't on the course for. Not absences, and not theirs to
+  /// answer for.
+  outsideDayIds: string[];
+};
+
 /**
- * Everything an assessor writes about one coach, behind one name.
+ * The course's roster: one row per coach, carrying both halves of what an
+ * assessor does with them.
  *
- * Closed by default. A course is twenty-five of these, and an assessor comes to
- * the page for the one they just watched.
+ * This was two lists — the day's roll, and then every coach again underneath
+ * for the write-ups — so a twenty-five coach course asked somebody to scroll
+ * past a name to reach the same name. One row now: tick the day on the left,
+ * open the same row for the deliveries and the result.
+ *
+ * The attendance form holds the hidden cells and its save button and sits under
+ * the list rather than around it. The rows carry forms of their own, and a form
+ * inside a form is not something HTML keeps — the ticks are React state either
+ * way, and the state is what posts.
  */
-export function CoachPanel({
-  coach,
+export function CourseRoster({
+  courseId,
+  days,
+  roster,
+  defaultDayId,
   assessors,
   defaultAssessor,
   threshold,
 }: {
-  coach: CoachEntry;
+  courseId: string;
+  days: AssessDay[];
+  roster: RosterEntry[];
+  defaultDayId: string;
+  assessors: string[];
+  defaultAssessor: string;
+  threshold: number;
+}) {
+  const [state, formAction] = useActionState(saveAttendance, idleRegister);
+  const [dayId, setDayId] = useState(defaultDayId);
+  const [marks, setMarks] = useState<Record<string, number | undefined>>(() => {
+    const initial: Record<string, number | undefined> = {};
+    for (const row of roster) {
+      for (const day of days) initial[`${day.id}:${row.id}`] = row.marks[day.id];
+    }
+    return initial;
+  });
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  // One coach open at a time. An assessor comes to the page for the session
+  // they just watched, and a roster with six panels hanging open is the list
+  // this page was merged to get rid of.
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  // The day the page opens on is rarely the first one, and on a phone the strip
+  // of days is wider than the screen. Bring the open day into view once, on
+  // arrival — never afterwards, so it can't fight a thumb.
+  const strip = useRef<HTMLDivElement>(null);
+  const openDay = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (strip.current && openDay.current) {
+      strip.current.scrollLeft = Math.max(0, openDay.current.offsetLeft - 8);
+    }
+  }, []);
+
+  // A course with no days yet still has a roster to write up; it just has
+  // nothing to tick against.
+  const day = days.find((d) => d.id === dayId) ?? days[0];
+  const outside = new Map(roster.map((r) => [r.id, new Set(r.outsideDayIds)]));
+  const here = day ? roster.filter((r) => !outside.get(r.id)?.has(day.id)) : [];
+
+  /**
+   * Marks one coach, and with them opens the roll for the whole day.
+   *
+   * Marking one name on a day nobody has been marked on says the day was run,
+   * and a day that was run has an answer for everybody on it. The alternative —
+   * one coach marked, the rest blank — reads as a course that ran for one
+   * person.
+   */
+  function set(rowId: string, minutes: number) {
+    if (!day) return;
+    setMarks((current) => {
+      const next = { ...current, [`${day.id}:${rowId}`]: minutes };
+      for (const row of here) {
+        const key = `${day.id}:${row.id}`;
+        if (next[key] === undefined) next[key] = 0;
+      }
+      return next;
+    });
+  }
+
+  function markEveryone(minutes: number) {
+    if (!day) return;
+    setMarks({
+      ...marks,
+      ...Object.fromEntries(here.map((r) => [`${day.id}:${r.id}`, minutes])),
+    });
+  }
+
+  function commitDraft(rowId: string) {
+    if (!day) return;
+    const hours = Number(draft);
+    setEditing(null);
+    if (draft.trim() === "" || !Number.isFinite(hours) || hours < 0) return;
+    const minutes = Math.round(hours * 60);
+    // Clamped rather than rejected: typing 9 into an eight-hour day means "all
+    // of it", and an error mid-roll is a worse answer than the obvious one.
+    set(rowId, day.minutes > 0 ? Math.min(minutes, day.minutes) : minutes);
+  }
+
+  // Every day somebody has a mark on posts with the form, so an edit made on
+  // one day and saved from another still lands. A day nobody has touched posts
+  // nothing, and stays unmarked rather than becoming an absence for everybody.
+  const taken = days.filter((d) => roster.some((r) => marks[`${d.id}:${r.id}`] !== undefined));
+  const present = day ? here.filter((r) => (marks[`${day.id}:${r.id}`] ?? 0) > 0).length : 0;
+  const unmarked = day ? here.every((r) => marks[`${day.id}:${r.id}`] === undefined) : true;
+
+  return (
+    <div className="space-y-3">
+      <div className="card overflow-hidden">
+        {day && (
+          <>
+            <div
+              ref={strip}
+              className="flex gap-1 overflow-x-auto border-b border-ink-200 bg-ink-50 p-2"
+            >
+              {days.map((d) => {
+                const done = roster.some((r) => marks[`${d.id}:${r.id}`] !== undefined);
+                return (
+                  <button
+                    key={d.id}
+                    ref={d.id === defaultDayId ? openDay : undefined}
+                    type="button"
+                    onClick={() => setDayId(d.id)}
+                    className={`shrink-0 rounded-lg px-3 py-1.5 text-left text-xs ${
+                      d.id === day.id
+                        ? "bg-maroon-600 text-white"
+                        : "text-ink-600 hover:bg-ink-200"
+                    }`}
+                  >
+                    <span className="block font-semibold">Day {d.dayNo}</span>
+                    <span
+                      className={`block ${d.id === day.id ? "text-white/80" : "text-ink-500"}`}
+                    >
+                      {d.label}
+                    </span>
+                    <span
+                      className={`block ${d.id === day.id ? "text-white/70" : "text-ink-400"}`}
+                    >
+                      {done ? "marked" : "not taken"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+              <p className="text-sm text-ink-600">
+                <span className="font-semibold text-ink-900">Day {day.dayNo}</span> · {day.label}
+                {day.minutes > 0 && ` · ${formatHours(day.minutes)}`}
+                {unmarked ? (
+                  <span className="ml-2 text-xs text-ink-400">not taken yet</span>
+                ) : (
+                  <span className="ml-2 text-xs text-ink-500">
+                    {present} of {here.length} present
+                  </span>
+                )}
+              </p>
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => markEveryone(day.minutes)}
+                  className="btn-secondary btn-sm"
+                >
+                  Everyone present
+                </button>
+                <button
+                  type="button"
+                  onClick={() => markEveryone(0)}
+                  className="btn-secondary btn-sm"
+                >
+                  Clear
+                </button>
+              </span>
+            </div>
+          </>
+        )}
+
+        <ul className="divide-y divide-ink-200 border-t border-ink-200">
+          {roster.map((coach) => (
+            <RosterRow
+              key={coach.id}
+              coach={coach}
+              day={day}
+              notTheirs={day ? (outside.get(coach.id)?.has(day.id) ?? false) : false}
+              marked={day ? marks[`${day.id}:${coach.id}`] : undefined}
+              onMark={(minutes) => set(coach.id, minutes)}
+              editing={day ? editing === `${day.id}:${coach.id}` : false}
+              draft={draft}
+              onDraft={setDraft}
+              onEdit={() => {
+                if (!day) return;
+                const minutes = marks[`${day.id}:${coach.id}`] ?? 0;
+                setDraft(minutes ? String(minutes / 60) : "");
+                setEditing(`${day.id}:${coach.id}`);
+              }}
+              onCommit={() => commitDraft(coach.id)}
+              onCancel={() => setEditing(null)}
+              open={openId === coach.id}
+              onToggle={() => setOpenId(openId === coach.id ? null : coach.id)}
+              assessors={assessors}
+              defaultAssessor={defaultAssessor}
+              threshold={threshold}
+            />
+          ))}
+        </ul>
+      </div>
+
+      {day && (
+        <form action={formAction} className="flex flex-wrap items-center gap-3">
+          <input type="hidden" name="courseId" value={courseId} />
+          {taken.map((d) =>
+            roster
+              .filter((r) => !outside.get(r.id)?.has(d.id))
+              .map((r) => (
+                <input
+                  key={`${d.id}:${r.id}`}
+                  type="hidden"
+                  name="cell"
+                  value={`${d.id}:${r.id}|${marks[`${d.id}:${r.id}`] ?? 0}`}
+                />
+              )),
+          )}
+          <SubmitButton pendingLabel="Saving…">Save attendance</SubmitButton>
+          <p className="text-xs text-ink-500">
+            A tick is the whole day. For part of one, tap <em>part day</em> and type the hours sat.
+          </p>
+          <FormError message={state.status === "error" ? state.message : null} />
+          <FormSuccess message={state.status === "ok" ? state.message : null} />
+        </form>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One coach: the day's tick, what the course knows about them, and — once it is
+ * opened — everything an assessor writes.
+ */
+function RosterRow({
+  coach,
+  day,
+  notTheirs,
+  marked,
+  onMark,
+  editing,
+  draft,
+  onDraft,
+  onEdit,
+  onCommit,
+  onCancel,
+  open,
+  onToggle,
+  assessors,
+  defaultAssessor,
+  threshold,
+}: {
+  coach: RosterEntry;
+  day: AssessDay | undefined;
+  notTheirs: boolean;
+  marked: number | undefined;
+  onMark: (minutes: number) => void;
+  editing: boolean;
+  draft: string;
+  onDraft: (value: string) => void;
+  onEdit: () => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  open: boolean;
+  onToggle: () => void;
   assessors: string[];
   defaultAssessor: string;
   threshold: number;
@@ -379,15 +361,43 @@ export function CoachPanel({
   const latest = coach.deliveries.filter((d) => d.rating !== null).at(-1);
   const rating = coach.rating ?? latest?.rating ?? null;
   const band = bandFor(rating);
+  const minutes = marked ?? 0;
+  const full = day && day.minutes > 0 && minutes >= day.minutes;
 
   return (
-    <details className="group">
-      <summary className="flex cursor-pointer flex-wrap items-center gap-3 px-5 py-3 hover:bg-ink-50">
+    <li>
+      <div className="flex flex-wrap items-center gap-3 px-4 py-2.5">
+        {day &&
+          /* A coach who wasn't on the course this day gets a dash, not an empty
+             box: an empty box says "didn't turn up", which is the wrong thing to
+             say about somebody who had already moved to another intake. */
+          (notTheirs ? (
+            <span
+              title="Not on the course for this day"
+              className="flex h-5 w-5 items-center justify-center text-ink-300"
+            >
+              —
+            </span>
+          ) : (
+            <input
+              id={`att-${day.id}-${coach.id}`}
+              type="checkbox"
+              checked={minutes > 0}
+              onChange={(e) => onMark(e.target.checked ? day.minutes : 0)}
+              title={marked === undefined ? "Not taken yet" : undefined}
+              aria-label={`${coach.name} — present on day ${day.dayNo}`}
+              className={`h-5 w-5 accent-maroon-600 ${marked === undefined ? "opacity-40" : ""}`}
+            />
+          ))}
+
         <Avatar user={coach} size="sm" />
+
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-ink-900">
             {coach.name}
-            {coach.catchUp && <span className="ml-2 text-xs font-normal text-ink-500">catch-up</span>}
+            {coach.catchUp && (
+              <span className="ml-2 text-xs font-normal text-ink-500">catch-up</span>
+            )}
           </span>
           <span className="block truncate text-xs text-ink-500">
             {coach.subtitle ? `${coach.subtitle} · ` : ""}
@@ -398,6 +408,41 @@ export function CoachPanel({
             {coach.comments ? " · commented on" : ""}
           </span>
         </span>
+
+        {day &&
+          !notTheirs &&
+          (editing ? (
+            <input
+              autoFocus
+              value={draft}
+              onChange={(e) => onDraft(e.target.value)}
+              onBlur={onCommit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  onCommit();
+                }
+                if (e.key === "Escape") onCancel();
+              }}
+              inputMode="decimal"
+              aria-label={`${coach.name} — hours attended on day ${day.dayNo}`}
+              className="input w-20 px-2 py-1 text-center text-xs"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={onEdit}
+              title="Record part of a day"
+              className={`shrink-0 text-xs ${
+                minutes > 0 && !full
+                  ? "font-semibold text-maroon-700"
+                  : "text-ink-400 hover:text-maroon-700"
+              }`}
+            >
+              {minutes > 0 && !full ? formatHours(minutes) : "part day"}
+            </button>
+          ))}
+
         <span className="flex items-center gap-2">
           {rating !== null && (
             <Badge tone={band?.tone ?? "muted"}>
@@ -408,45 +453,57 @@ export function CoachPanel({
           <Badge tone={coach.deliveries.length ? "ok" : "muted"}>
             {coach.deliveries.length} deliver{coach.deliveries.length === 1 ? "y" : "ies"}
           </Badge>
-          <span className="text-xs text-ink-400 group-open:hidden">Open</span>
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            className="btn-secondary btn-sm"
+          >
+            {open ? "Close" : "Open"}
+          </button>
         </span>
-      </summary>
-
-      <div className="space-y-4 border-t border-ink-200 bg-ink-50 px-5 py-4">
-        {coach.deliveries.map((delivery) => (
-          <DeliveryCard
-            key={delivery.id}
-            coach={coach}
-            delivery={delivery}
-            assessors={assessors}
-            defaultAssessor={defaultAssessor}
-          />
-        ))}
-
-        <div className="card card-pad">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-ink-900">
-              {coach.deliveries.length ? "Another delivery" : "Write up a delivery"}
-            </p>
-            {/* The short form here is the register's columns, which is what
-                somebody working down a roster wants. Football Australia's own
-                scoresheet — six areas out of eighteen, and the outcome off the
-                diploma's threshold — is a page per coach, and this is the way
-                to it. */}
-            <a href={`/educator/grading/${coach.id}`} className="text-xs font-medium text-maroon-700 hover:underline">
-              Score it on FA&apos;s rubric →
-            </a>
-          </div>
-          <DeliveryForm
-            coach={coach}
-            assessors={assessors}
-            defaultAssessor={defaultAssessor}
-          />
-        </div>
-
-        <CoachResultForm coach={coach} threshold={threshold} />
       </div>
-    </details>
+
+      {open && (
+        <div className="space-y-4 border-t border-ink-200 bg-ink-50 px-5 py-4">
+          {coach.deliveries.map((delivery) => (
+            <DeliveryCard
+              key={delivery.id}
+              coach={coach}
+              delivery={delivery}
+              assessors={assessors}
+              defaultAssessor={defaultAssessor}
+            />
+          ))}
+
+          <div className="card card-pad">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-ink-900">
+                {coach.deliveries.length ? "Another delivery" : "Write up a delivery"}
+              </p>
+              {/* The short form here is the register's columns, which is what
+                  somebody working down a roster wants. Football Australia's own
+                  scoresheet — six areas out of eighteen, and the outcome off the
+                  diploma's threshold — is a page per coach, and this is the way
+                  to it. */}
+              <a
+                href={`/educator/grading/${coach.id}`}
+                className="text-xs font-medium text-maroon-700 hover:underline"
+              >
+                Score it on FA&apos;s rubric →
+              </a>
+            </div>
+            <DeliveryForm
+              coach={coach}
+              assessors={assessors}
+              defaultAssessor={defaultAssessor}
+            />
+          </div>
+
+          <CoachResultForm coach={coach} threshold={threshold} />
+        </div>
+      )}
+    </li>
   );
 }
 
