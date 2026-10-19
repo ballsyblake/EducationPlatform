@@ -11,11 +11,11 @@ export const metadata = { title: "Grading" };
 /**
  * Who is still owed a delivery assessment, across the educator's courses.
  *
- * The write-up itself stays on the course page — that form knows the course's
- * days, its pass mark and its roster, and a second copy of it here would be a
- * second thing to keep in step with the rubric. This page answers the question
- * the course page cannot: of the four cohorts I am on, who have I still got to
- * watch?
+ * This page answers the question the course page cannot: of the four cohorts I
+ * am on, who have I still got to watch? A name on it opens that coach's own
+ * assessment — Football Australia's form for one session — rather than the
+ * course's register, which is where it used to go and which handed somebody who
+ * had just watched one coach deliver the paperwork for the other twenty-four.
  */
 export default async function EducatorGradingPage() {
   const user = await requireStaff();
@@ -82,7 +82,7 @@ export default async function EducatorGradingPage() {
                 {group.rows.map((row) => (
                   <Link
                     key={row.enrollmentId}
-                    href={`/admin/courses/${courseId}/assess`}
+                    href={`/educator/grading/${row.enrollmentId}`}
                     className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 hover:bg-ink-50"
                   >
                     <div className="flex min-w-0 items-center gap-3">
@@ -106,7 +106,7 @@ export default async function EducatorGradingPage() {
                         {row.need === "unassessed" ? "Not yet watched" : "Needs a rating"}
                       </Badge>
                       <span className="text-sm font-medium whitespace-nowrap text-maroon-700">
-                        Write up →
+                        {row.need === "unassessed" ? "Assess →" : "Rate →"}
                       </span>
                     </div>
                   </Link>

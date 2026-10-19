@@ -733,6 +733,13 @@ model PracticalDelivery {
   /// "Play" or "Practice" — which half of the session was assessed.
   component String?
   topic     String?
+  /// Which session of the block it was: "Session 2", "Friday night".
+  session   String?
+
+  /// The day the coach delivered it, which is not the day it was written up.
+  /// `createdAt` answers the second question and was standing in for the
+  /// first; a write-up typed a fortnight later dated the session wrong.
+  deliveredOn DateTime?
 
   comment    String?
   actionPlan String?
@@ -743,9 +750,38 @@ model PracticalDelivery {
   raw       String?
   createdAt DateTime @default(now())
 
+  /// Football Australia's rubric, one row per area it was scored on.
+  scores DeliveryScore[]
+
   @@unique([enrollmentId, deliveryNo])
   @@index([enrollmentId])
   @@index([assessorId])
+}
+
+/**
+ * One area of Football Australia's delivery rubric, scored.
+ *
+ * A child table rather than six columns on the delivery, the way SupportRating
+ * hangs off an attempt: the rubric is FA's and has been reworded before, and a
+ * seventh area arriving should not be a migration on a table the registers are
+ * imported into.
+ *
+ * Only rows that were actually scored exist. An area with no row has no answer
+ * yet, which is a different fact from Not Evident — and the one that decides
+ * whether a scoresheet is finished.
+ */
+model DeliveryScore {
+  id         String             @id @default(cuid())
+  deliveryId String
+  delivery   PracticalDelivery  @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  /// Matches a `code` in DELIVERY_AREAS (src/lib/delivery-rubric.ts).
+  code  String
+  /// 0-3: Not Evident, Developing, Proficient, Expertise.
+  score Int
+
+  @@unique([deliveryId, code])
+  @@index([deliveryId])
 }
 
 /// Whether a debt has been settled, and how far along it is.

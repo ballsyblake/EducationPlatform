@@ -34,6 +34,13 @@ Every one of these cost somebody an afternoon. They are not hypothetical.
 5. **React 19 resets uncontrolled forms after an action settles.** Anywhere a
    validation error must not wipe what somebody typed, the inputs are
    controlled. Look at any `useActionState` form here for the pattern.
+   **Controlling a radio is not enough.** React writes a `value` back after the
+   reset, but not a `checked`: the DOM clears, React still believes the box is
+   ticked, and re-rendering changes nothing. A refused save took all six scores
+   off the delivery assessment while the state behind them was intact. Remount
+   the group when the action settles — `key` on the fieldset, bumped on each
+   settle — which writes `checked` into fresh nodes. See
+   `educator/grading/[enrollmentId]/assessment-form.tsx`.
 6. **Use `||`, not `??`, for env fallbacks.** An empty string is unset.
 7. **Never return a sign-in link to the browser in production.**
    `canRevealMagicLink()` gates it; `magicLinkAvailable()` decides whether the
