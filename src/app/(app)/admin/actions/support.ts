@@ -12,6 +12,7 @@ import {
   reviewGate,
   SUPPORT_CRITERIA,
 } from "@/lib/support-rubric";
+import { normalizeVideoUrl } from "@/lib/video";
 import type { SupportActivityKind, SupportPathway } from "@prisma-client";
 
 /**
@@ -284,6 +285,83 @@ export async function cancelAttempt(formData: FormData) {
 
   await prisma.supportAttempt.delete({ where: { id: attemptId } });
   refreshCase(attempt.caseId);
+}
+
+/**
+ * Records the coach's film on their behalf.
+ *
+ * The link does not always come through the app. A coach emails it, or sends it
+ * to their educator over WhatsApp, and until now the only field that could hold
+ * it was on the coach's own page — which left an educator holding a link and no
+ * way to put it on the case short of asking the coach to paste it again. This
+ * does what the coach's own submission does, and writes a line on the timeline
+ * saying who filed it, because a link entered by staff and a link submitted by
+ * the coach are two different facts and a reader a year later needs to tell
+ * them apart.
+ */
+export async function recordVideoLink(
+  _prev: SupportState,
+  formData: FormData,
+): Promise<SupportState> {
+  const actor = await requireStaff();
+  const attemptId = text(formData, "attemptId");
+  const scope = await courseOfAttempt(attemptId);
+  if (scope) await assertCourseStaff(actor, scope);
+
+  const attempt = await prisma.supportAttempt.findUnique({
+    where: { id: attemptId },
+    include: { case: { select: { status: true } } },
+  });
+  if (!attempt) return { status: "error", message: "Assessment not found." };
+  if (attempt.case.status !== "IN_PROGRESS") {
+    return { status: "error", message: "This case is closed. Reopen it first." };
+  }
+  if (attempt.pathway !== "VIDEO_REVIEW") {
+    return { status: "error", message: "This assessment is being done live, not on film." };
+  }
+  if (attempt.status === "REVIEWED") {
+    return { status: "error", message: "That assessment has already been written up." };
+  }
+
+  const url = normalizeVideoUrl(text(formData, "videoUrl"));
+  if (!url) {
+    return { status: "error", message: "Paste the full link to the video, starting with https://" };
+  }
+  if (url === attempt.videoUrl) {
+    return { status: "ok", message: "That link is already on the case." };
+  }
+
+  const replacing = Boolean(attempt.videoUrl);
+  await prisma.$transaction([
+    prisma.supportAttempt.update({
+      where: { id: attempt.id },
+      data: {
+        videoUrl: url,
+        status: "SUBMITTED",
+        // The date the film arrived stands. A corrected link is the same
+        // delivery, and moving the clock forward would make a coach who sent
+        // their footage on time look late.
+        submittedAt: attempt.submittedAt ?? new Date(),
+      },
+    }),
+    prisma.supportActivity.create({
+      data: {
+        caseId: attempt.caseId,
+        kind: "NOTE",
+        occurredAt: new Date(),
+        detail:
+          `${replacing ? "Replaced" : "Recorded"} the link to assessment ` +
+          `${attempt.attemptNo}'s film, which the coach sent outside the app.`,
+        recordedById: actor.id,
+      },
+    }),
+  ]);
+
+  refreshCase(attempt.caseId);
+  return {
+    status: "ok",
+    message: replacing ? "Link replaced." : "Link recorded — it is on the case now.",
+  };
 }
 
 /* ---------------------------- Case settings ------------------------------- */
