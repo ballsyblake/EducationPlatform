@@ -58,7 +58,16 @@ export default async function SupportPage({
       orderBy: [{ name: "asc" }, { email: "asc" }],
     }),
     prisma.user.findMany({
-      where: { role: "COACH", active: true },
+      // Scoped like everything else on this page. "Refer a coach who isn't on
+      // that list" offered every active coach in the program to whoever opened
+      // it, which handed an educator the name and address of everybody on a
+      // course they have no seat near — and a referral they could not make
+      // anyway, since `referToSupport` checks the course.
+      where: {
+        role: "COACH",
+        active: true,
+        ...(scope === null ? {} : { enrollments: { some: { courseId: { in: scope } } } }),
+      },
       orderBy: [{ name: "asc" }, { email: "asc" }],
     }),
     prisma.course.findMany({
