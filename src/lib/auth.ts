@@ -26,6 +26,41 @@ const INVITE_LINK_TTL_DAYS = Number(process.env.INVITE_LINK_TTL_DAYS ?? 7);
 /** Stops a repeated request from flooding a coach's inbox. */
 const RESEND_COOLDOWN_SECONDS = 60;
 
+/* -------------------------------------------------------------------------- */
+/* The coach portal, parked                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Whether coaches may use this app at all.
+ *
+ * Parked on purpose. Handing an account to several hundred external coaches was
+ * never viable for FQ, so all three jobs this app is actually asked for — watch
+ * a coach deliver, pass or fail them, review the film that comes back — belong
+ * to staff, and are done from the one list at `/educator`.
+ *
+ * Parked, not deleted. Every coach account, enrolment, mark, rating, support
+ * case and submission stays exactly where it is, and so do the pages that
+ * render them: what is switched off is signing in as a coach and the
+ * navigation only a coach would use. `COACH_PORTAL=on` brings it back, which is
+ * one variable rather than a revert.
+ */
+export function coachPortalEnabled() {
+  // `===`, not a truthiness test on the raw value: a variable left blank in a
+  // host's dashboard arrives as an empty string, and "off" would read as on.
+  return process.env.COACH_PORTAL === "on";
+}
+
+/**
+ * Whether this account may hold a session at all.
+ *
+ * Deactivation and the parked portal get the same answer, and it is asked of
+ * the cookie as well as the sign-in form: an account that can no longer sign in
+ * must not keep browsing on a session minted before the switch flipped.
+ */
+export function canSignIn(user: Pick<User, "role" | "active">) {
+  return user.active && (coachPortalEnabled() || user.role !== "COACH");
+}
+
 function hash(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
@@ -73,7 +108,10 @@ export async function requestLoginLink(rawEmail: string): Promise<LoginRequestRe
   }
 
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !user.active) {
+  // A parked coach is answered exactly like an unknown or deactivated address.
+  // The same silence that keeps the form from confirming who is on staff keeps
+  // it from telling a coach their account exists but has been switched off.
+  if (!user || !canSignIn(user)) {
     return { ok: true, delivered: false };
   }
 
@@ -174,7 +212,7 @@ export async function consumeLoginToken(token: string): Promise<User | null> {
     include: { user: true },
   });
 
-  if (!record || record.usedAt || record.expiresAt < new Date() || !record.user.active) {
+  if (!record || record.usedAt || record.expiresAt < new Date() || !canSignIn(record.user)) {
     return null;
   }
 
@@ -244,7 +282,7 @@ export async function getCurrentUser(): Promise<User | null> {
     include: { user: true },
   });
 
-  if (!session || session.expiresAt < new Date() || !session.user.active) {
+  if (!session || session.expiresAt < new Date() || !canSignIn(session.user)) {
     return null;
   }
 
@@ -311,17 +349,27 @@ export function isCdu(user: Pick<User, "role" | "cdu"> | null | undefined) {
   return user?.role === "ADMIN" && user.cdu === true;
 }
 
+/** A club administrator or an FQ assessor: the other product's accounts. */
+export function isCdaRole(user: Pick<User, "role"> | null | undefined) {
+  return user?.role === "CLUB" || user?.role === "ASSESSOR";
+}
+
 /**
  * Where an account belongs after signing in.
  *
  * One instance serves two products. A club administrator and an FQ assessor
  * have no business in the coach-education app at all, so they go straight to
- * the CDA portal. Everyone else — coach, educator, admin — lands on the coach
- * dashboard, and an admin in the Club Development Unit gets a link across from
- * there.
+ * the CDA portal.
+ *
+ * An educator lands on their own list rather than on a dashboard: it carries
+ * every coach assigned to them and what each one still needs, which is the
+ * whole of the job, and a dashboard in front of it was a page of counts to
+ * click past. An admin keeps the dashboard — the program's own figures are on
+ * Manage, and an admin is as likely to be enrolled on something as not.
  */
 export function homePathFor(user: Pick<User, "role">) {
-  return user.role === "CLUB" || user.role === "ASSESSOR" ? "/cda" : "/dashboard";
+  if (isCdaRole(user)) return "/cda";
+  return isEducator(user) ? "/educator" : "/dashboard";
 }
 
 /** Constant-time compare, for anywhere a secret is checked outside the DB. */

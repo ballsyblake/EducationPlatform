@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/db";
+import { formatDate } from "@/lib/format";
 import { deadlineInForce, daysUntilDeadline, isPastDeadline } from "@/lib/support";
 import { openAttempt } from "@/lib/support-rubric";
 
@@ -306,5 +307,166 @@ export async function getEducatorOutstanding(
     pastDeadline: support.filter((i) => i.overdue).length,
     ungraded,
     total: unassessed + unrated + toReview + toSchedule + toBook + toChase + ungraded,
+  };
+}
+
+/* --------------------------- The assessor's list -------------------------- */
+
+/**
+ * One of the three jobs an assessor is given, and nothing else is one.
+ *
+ * `deliver` — go and watch a session, and write it up on FA's form.
+ * `rate` — the deliveries are in; set the course rating, which decides the
+ *   outcome the coach is given.
+ * `review` — a reassessment delivery is sitting with them: film an admin has
+ *   put on the case, or an observation that has been and gone.
+ */
+export type AssessorTaskKind = "deliver" | "rate" | "review";
+
+export type AssessorTask = {
+  kind: AssessorTaskKind;
+  /** Where the job gets done. */
+  href: string;
+  /** What has happened so far — the line under the coach's name. */
+  detail: string | null;
+  /** On a review, the date in force. Nothing else here has a clock. */
+  deadline: Date | null;
+  overdue: boolean;
+};
+
+export type AssessorRow = {
+  /** Coach and course together: the same coach can be on two of them. */
+  key: string;
+  coach: { id: string; name: string | null; email: string; photoId: string | null };
+  courseId: string;
+  courseTitle: string;
+  clubName: string | null;
+  catchUp: boolean;
+  tasks: AssessorTask[];
+};
+
+/**
+ * Every coach assigned to this assessor who still needs something, as one list.
+ *
+ * This replaced a dashboard of counts, a grading queue and a support desk —
+ * three pages holding the same three jobs sorted three ways. An assessor is
+ * assigned coaches and told what each one needs, so that is what the page is,
+ * and a coach who needs two things is one row with two tags rather than a name
+ * appearing in two places.
+ *
+ * Built from the two queries the old pages used rather than its own, so the
+ * list cannot disagree with the write-up pages it links to. The support side is
+ * filtered to `to_review` deliberately: booking a visit, chasing film and
+ * taking somebody's availability are the program's jobs, they live on the desk
+ * at `/admin/support`, and with the coach portal parked the film arrives
+ * because an admin recorded it.
+ *
+ * "Assigned" is the course roster — `CourseStaff`, the seat `staffCourseIds`
+ * resolves — and deliberately not a second coach-to-assessor table. The
+ * register is what FQ keeps; a parallel attachment would be a second thing to
+ * maintain and a second thing to disagree with it.
+ */
+export async function getAssessorQueue(
+  scope: string[] | null,
+  now = new Date(),
+): Promise<AssessorRow[]> {
+  const [deliveries, support] = await Promise.all([
+    getDeliveryQueue(scope),
+    getSupportWork(scope, now),
+  ]);
+
+  const rows = new Map<string, AssessorRow>();
+
+  /** The row for one coach on one course, created the first time it is needed. */
+  function rowFor(
+    coach: AssessorRow["coach"],
+    courseId: string,
+    courseTitle: string,
+    extra: { clubName?: string | null; catchUp?: boolean } = {},
+  ) {
+    const key = `${coach.id}:${courseId}`;
+    const existing = rows.get(key);
+    if (existing) {
+      // A review-only row created first has no enrolment detail on it; the
+      // delivery queue carries the club and the catch-up track, so fill them
+      // in rather than letting whichever source arrived first decide.
+      existing.clubName ??= extra.clubName ?? null;
+      existing.catchUp ||= extra.catchUp ?? false;
+      return existing;
+    }
+    const row: AssessorRow = {
+      key,
+      coach,
+      courseId,
+      courseTitle,
+      clubName: extra.clubName ?? null,
+      catchUp: extra.catchUp ?? false,
+      tasks: [],
+    };
+    rows.set(key, row);
+    return row;
+  }
+
+  for (const d of deliveries) {
+    const row = rowFor(d.coach, d.courseId, d.courseTitle, {
+      clubName: d.clubName,
+      catchUp: d.catchUp,
+    });
+    row.tasks.push({
+      kind: d.need === "unassessed" ? "deliver" : "rate",
+      href: `/educator/grading/${d.enrollmentId}`,
+      detail:
+        d.need === "unassessed"
+          ? null
+          : `${d.deliveries} deliver${d.deliveries === 1 ? "y" : "ies"} written up` +
+            // The write-up date, which is what the queue carries: the day the
+            // session happened lives on the delivery itself.
+            (d.lastDeliveryAt ? `, last written up ${formatDate(d.lastDeliveryAt)}` : ""),
+      deadline: null,
+      overdue: false,
+    });
+  }
+
+  for (const item of inBucket(support, "to_review")) {
+    const row = rowFor(
+      item.case.user,
+      item.case.courseId,
+      item.case.course.title,
+    );
+    row.tasks.push({
+      kind: "review",
+      href: `/admin/support/${item.case.id}`,
+      detail:
+        item.attempt?.pathway === "VIDEO_REVIEW"
+          ? "Film is on the case"
+          : "Observation delivered, not written up",
+      deadline: item.deadline,
+      overdue: item.overdue,
+    });
+  }
+
+  return [...rows.values()].sort((a, b) => {
+    // A reassessment past its deadline is the one thing here with a date
+    // somebody else is counting, so it goes to the top. Everything else is
+    // alphabetical: ordering by how much is outstanding would move a coach up
+    // and down the list as the work is done, and an assessor looking for a name
+    // is looking for a name.
+    const aLate = a.tasks.some((t) => t.overdue);
+    const bLate = b.tasks.some((t) => t.overdue);
+    if (aLate !== bLate) return aLate ? -1 : 1;
+    const byName = (a.coach.name ?? a.coach.email).localeCompare(b.coach.name ?? b.coach.email);
+    return byName !== 0 ? byName : a.courseTitle.localeCompare(b.courseTitle);
+  });
+}
+
+/** How many coaches need each of the three jobs. One row can be in two. */
+export function countTasks(rows: AssessorRow[]) {
+  const has = (kind: AssessorTaskKind) =>
+    rows.filter((r) => r.tasks.some((t) => t.kind === kind)).length;
+  return {
+    deliver: has("deliver"),
+    rate: has("rate"),
+    review: has("review"),
+    overdue: rows.filter((r) => r.tasks.some((t) => t.overdue)).length,
   };
 }

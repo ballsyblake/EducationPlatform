@@ -159,4 +159,13 @@ services:
 #   SMTP_*    Only needed if coaches should request their own sign-in links by
 #             email. Without it you hand links out from the staff page.
 #
-# Both can be added later under the service's Environment tab.
+#   COACH_PORTAL
+#             "on" un-parks the coach portal. Coaches cannot sign in without
+#             it: giving an account to several hundred external coaches was
+#             never viable for FQ, so the three jobs this app is asked for all
+#             belong to staff. Their records, their pages and every mark
+#             against them are untouched either way — see "Who can do what" in
+#             the README. Anything but "on", blank included, leaves it parked,
+#             which is why the check is `=== "on"` and not a truthiness test.
+#
+# All three can be added later under the service's Environment tab.

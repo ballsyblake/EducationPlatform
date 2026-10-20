@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, PageHeader } from "@/components/ui";
-import { magicLinkAvailable, requireAdmin } from "@/lib/auth";
+import { coachPortalEnabled, magicLinkAvailable, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/format";
 import { emailSignInLink, updateStaffMember } from "../actions/people";
@@ -213,7 +213,7 @@ export default async function PeoplePage() {
         <aside>
           <div className="card card-pad">
             <h2 className="mb-4 font-semibold text-ink-900">Add a staff member</h2>
-            <AddStaffForm emailEnabled={emailEnabled} />
+            <AddStaffForm emailEnabled={emailEnabled} coachPortalEnabled={coachPortalEnabled()} />
           </div>
 
           {!emailEnabled && (

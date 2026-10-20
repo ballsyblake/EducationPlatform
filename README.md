@@ -60,30 +60,57 @@ and awards points. Assignment submissions are always graded by a human.
 
 ## Who can do what
 
-Three roles on this side of the app, and the middle one is the point.
+Three roles on this side of the app, and only two of them sign in.
 
 | | Coach | Educator | Admin |
 | --- | --- | --- | --- |
+| Sign in at all | **parked** | ✓ | ✓ |
 | See course content, submit work | ✓ | ✓ | ✓ |
-| Mark the register, rate deliveries, grade, run support | | **their courses** | every course |
+| Assess a delivery, rate a coach, review a reassessment | | **their courses** | every course |
+| Mark the register, grade coursework, run a support case | | **their courses** | every course |
 | Raise and settle make-up hours, record transfers | | **their courses** | every course |
 | Create, publish, delete a course; author coursework | | | ✓ |
 | Add accounts, change roles, deactivate | | | ✓ |
 | The Club Development portal | | | only with the `cdu` grant |
 
-**The navigation shows only what an account can use.** Courses and Grades &
-Feedback need an enrolment — an admin who has never been enrolled has no courses
-and no grades of their own, and two tabs leading to an empty state are two tabs.
-The five course-scoped staff tabs need a seat on a course team; Manage stays
-regardless, because it is the one page that explains its own emptiness ("you
-aren't rostered onto a course yet") rather than leaving a new educator on a
-dashboard with no way forward. Support appears for a coach once they have a
-case, and Club Development on the `cdu` grant.
+**The coach portal is parked.** Handing an account to several hundred external
+coaches was never viable for FQ, so a coach cannot sign in: the login form gives
+an address with a coach account the same non-answer it gives an unknown one, a
+link already issued stops working, and a session minted before the switch is
+dropped on the next request. `canSignIn` in `src/lib/auth.ts` is the one place
+that decides it, and it is asked of the cookie as well as the form.
+
+Parked, not deleted. Every coach account, enrolment, mark, rating, delivery,
+support case and submission is untouched, as are the pages that render them —
+`/courses`, `/grades`, `/support/<case>`, the coursework pages and a coach's own
+dashboard are all still there and still correct. What is off is signing in as a
+coach and the navigation only a coach would use. `COACH_PORTAL=on` brings the
+whole thing back, which is one environment variable rather than a revert.
+
+A coach account is therefore a record on a register: the thing an admin enrols,
+an educator assesses and rates, and the support desk refers. The staff page says
+so when you add one, and refuses to issue it a sign-in link that could not work.
+
+**An educator's whole view is one page.** `/educator` lists every coach assigned
+to them who still needs something, with what each one needs on the row: a
+session to go and watch, a pass-or-fail rating to set, or a reassessment
+delivery to review. A coach needing two of them is one row with two tags, and
+each tag links to where that job gets done. The dashboard, the grading queue and
+the post-course support desk that preceded it held these same three jobs sorted
+three ways; `/dashboard`, `/educator/grading` and `/educator/support` now
+redirect to the list.
+
+**The navigation shows only what an account can use.** An educator has one tab
+and no Dashboard beside it, because the list is their dashboard. Courses and
+Grades & Feedback need an enrolment and the coach portal unparked. The
+course-scoped staff tabs and Manage are an admin's; Manage is the one page that
+explains its own emptiness ("you aren't rostered onto a course yet"). Club
+Development appears on the `cdu` grant.
 
 The conditions are all stable properties of the account — enrolled, rostered, in
 the Unit — and never a count of outstanding work. A tab that vanished whenever
 its queue emptied would be worse than a quiet one: an educator would learn where
-Grading lives, come back on a clear morning, and find it gone.
+their list lives, come back on a clear morning, and find it gone.
 
 **An educator's courses** are the ones they are rostered onto as `CourseStaff` —
 the CET1–CET5 seats the registers already record. Everything they can reach is
@@ -396,7 +423,7 @@ Competent, 12 and up is Highly Competent — and the same three-point step
 qualification name no diploma gets the C Diploma's lines, and the page says so.
 
 An educator assesses a delivery at `/educator/grading/<enrolment>`, reached from
-the grading queue. The write-up it saves is an ordinary `PracticalDelivery` —
+their list of coaches. The write-up it saves is an ordinary `PracticalDelivery` —
 the same row the register's short form writes, with a `DeliveryScore` per area
 beside it — so a session scored here shows on the register, on the assessor's
 course page and on the coach's own course page without anything being kept in
