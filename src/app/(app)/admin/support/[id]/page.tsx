@@ -669,7 +669,9 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
             ) : (
               <p className="text-sm text-ink-500">
                 {displayName(supportCase.user)}{" "}
-                hasn&apos;t said when suits yet. It&apos;s a form on their own case page.
+                hasn&apos;t said when suits yet. Their own case page no longer asks — it points
+                them at coaching@footballqueensland.com.au instead, so this fills in only for
+                coaches who answered before that changed.
               </p>
             )}
             {/* Their club and age group come off the enrolment rather than
