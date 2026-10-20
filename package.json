@@ -23,6 +23,7 @@
     "boot": "tsx scripts/boot.ts",
     "cda:import-2026": "tsx scripts/import-fq-2026.ts",
     "courses:import": "tsx scripts/import-b-diploma.ts",
+    "support:import": "tsx scripts/import-support.ts",
     "teams:demote": "tsx scripts/demote-course-teams.ts"
   },
   "repository": {
@@ -36,8 +37,8 @@
     "@prisma/adapter-libsql": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "dotenv": "^17.4.2",
-    "next": "^16.3.5",
-    "nodemailer": "^9.1.1",
+    "next": "^16.4.2",
+    "nodemailer": "^10.1.7",
     "prisma": "^7.10.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
@@ -59,6 +60,7 @@
   },
   "overrides": {
     "mysql2": "^3.24.4",
-    "deepmerge-ts": "^8.0.2"
+    "deepmerge-ts": "^8.0.2",
+    "source-map-js": "^1.2.2"
   }
 }

@@ -21,6 +21,14 @@
 -- Both tables cascade from their parent and null their author on account
 -- deletion, matching every other write-up in the product: deleting the person
 -- who left feedback must not take the feedback off a coach's record.
+--
+-- Dated 2026-10-20 and not the 1st, which is when it was first written. The
+-- branch sat while 20261019030000_assignment_requirement and
+-- 20261019060000_delivery_rubric_scores went out, and Prisma applies
+-- migrations in name order: a file dated the 1st arriving behind two already
+-- applied is a chain that will not deploy. Regenerated with `migrate diff`
+-- against the chain as it now stands, which is why DeliveryScore is absent
+-- here — it is already in it.
 
 -- CreateTable
 CREATE TABLE "DeliveryFootage" (

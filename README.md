@@ -31,6 +31,7 @@ for the accounts that are in both.
 - A dashboard of everything assigned, sorted by due date, with overdue items flagged
 - Course pages with a library of session plans, resources and video (uploaded files or YouTube/Vimeo links)
 - Assignments accepting a written response, file attachments, or both — with drafts you can save and come back to
+- The coursework the diploma itself requires, on the list from the day you enrol: two session plans on a C Diploma, a coaching journal on a B Diploma
 - Quizzes with multiple-choice, true/false, and written questions
 - A Grades & Feedback page collecting every score and written comment in one place, and where each course stands against its pass mark
 - Your own row of the course register: the hours you sat on each day, your rating out of five, and the write-up of every session an educator watched you deliver
@@ -40,13 +41,14 @@ for the accounts that are in both.
 **For admins (coach educators / technical staff)**
 
 - Create courses, enroll staff, and publish or hide coursework
+- The diploma's own coursework put on every B and C Diploma cohort, so nobody has to remember to set it
 - Author assignments and build quizzes question by question
 - A grading queue: score submissions, review written quiz answers, add feedback, or send work back for revision
 - A photo of each coach, taken on the phone from the register, so whoever assesses their delivery in Block 3 knows who is who
 - A coaches list: every coach and where they stand on each course — hours, rating, outcome — filterable by course and outcome, searchable by name or club
 - The attendance register: nine delivery days, the roster, catch-ups, the CET team, and the results block — one screen per course
 - An assessor's course page: take the roll for one day, write up a coach's delivery on the register's own form, leave a general comment, and rate them at the end of the course — what is done on the grass, and nothing else
-- An hours desk: who is short, what they owe, and where it is being made up — across every course at once
+- A make-ups desk: how many days each coach owes, and where they are being sat — across every course at once
 - A post-course support desk: who was rated below the pass mark, who is booked in, whose film is waiting to be reviewed
 - A staff progress dashboard — completion, overdue counts, and averages per coach, filterable by course
 - Staff management: add coaches by email, hand out sign-in links, promote to admin, deactivate
@@ -85,7 +87,7 @@ Grading lives, come back on a clear morning, and find it gone.
 
 **An educator's courses** are the ones they are rostered onto as `CourseStaff` —
 the CET1–CET5 seats the registers already record. Everything they can reach is
-filtered to those courses: the grading queue, the support desk, the hours desk,
+filtered to those courses: the grading queue, the support desk, the make-ups desk,
 the coaches list, progress, and the course list itself. Another course's
 register is a redirect, not a 403, for the same reason a coach gets a 404 on a
 course they aren't on.
@@ -313,11 +315,20 @@ Two numbers do most of the work, and the difference between them is the point:
 
 Days outside a coach's window count towards neither.
 
-The hours desk at `/admin/make-ups` shows both, across every course: the open
+The make-ups desk at `/admin/make-ups` shows both, across every course: the open
 ledger, and everybody short with nothing raised — each with a form to raise the
 debt on the spot. The same panel appears on a course register, scoped to that
-course. A coach sees their own outstanding hours on their dashboard and on their
-course page.
+course. A coach sees what they owe on their dashboard and on their course page.
+
+**It counts in days, not hours.** A day is the unit of the thing being arranged
+— nobody sits four hours of somebody else's course — so what is owed reads as
+"3 days" against the course's own day length, taken from its register rather
+than from a constant. Hours are still what is stored, and they surface as a note
+wherever what is owed isn't a whole day: "3 h · part day — 3 h of 8 h". That
+half of the ledger is real, and rounding it up to a day would have a coach
+sitting five hours they never missed. Raising a make-up asks for a number and a
+unit, and the day length is applied on the server rather than posted with the
+form.
 
 **The importer reads the margins.** `courses:import` understands three shapes in
 the Comments column — "Missed Day N AM/PM", "N hours missed on Day N", "full day
@@ -353,6 +364,45 @@ The register won't hold an outcome the rubric doesn't allow: recording a coach
 rated 2 as having passed is refused, both in the form and again on save.
 Withdrawing is always available, because leaving a course is not a judgement
 about a delivery.
+
+### How one delivery is assessed
+
+The course rating above is a judgement across everything a coach delivered. One
+session is assessed on a different instrument — the one in Football Australia's
+*Coach Education Assessor Guide*, transcribed in `src/lib/delivery-rubric.ts`.
+Six areas, each scored 0 to 3 on the best fit of what the session showed:
+
+| Score | Level       | Means                                                              |
+| ----- | ----------- | ------------------------------------------------------------------ |
+| 0     | Not Evident | Absent, vague, or entirely ineffective.                            |
+| 1     | Developing  | Present, but inconsistent or not aligned with the objective.       |
+| 2     | Proficient  | Clear and consistent; supports understanding and engagement.       |
+| 3     | Expertise   | Exemplary and seamlessly integrated.                               |
+
+Objective, Content, Organisation, Presenting, Coaching, Environment — eighteen
+points in all, and never averaged across the areas. The total gives the
+outcome, and where the line falls depends on the diploma:
+
+| Diploma | Competent at | Highly Competent at |
+| ------- | ------------ | ------------------- |
+| C       | 9            | 12                  |
+| B       | 12           | 15                  |
+| A       | 15           | 18                  |
+
+The minimums are the guide's own table. The Highly Competent column is Football
+Australia's clarification of 15 October 2026 for the C Diploma — 9 to 11 is
+Competent, 12 and up is Highly Competent — and the same three-point step
+**inferred** for B and A, which nobody has confirmed. A course whose title and
+qualification name no diploma gets the C Diploma's lines, and the page says so.
+
+An educator assesses a delivery at `/educator/grading/<enrolment>`, reached from
+the grading queue. The write-up it saves is an ordinary `PracticalDelivery` —
+the same row the register's short form writes, with a `DeliveryScore` per area
+beside it — so a session scored here shows on the register, on the assessor's
+course page and on the coach's own course page without anything being kept in
+step by hand. Every delivery imported from a 2026 register carries its 1-5
+figure and no scoresheet, which is the truth about it: nobody scored those on
+this rubric.
 
 ## Post-course support
 
@@ -449,6 +499,60 @@ again. Failure writes no marker, so fixing the cause and redeploying retries.
 to the importer needs applying to a database that already ran it.
 
 `FQ_IMPORT_2026` does the same for the Club Development season.
+
+## Loading the post-course support register
+
+FQ keeps a second set of workbooks: every coach on more support, across the
+2023-26 B Diplomas and the 2026 C Diplomas, with who is running each case, what
+the coach was told to do, the deadline, and a Notes cell holding a year of
+history. Same two steps as the registers:
+
+```bash
+python3 scripts/extract-post-course-support.py \
+    "2023-2026 B Diplomas - More Support.xlsx" \
+    "2026 C Diplomas - More Support.xlsx" \
+    -o prisma/data/post-course-support.json
+
+npm run support:import -- --dry-run    # say what would change, write nothing
+npm run support:import -- --yes        # do it
+```
+
+**That extract is not committed, and must not be.** It carries real addresses,
+which the register extract does not: a case has to reach the coach it belongs
+to, and a coach on a 2023 intake whose register was never loaded is identified
+by nothing else. Keep it out of the repository and off anything public. On
+Render it goes in as a Secret File, with `SUPPORT_DATA_FILE` naming the mount
+path and `SUPPORT_IMPORT_2026=1` arming the import — same shape, same two
+guards and the same log line as `B_DIPLOMA_IMPORT_2026` above.
+
+The cohorts on those sheets mostly have no attendance register in this system,
+so each one is created as a course with a name, a year and the intake's support
+deadline, and nothing else: no days, and a roster that is the coaches who were
+referred. Where a register has since been imported under the same title, only
+the deadline is written.
+
+What it reads, and what it leaves alone:
+
+- The outcome column becomes the case's status. "Failed to submit" is `LAPSED`
+  rather than unsuccessful — nobody assessed a delivery and fell short — and
+  anything it cannot read leaves the case open and says so.
+- The Notes cell is split: what the coach was told to do becomes the plan, and
+  every dated entry in it becomes a line in the case history. A sentence with
+  no date is never given one.
+- The Microsoft Form beside those sheets — when a coach is free to be visited —
+  lands on the case, which is what the "filled the form? Y/N" column was for.
+- **No attempts.** A `SupportAttempt` is an assessed delivery with marks
+  against the rubric, and the register keeps outcomes, not marks. A rated
+  delivery nobody rated is worse than no delivery.
+- **Nothing is closed or deleted.** A row that disappears from a spreadsheet is
+  somebody tidying. A case an educator has closed here but the sheet still
+  shows as open is left closed, and reported.
+- A coach who already has an account under the address the register extractor
+  invented for them (`first.last@example.com`) is reported as a possible
+  duplicate, not merged: it is a name match, and handing one coach another's
+  address hands a stranger their assessment history. `--link` merges them,
+  after somebody has read the names.
+
 
 **Addresses in that file are anonymised.** The registers carry every coach's
 real address and this repository is public to whoever can read it; names are
@@ -772,20 +876,30 @@ links are correct on the first deploy, before you know your hostname. Set
 `APP_URL` only when you put a custom domain in front.
 
 **3. Sign in.** The first boot applies the migrations, creates your admin
-account, and prints a sign-in link to the deploy logs. Open Render's log viewer,
-click the link, and add your staff from the Staff page.
+account, and issues a sign-in link. With `SMTP_*` set the link is emailed to
+that address and the log says only that it was sent. Without a mail server there
+is nowhere safe to put it, so nothing is sent: set `ADMIN_LINK=print` and
+redeploy to have the token written to the deploy log, use it, then remove the
+variable. Once you're in, add your staff from the Staff page.
 
 If you do set `APP_URL`, it has to be right before you invite anyone — it's the
 base of every sign-in link. Get it wrong and you can just fix it and redeploy: a
-fresh link is printed whenever an admin has no active session.
+fresh link is issued whenever an admin has no active session.
 
-**Locked out?** Set `ADMIN_LINK=1` and save. The next boot prints a fresh
+**Locked out?** Set `ADMIN_LINK=1` and save. The next boot issues a fresh
 sign-in link for every `ADMIN_EMAILS` address, whatever the database thinks
-about their sessions. Remove it once you're in.
+about their sessions, and emails it. Remove it once you're in.
 
-A link is normally only printed for an admin with **no live session**, so that a
-working credential doesn't land in the deploy log every time the service
-restarts. The trap is that a session row lives for sixty idle days: an admin who
+A sign-in link is a credential that needs no password, so it is **never written
+to the deploy log** unless you ask for that by name with `ADMIN_LINK=print` —
+logs are read from the host's dashboard, shipped off-box and pasted into tickets
+and chats. Treat a token printed that way as spent: sign in with it, then remove
+`ADMIN_LINK`. With no mail server and no `print`, the link is issued and simply
+not delivered, and the log says so.
+
+A link is also only issued for an admin with **no live session**, so a redeploy
+doesn't retire a link they may still be holding. The trap is that a session row
+lives for sixty idle days: an admin who
 cleared their cookies, changed browser or lost the laptop stays locked out for
 two months while every redeploy reports *"has an active session; no link
 needed"*. The check can only ask whether a session row exists; only you know
@@ -835,17 +949,21 @@ runner refuses to start if an already-applied migration file has been edited.
 | `MAX_UPLOAD_MB` | –        | Per-file upload cap. Defaults to 10                                  |
 | `FQ_IMPORT_2026` | –       | Set to `1` to load the 2026 CDA season on the next boot; `force` re-runs |
 | `B_DIPLOMA_IMPORT_2026` | – | Set to `1` to load the 2026 B Diploma registers on the next boot; `force` re-runs |
-| `ADMIN_LINK`    | –        | Set to `1` to print a fresh admin sign-in link on the next boot; `reset` also ends their sessions |
+| `SUPPORT_IMPORT_2026` | –  | Set to `1` to load the post-course support register on the next boot; `force` re-runs |
+| `SUPPORT_DATA_FILE` | –    | Where that register's extract is, e.g. `/etc/secrets/post-course-support.json` |
+| `ADMIN_LINK`    | –        | Set to `1` to email a fresh admin sign-in link on the next boot; `reset` also ends their sessions; `print` writes the token to the deploy log instead |
 | `DATA_DIR`      | –        | Only for local SQLite. Disk mount point, defaults to `/data`          |
 
 Set `APP_URL` correctly before inviting anyone. It's the base of every sign-in
 link that goes out, and a wrong value produces links that point elsewhere.
 
-SMTP is optional. Without it, the login form is hidden and you hand out sign-in
-links from the staff page — see [Signing in](#signing-in). On a brand-new
-deploy the first admin's sign-in link is printed to the boot logs, so open the
-host's log viewer after the first deploy. A later deploy prints a fresh link
-whenever an admin has no active session, so a lost link is never a lockout.
+SMTP is optional for coaches: without it the login form is hidden and you hand
+out sign-in links from the staff page — see [Signing in](#signing-in). The first
+admin is the exception. Their link is emailed when SMTP is configured, and
+otherwise issued but not delivered, because a sign-in link in a deploy log is a
+credential anybody reading that log can use. `ADMIN_LINK=print` puts it in the
+log when that is the only way in; a fresh link is issued whenever an admin has
+no active session, so a lost link is never a lockout.
 
 ### Running the image locally
 
@@ -891,6 +1009,8 @@ a hosted database.
 | `npm run db:reset`   | Drop the database, re-migrate, and re-seed both products |
 | `npm run db:studio`  | Browse the database in Prisma Studio               |
 | `npm run bootstrap:admin` | Grant admin access to `ADMIN_EMAILS` and print a sign-in link |
+| `npm run courses:import` | Load the B Diploma registers from `prisma/data/b-diploma-2026.json` |
+| `npm run support:import` | Load the post-course support register (see `SUPPORT_DATA_FILE`) |
 
 `prisma`, `tsx`, and `dotenv` are runtime dependencies rather than dev ones
 because the container runs migrations and the admin bootstrap on boot.
@@ -943,9 +1063,12 @@ src/
     access.ts          Course and upload authorization
     grading.ts         Auto-grading and score rollups
     coursework.ts      Task aggregation and progress summaries
+    diploma-coursework.ts
+                       What each diploma requires, and putting it on courses
     attendance.ts      Pure hours: day lengths, totals, debts and shortfalls
     coaches.ts         The cross-course roster: one row per enrolment
     support-rubric.ts  FA's 1-5 rubric, bands, and the support pathway
+    delivery-rubric.ts FA's assessor guide: six areas out of 18, per diploma
     uploads.ts         File validation, database-backed storage, photo caps
     adapter.ts         Picks SQLite or Turso from DATABASE_URL
     cda/

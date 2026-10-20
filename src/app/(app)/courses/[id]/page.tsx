@@ -7,6 +7,8 @@ import { isCourseStaff, requireCourseAccess } from "@/lib/access";
 import {
   dayMinutes,
   formatHours,
+  makeUpAmount,
+  standardDayMinutes,
   makeUpBalance,
   MAKE_UP_STATUS,
   summariseAttendance,
@@ -15,6 +17,14 @@ import {
 import { isAdmin, isStaff, requireUser } from "@/lib/auth";
 import { getTasksForCoach, summarizeTasks } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
+import {
+  DELIVERY_AREAS,
+  DELIVERY_LEVELS,
+  MAX_DELIVERY_POINTS,
+  outcomeFor,
+  thresholdsFor,
+  totalPoints,
+} from "@/lib/delivery-rubric";
 import { displayName, formatDate } from "@/lib/format";
 import { bandFor, courseResult, VERDICT_LABEL } from "@/lib/support-rubric";
 
@@ -48,6 +58,7 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
         orderBy: { deliveryNo: "asc" },
         include: {
           assessorUser: true,
+          scores: true,
           footage: {
             orderBy: { createdAt: "asc" },
             include: { notes: { orderBy: { atSeconds: "asc" }, include: { author: true } } },
@@ -66,11 +77,19 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
       })
     : null;
 
+  // Which lines the delivery rubric is read at here — the diploma's own, so a
+  // coach sees the same outcome their assessor was looking at.
+  const thresholds = thresholdsFor(course);
+
   // Whether this viewer is on the course team, which decides if they are
   // offered the register.
   const rostered = isStaff(user) ? await isCourseStaff(user, id) : false;
 
   const marks = new Map((enrollment?.attendance ?? []).map((a) => [a.courseDayId, a.minutes]));
+  // A day's length on this course, so what a coach owes reads as the days they
+  // will actually sit rather than as a number of hours.
+  const dayLength = standardDayMinutes(course.days);
+
   const hours = enrollment
     ? summariseAttendance({
         days: course.days,
@@ -222,20 +241,26 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
             <div className="mt-4 rounded-lg border border-ink-200 px-4 py-3">
               <p className="mb-2 text-sm font-semibold text-ink-900">
                 {enrollment.makeUps.some((m) => makeUpBalance(m) > 0)
-                  ? "Hours to make up"
-                  : "Hours missed"}
+                  ? "Days to make up"
+                  : "Time missed"}
               </p>
               <ul className="space-y-2">
                 {enrollment.makeUps.map((m) => {
                   const meta = MAKE_UP_STATUS[m.status];
                   const left = makeUpBalance(m);
+                  const owed = makeUpAmount(m.minutesOwed, dayLength);
                   return (
                     <li key={m.id} className="flex flex-wrap items-center gap-2 text-sm">
                       <Badge tone={meta.tone}>{meta.label}</Badge>
                       <span className="text-ink-700">
-                        {formatHours(m.minutesOwed)}
+                        {owed.label}
+                        {/* The hours, when a day isn't what is owed — a coach
+                            reading "a day" for three hours would sit five he
+                            doesn't owe. */}
+                        {owed.note && <span className="text-ink-500"> ({owed.note})</span>}
                         {m.courseDay && ` · Day ${m.courseDay.dayNo}`}
-                        {left > 0 && left !== m.minutesOwed && ` · ${formatHours(left)} still to do`}
+                        {left > 0 && left !== m.minutesOwed &&
+                          ` · ${makeUpAmount(left, dayLength).label} still to do`}
                       </span>
                       <span className="text-xs text-ink-500">
                         {/* Once it is settled, how it was made up is the news;
@@ -282,7 +307,9 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
                     </p>
                     <p className="mt-0.5 text-xs text-ink-500">
                       {[
+                        delivery.deliveredOn && formatDate(delivery.deliveredOn),
                         delivery.block,
+                        delivery.session,
                         delivery.component,
                         delivery.assessor && `assessed by ${delivery.assessor}`,
                       ]
@@ -290,12 +317,57 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
                         .join(" · ")}
                     </p>
                   </div>
-                  {delivery.rating !== null && (
-                    <Badge tone={bandFor(delivery.rating)?.tone ?? "muted"}>
-                      {delivery.rating.toFixed(1)}
-                    </Badge>
-                  )}
+                  {(() => {
+                    // The rubric where the session was scored on it, and the
+                    // 1-5 figure where it wasn't — which is every delivery
+                    // imported from a 2026 register. Both at once is two marks
+                    // on one line a whole instrument apart.
+                    const scored = totalPoints(
+                      new Map(delivery.scores.map((s) => [s.code, s.score])),
+                    );
+                    if (scored.complete) {
+                      const outcome = outcomeFor(scored.points, thresholds);
+                      return (
+                        <Badge tone={outcome.tone}>
+                          {scored.points} / {MAX_DELIVERY_POINTS} · {outcome.label}
+                        </Badge>
+                      );
+                    }
+                    return delivery.rating !== null ? (
+                      <Badge tone={bandFor(delivery.rating)?.tone ?? "muted"}>
+                        {delivery.rating.toFixed(1)}
+                      </Badge>
+                    ) : null;
+                  })()}
                 </div>
+
+                {(() => {
+                  const scores = new Map(delivery.scores.map((s) => [s.code, s.score]));
+                  if (scores.size === 0) return null;
+                  return (
+                    <>
+                      <p className="section-title mt-1 mb-2">How it was scored</p>
+                      <ul className="mb-3 space-y-1">
+                        {DELIVERY_AREAS.map((area) => {
+                          const score = scores.get(area.code);
+                          if (score === undefined) return null;
+                          const level = DELIVERY_LEVELS.find((l) => l.score === score);
+                          return (
+                            <li
+                              key={area.code}
+                              className="flex items-baseline justify-between gap-3 text-sm"
+                            >
+                              <span className="text-ink-700">{area.title}</span>
+                              <span className="text-ink-500">
+                                {score} &middot; {level?.label}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  );
+                })()}
 
                 {delivery.comment && (
                   <p className="prose-note rounded-lg bg-ink-50 px-3 py-2">{delivery.comment}</p>

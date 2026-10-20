@@ -88,6 +88,29 @@ services:
       - key: B_DIPLOMA_IMPORT_2026
         sync: false
 
+      # Set to "1" to load Football Queensland's post-course support register
+      # on the next boot: every coach on more support across the 2023-26 B
+      # Diplomas and the 2026 C Diplomas, as a case each with its educator,
+      # deadline and history.
+      #
+      # Unlike the two above, its data is NOT in the image. The register holds
+      # real addresses, so it is not committed: upload the extract as a Secret
+      # File and point SUPPORT_DATA_FILE at it. Without the file the import
+      # logs that it cannot find one and leaves the site alone.
+      #
+      # Same shape otherwise. Add it, save, watch the logs for "[support]
+      # imported in Ns", then remove it. Set it to "force" to load an updated
+      # register over a previous run — every write is an upsert, it never
+      # deletes a case, and a case an educator has closed here is left closed.
+      - key: SUPPORT_IMPORT_2026
+        sync: false
+
+      # Where that extract is. A Secret File called
+      # post-course-support.json is mounted at /etc/secrets, so:
+      #   SUPPORT_DATA_FILE=/etc/secrets/post-course-support.json
+      - key: SUPPORT_DATA_FILE
+        sync: false
+
       # One-off: takes Admin off the course team members an early run of the
       # importer created as admins. Set it to "1", save, wait for the deploy,
       # read the [teams] lines in the log, then remove it.
@@ -107,16 +130,21 @@ services:
       - key: DEMOTE_COURSE_TEAMS
         sync: false
 
-      # Locked out? Set this to "1" and save. The next boot prints a fresh
-      # sign-in link for every ADMIN_EMAILS address to the deploy log, whatever
-      # the database thinks about their sessions. Remove it once you're in.
+      # Locked out? Set this to "1" and save. The next boot issues a fresh
+      # sign-in link for every ADMIN_EMAILS address, whatever the database
+      # thinks about their sessions, and emails it. Remove it once you're in.
       #
-      # Normally a link is only printed for an admin with no live session, so a
-      # working credential doesn't land in the log on every deploy for no
-      # reason. But a session row lives for sixty idle days, so an admin who
-      # cleared their cookies or lost the laptop is locked out for two months
-      # while every redeploy reports "has an active session; no link needed".
-      # This is the way back in on a plan with no shell.
+      # The link itself never reaches this log unless you ask for that with
+      # "print": a sign-in link needs no password, and these logs are readable
+      # from the dashboard and get pasted into tickets. With no SMTP_* set and
+      # no "print", the link is issued and not delivered, and the log says so.
+      #
+      # A link is also only issued for an admin with no live session, so a
+      # deploy doesn't retire one they may still be holding. But a session row
+      # lives for sixty idle days, so an admin who cleared their cookies or
+      # lost the laptop is locked out for two months while every redeploy
+      # reports "has an active session; no link needed". This is the way back
+      # in on a plan with no shell.
       #
       # "reset" also ends those sessions — for when the device is gone rather
       # than merely forgotten.

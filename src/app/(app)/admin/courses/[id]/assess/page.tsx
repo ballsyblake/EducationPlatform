@@ -7,13 +7,7 @@ import { dayMinutes, formatHours, summariseAttendance, withinWindow } from "@/li
 import { prisma } from "@/lib/db";
 import { displayName, formatDate } from "@/lib/format";
 import { DEFAULT_RATING_THRESHOLD } from "@/lib/support-rubric";
-import {
-  CoachPanel,
-  DayAttendance,
-  type AssessDay,
-  type AttendanceRow,
-  type CoachEntry,
-} from "./assess-forms";
+import { CourseRoster, type AssessDay, type RosterEntry } from "./assess-forms";
 
 export const metadata = { title: "Course" };
 
@@ -34,10 +28,14 @@ const asDay = (date: Date) =>
  * The course page an assessor works from.
  *
  * Three jobs, and nothing else on it: mark who was here today, write up a
- * delivery, say how the coach is going. Everything else a course carries —
- * moves and part intakes, the hours ledger, the result block, the course
- * settings — is the program's paperwork rather than the assessor's, and lives
- * on the full register a link away.
+ * delivery, say how the coach is going. All three happen on one roster, one row
+ * per coach — this was a roll and then the same names again underneath, which
+ * is one list too many to work a course off.
+ *
+ * Everything else a course carries — moves and part intakes, the hours ledger,
+ * the result block, the course settings — is the program's paperwork rather
+ * than the assessor's, and lives on the full register, which is an admin's link
+ * from here and not an educator's.
  */
 export default async function AssessCoursePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireStaff();
@@ -58,6 +56,12 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
           deliveries: {
             orderBy: { deliveryNo: "asc" },
             include: {
+              // The count rather than the rows: the roster needs to know a
+              // scoresheet exists, and the scores themselves are read on the
+              // page that edits them.
+              _count: { select: { scores: true } },
+              // Film is the other way round — the notes are posted and read on
+              // this page, so they come with it.
               footage: {
                 orderBy: { createdAt: "asc" },
                 include: {
@@ -97,19 +101,7 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
     course.days[0]?.id ??
     "";
 
-  const attendanceRows: AttendanceRow[] = roster.map((e) => ({
-    id: e.id,
-    name: displayName(e.user),
-    email: e.user.email,
-    photoId: e.user.photoId,
-    subtitle: e.track === "CATCH_UP" ? e.catchUpNote : e.clubName,
-    marks: Object.fromEntries(e.attendance.map((a) => [a.courseDayId, a.minutes])),
-    outsideDayIds: course.days
-      .filter((d) => !withinWindow(d, e.joinedAt, e.leftAt))
-      .map((d) => d.id),
-  }));
-
-  const coaches: CoachEntry[] = roster.map((e) => {
+  const entries: RosterEntry[] = roster.map((e) => {
     const summary = summariseAttendance({
       days: course.days,
       attendance: e.attendance,
@@ -130,16 +122,23 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
       rating: e.rating,
       outcome: e.outcome,
       comments: e.registerComments,
+      marks: Object.fromEntries(e.attendance.map((a) => [a.courseDayId, a.minutes])),
+      outsideDayIds: course.days
+        .filter((d) => !withinWindow(d, e.joinedAt, e.leftAt))
+        .map((d) => d.id),
       deliveries: e.deliveries.map((d) => ({
         id: d.id,
         deliveryNo: d.deliveryNo,
         assessor: d.assessor,
         block: d.block,
+        session: d.session,
         component: d.component,
         topic: d.topic,
+        deliveredOn: d.deliveredOn ? d.deliveredOn.toISOString().slice(0, 10) : null,
         comment: d.comment,
         actions: planSteps(d.actionPlan),
         rating: d.rating,
+        scored: d._count.scores,
         footage: d.footage.map((f) => ({
           id: f.id,
           title: f.title,
@@ -161,13 +160,19 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
   const assessors = [...new Set([me, ...course.staff.map((s) => s.name)])];
 
   const threshold = course.ratingThreshold ?? DEFAULT_RATING_THRESHOLD;
-  const written = coaches.reduce((sum, c) => sum + c.deliveries.length, 0);
-  const rated = coaches.filter((c) => c.rating !== null).length;
+  const written = entries.reduce((sum, c) => sum + c.deliveries.length, 0);
+  const rated = entries.filter((c) => c.rating !== null).length;
 
   return (
     <>
       <PageHeader
-        breadcrumb={{ href: "/admin", label: isAdmin(user) ? "Manage" : "Your courses" }}
+        // An educator reaches this from their grading list rather than from
+        // Manage, which they are no longer shown.
+        breadcrumb={
+          isAdmin(user)
+            ? { href: "/admin", label: "Manage" }
+            : { href: "/educator/grading", label: "Grading" }
+        }
         title={course.title}
         subtitle={
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -182,62 +187,54 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
             </span>
           </span>
         }
+        // The full register is the program's paperwork — moves, part intakes,
+        // the hours ledger, the result block. An educator was being offered a
+        // page of somebody else's job, so it is an admin's link now.
         action={
-          <Link href={`/admin/courses/${course.id}/register`} className="btn-secondary btn-sm">
-            Full register →
-          </Link>
+          isAdmin(user) ? (
+            <Link href={`/admin/courses/${course.id}/register`} className="btn-secondary btn-sm">
+              Full register →
+            </Link>
+          ) : null
         }
       />
-
-      <section className="mb-10">
-        <h2 className="mb-1 text-lg font-semibold text-ink-900">Attendance</h2>
-        <p className="mb-3 text-sm text-ink-500">
-          Pick the day and tick who is here. Nothing is written until you save.
-        </p>
-        {days.length === 0 ? (
-          <EmptyState
-            title="This course has no days yet"
-            description="A register needs delivery days to keep. An admin adds them to the course before the roll can be taken."
-          />
-        ) : (
-          <DayAttendance
-            courseId={course.id}
-            days={days}
-            rows={attendanceRows}
-            defaultDayId={defaultDayId}
-          />
-        )}
-      </section>
 
       <section>
         <h2 className="mb-1 text-lg font-semibold text-ink-900">Coaches</h2>
         <p className="mb-3 text-sm text-ink-500">
-          Open a coach to write up a delivery you watched, post film of it, and pin your notes to
-          the moments they are about. You can also leave a general comment about how they are
-          going. The write-up is theirs to read on their own course page; the comment
-          stays on the register, with the course team. Their course rating — the judgement across
-          everything they delivered — is set in the same place at the end of the course, and moves
-          the outcome with it.
+          Pick the day and tick who is here; nothing is written until you save. Open a coach to
+          write up a delivery you watched, post film of it and pin your notes to the moments they
+          are about, or leave a general comment about how they are going. The write-up and the film
+          are theirs to read on their own course page; the comment stays on the register, with the
+          course team. Their course rating — the judgement across everything they delivered — is
+          set in the same place at the end of the course, and moves the outcome with it.
         </p>
-        {coaches.length === 0 ? (
+        {entries.length === 0 ? (
           <EmptyState
             title="Nobody on this course yet"
             description="Coaches appear here as soon as they are enrolled."
           />
         ) : (
-          <div className="card divide-y divide-ink-200">
-            {coaches.map((coach) => (
-              <CoachPanel
-                key={coach.id}
-                coach={coach}
-                assessors={assessors}
-                defaultAssessor={me}
-                threshold={threshold}
-              />
-            ))}
-          </div>
+          <>
+            {days.length === 0 && (
+              <p className="mb-3 text-sm text-ink-500">
+                This course has no delivery days yet, so there is no roll to take. An admin adds
+                them to the course before attendance can be kept.
+              </p>
+            )}
+            <CourseRoster
+              courseId={course.id}
+              days={days}
+              roster={entries}
+              defaultDayId={defaultDayId}
+              assessors={assessors}
+              defaultAssessor={me}
+              threshold={threshold}
+            />
+          </>
         )}
       </section>
+
     </>
   );
 }

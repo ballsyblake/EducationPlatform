@@ -4,6 +4,7 @@ import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
 import { assertCourseStaff } from "@/lib/access";
 import { isAdmin, requireStaff } from "@/lib/auth";
 import { shortCourseTitle } from "@/lib/coaches";
+import { getRequiredCourseworkByCoach } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate } from "@/lib/format";
 import { DEFAULT_RATING_THRESHOLD } from "@/lib/support-rubric";
@@ -12,6 +13,8 @@ import { PhotoCapture } from "@/components/photo-capture";
 import {
   dayMinutes,
   formatHours,
+  makeUpAmount,
+  standardDayMinutes,
   makeUpBalance,
   summariseAttendance,
   withinWindow,
@@ -199,6 +202,11 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
     (r) => r.joinedAt || r.leftAt || r.transferredTo || r.transferredFrom,
   );
 
+  // Attendance stays in hours here — it is minutes on a grid. What is *owed*
+  // is said in days, the same as on the make-ups desk, because a day is what
+  // gets arranged and sat.
+  const dayLength = standardDayMinutes(course.days);
+
   const dayOptions = course.days.map((day) => ({
     id: day.id,
     label: `Day ${day.dayNo} · ${formatDate(day.date)}`,
@@ -229,6 +237,11 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
     coachName: displayName(e.user),
   });
 
+  // The coursework the diploma itself requires, for the whole roster in one
+  // read. The column is there because this is the page an educator works from,
+  // and a journal nobody can see is a journal nobody chases.
+  const required = await getRequiredCourseworkByCoach(id);
+
   const results: ResultRow[] = course.enrollments.map((e) => ({
     id: e.id,
     name: displayName(e.user),
@@ -244,6 +257,7 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
     readiness: e.readiness,
     comments: e.registerComments,
     deliveries: e._count.deliveries,
+    required: required.get(e.userId) ?? [],
   }));
 
   const rated = course.enrollments.filter((e) => e.rating !== null);
@@ -316,12 +330,12 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
           hint="Candidates for post-course support"
         />
         <StatTile
-          label="Hours owed"
-          value={outstandingMinutes ? formatHours(outstandingMinutes) : "None"}
+          label="To make up"
+          value={outstandingMinutes ? makeUpAmount(outstandingMinutes, dayLength).label : "None"}
           tone={outstandingMinutes ? "warn" : "good"}
           hint={
             unaccountedMinutes
-              ? `${formatHours(unaccountedMinutes)} missing with nothing raised`
+              ? `${makeUpAmount(unaccountedMinutes, dayLength).label} missing with nothing raised`
               : "Nothing missing that isn't on the ledger"
           }
         />
@@ -411,7 +425,7 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-1 text-lg font-semibold text-ink-900">Hours owed</h2>
+        <h2 className="mb-1 text-lg font-semibold text-ink-900">Days to make up</h2>
         <p className="mb-3 text-sm text-ink-500">
           Time missed becomes a debt when an educator says so, not automatically — a course still
           running has blanks everywhere, and turning each one into an obligation would bury the few
@@ -443,24 +457,27 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {summary.outstandingMinutes > 0 && (
-                      <Badge tone="warn">{formatHours(summary.outstandingMinutes)} owed</Badge>
+                      <Badge tone="warn">
+                        {makeUpAmount(summary.outstandingMinutes, dayLength).label} to make up
+                      </Badge>
                     )}
                     {summary.unaccountedMinutes > 0 && (
                       <Badge tone="bad">
-                        {formatHours(summary.unaccountedMinutes)} unaccounted
+                        {makeUpAmount(summary.unaccountedMinutes, dayLength).label} unaccounted
                       </Badge>
                     )}
                   </div>
                 </div>
 
                 {enrollment.makeUps.map((m) => (
-                  <MakeUpCard key={m.id} row={makeUpRow(enrollment, m)} />
+                  <MakeUpCard key={m.id} row={makeUpRow(enrollment, m)} dayLength={dayLength} />
                 ))}
 
                 <div className="px-5 py-3">
                   <OpenMakeUpForm
                     compact
                     enrollmentId={enrollment.id}
+                    dayLength={dayLength}
                     days={dayOptions}
                     defaultMinutes={
                       summary.unaccountedMinutes > 0 ? summary.unaccountedMinutes : undefined

@@ -47,6 +47,118 @@ export function formatHours(minutes: number): string {
   return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} h`;
 }
 
+/* ---------------------------- Days, not hours ----------------------------- */
+
+/**
+ * How long a standard day runs on one course.
+ *
+ * Hours are how the register records attendance; days are how everybody talks
+ * about making it up — "needs to attend another B for 3 days (Day 4/5/6)" is
+ * the register's own wording, not "24 h". Turning one into the other needs a
+ * day length, and it has to come from the course rather than from a constant:
+ * eight hours is the B Diploma's day, not football's.
+ *
+ * The most common length wins, so one short day at the end of a block doesn't
+ * redefine the course. Zero when no day on the course records its times, which
+ * is the signal to stay in hours rather than invent a denominator.
+ */
+export function standardDayMinutes(
+  days: { startTime: string | null; endTime: string | null }[],
+): number {
+  const counts = new Map<number, number>();
+  for (const day of days) {
+    const length = dayMinutes(day);
+    if (length > 0) counts.set(length, (counts.get(length) ?? 0) + 1);
+  }
+  if (counts.size === 0) return 0;
+  // Most common first; the longer day breaks a tie, since a course that runs
+  // two lengths equally often is better measured by its full day.
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+}
+
+/**
+ * An amount of owed time, said in days.
+ *
+ * `note` is the exception the label can't carry: the hours, when what is owed
+ * isn't a round number of days. Half the debts on the real registers are
+ * "3 hours missed on Day 2" rather than a day, and rounding those to "a day"
+ * would have coaches sitting five hours they don't owe.
+ */
+export type MakeUpAmount = {
+  /** Whole days owed. */
+  days: number;
+  /** What is owed beyond those whole days. */
+  extraMinutes: number;
+  minutes: number;
+  /** "3 days", "1 day", or the hours when a day can't be spoken of. */
+  label: string;
+  /** The hours, when they are the thing that matters. Null on whole days. */
+  note: string | null;
+};
+
+export function makeUpAmount(minutes: number, dayLength: number): MakeUpAmount {
+  const base = { minutes, days: 0, extraMinutes: minutes };
+
+  if (minutes <= 0) return { ...base, extraMinutes: 0, label: "Nothing", note: null };
+  // No day length on the course, so there is no honest way to say "a day".
+  if (dayLength <= 0) return { ...base, label: formatHours(minutes), note: null };
+
+  const days = Math.floor(minutes / dayLength);
+  const extraMinutes = minutes - days * dayLength;
+  const dayLabel = `${days} day${days === 1 ? "" : "s"}`;
+
+  if (days === 0) {
+    return {
+      minutes,
+      days,
+      extraMinutes,
+      label: formatHours(minutes),
+      // Says the length rather than repeating the amount, which the label has
+      // already given. Worded without an article on purpose: "an 8 h day" and
+      // "a 7.5 h day" would need this to know how the number is pronounced.
+      note: `part day — a full day here is ${formatHours(dayLength)}`,
+    };
+  }
+
+  return {
+    minutes,
+    days,
+    extraMinutes,
+    label: dayLabel,
+    note: extraMinutes > 0 ? `and ${formatHours(extraMinutes)}` : null,
+  };
+}
+
+/**
+ * Several debts added up, in days.
+ *
+ * Grouped by day length before converting, because two courses can run days of
+ * different lengths and a total that divided the lot by one of them would be
+ * wrong about both. `unknownMinutes` is what no course could put a length to.
+ */
+export function sumMakeUpDays(items: { minutes: number; dayLength: number }[]) {
+  const byLength = new Map<number, number>();
+  let unknownMinutes = 0;
+
+  for (const item of items) {
+    if (item.minutes <= 0) continue;
+    if (item.dayLength > 0) {
+      byLength.set(item.dayLength, (byLength.get(item.dayLength) ?? 0) + item.minutes);
+    } else {
+      unknownMinutes += item.minutes;
+    }
+  }
+
+  let days = 0;
+  let extraMinutes = 0;
+  for (const [length, minutes] of byLength) {
+    days += Math.floor(minutes / length);
+    extraMinutes += minutes % length;
+  }
+
+  return { days, extraMinutes, unknownMinutes };
+}
+
 /* --------------------------------- Debts ---------------------------------- */
 
 export type MakeUpLike = {

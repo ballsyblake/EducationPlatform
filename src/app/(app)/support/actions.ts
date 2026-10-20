@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { storeUpload, UploadError } from "@/lib/uploads";
+import { normalizeVideoUrl } from "@/lib/video";
 
 export type SubmitVideoState = { status: "idle" | "ok" | "error"; message?: string };
 
@@ -59,17 +60,6 @@ export async function saveAvailability(
   revalidatePath(`/admin/support/${caseId}`);
   revalidatePath("/admin/support");
   return { status: "ok", message: "Saved — your educator can see this." };
-}
-
-/** Only http(s): a link is rendered on an educator's page, so no other scheme. */
-function normalizeVideoUrl(raw: string) {
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
 }
 
 /**

@@ -8,15 +8,17 @@
  *
  *   ADMIN_EMAILS="head.coach@yourprogram.com" npm run bootstrap:admin
  *
- * Locked out? Set ADMIN_LINK=1 in the environment and redeploy. That prints a
- * fresh sign-in link whatever the session state says — see the note on
- * `liveSession` below for why the default is silence.
+ * Locked out? Set ADMIN_LINK=1 in the environment and redeploy. That issues a
+ * fresh sign-in link whatever the session state says, and emails it — see the
+ * note on `liveSession` below for why the default is silence, and on
+ * `PRINT_TOKEN` for why the link is no longer written to the log.
  */
 import "dotenv/config";
 import { createHash, randomBytes } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { PrismaClient } from "../generated/prisma/client.ts";
 import { createAdapter } from "../src/lib/adapter.ts";
+import { isDevMailMode, sendMail } from "../src/lib/mailer.ts";
 
 const INVITE_TTL_DAYS = Number(process.env.INVITE_LINK_TTL_DAYS ?? 7);
 
@@ -36,8 +38,20 @@ const INVITE_TTL_DAYS = Number(process.env.INVITE_LINK_TTL_DAYS ?? 7);
  */
 const LINK_ASKED = (process.env.ADMIN_LINK ?? "").trim().toLowerCase();
 const FORCE_LINK = LINK_ASKED === "1" || LINK_ASKED === "yes" || LINK_ASKED === "true" ||
-  LINK_ASKED === "reset";
+  LINK_ASKED === "reset" || LINK_ASKED === "print";
 const RESET_SESSIONS = LINK_ASKED === "reset";
+
+/**
+ * `ADMIN_LINK=print` is the only thing that puts a token in the deploy log.
+ *
+ * A sign-in link is a credential that needs no password, and a deploy log is
+ * read by anyone with the host's dashboard and copied into chats and tickets
+ * when something breaks — which is exactly what happened to one of these. So
+ * the link is emailed and only the fact of it is logged; printing the token is
+ * something you now ask for by name, and a token printed that way should be
+ * treated as spent the moment the build finishes.
+ */
+const PRINT_TOKEN = LINK_ASKED === "print";
 
 /**
  * Mints a sign-in link the same way the app does. Duplicated rather than
@@ -64,6 +78,63 @@ async function issueSignInLink(prisma: PrismaClient, userId: string) {
     "http://localhost:3000"
   ).replace(/\/+$/, "");
   return `${base}/auth/verify?token=${token}`;
+}
+
+/**
+ * Gets a freshly minted link to the one person allowed to use it.
+ *
+ * `intro` is the line that explains why they are being sent one; it is logged,
+ * the link is not. Failure here is reported and never fatal — a bootstrap that
+ * aborts because SMTP is down takes the whole deploy with it, and the admin
+ * account itself is already in place by this point.
+ */
+async function deliverLink(email: string, link: string, intro: string) {
+  console.log(`[bootstrap] ${intro}`);
+
+  if (PRINT_TOKEN) {
+    console.log("[bootstrap] ---------------------------------------------");
+    console.log(`[bootstrap]  ${link}`);
+    console.log(`[bootstrap]  Works once, valid for ${INVITE_TTL_DAYS} days.`);
+    console.log("[bootstrap]  ADMIN_LINK=print — that token is now in this log.");
+    console.log("[bootstrap]  Sign in, then remove ADMIN_LINK from the environment.");
+    console.log("[bootstrap] ---------------------------------------------");
+    return;
+  }
+
+  if (isDevMailMode()) {
+    // No SMTP server configured, and nobody asked for the token in the log, so
+    // there is no channel for it that isn't the log. It stays undelivered
+    // rather than leaked by default; the link is in the database, and the next
+    // one issued retires it.
+    console.log(`[bootstrap] No SMTP server is configured, so the link was not sent.`);
+    console.log("[bootstrap] Set SMTP_HOST (with SMTP_USER and SMTP_PASSWORD) to have it emailed,");
+    console.log("[bootstrap] or ADMIN_LINK=print to accept printing the token to this log.");
+    return;
+  }
+
+  try {
+    await sendMail({
+      to: email,
+      subject: "Your Coach Education sign-in link",
+      text: [
+        "Open this link to sign in:",
+        "",
+        link,
+        "",
+        `It works once and is valid for ${INVITE_TTL_DAYS} days. It replaces any`,
+        "earlier link for this account.",
+        "",
+        "If you didn't ask for this, somebody redeployed the service with",
+        "ADMIN_LINK set. Nothing has changed about your account.",
+      ].join("\n"),
+    });
+    console.log(`[bootstrap] Link emailed to ${email}; works once, valid for ${INVITE_TTL_DAYS} days.`);
+  } catch (error) {
+    console.log(
+      `[bootstrap] Emailing the link to ${email} failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    console.log("[bootstrap] Fix SMTP, or set ADMIN_LINK=print to have the token printed here instead.");
+  }
 }
 
 /**
@@ -98,11 +169,7 @@ export async function bootstrapAdmins(prisma: PrismaClient) {
       });
       const link = await issueSignInLink(prisma, user.id);
       console.log(`[bootstrap] Created admin ${email}`);
-      console.log("[bootstrap] ---------------------------------------------");
-      console.log("[bootstrap]  Open this link to sign in as the first admin:");
-      console.log(`[bootstrap]  ${link}`);
-      console.log(`[bootstrap]  Works once, valid for ${INVITE_TTL_DAYS} days.`);
-      console.log("[bootstrap] ---------------------------------------------");
+      await deliverLink(email, link, "A sign-in link for the first admin was issued.");
       continue;
     }
 
@@ -138,10 +205,10 @@ export async function bootstrapAdmins(prisma: PrismaClient) {
       where: { userId: existing.id, expiresAt: { gt: new Date() } },
     });
 
-    // Silence is the default on purpose: a working sign-in link in a deploy log
-    // is a credential in a place plenty of people can read, and printing one on
-    // every boot for an admin who is already signed in puts it there for no
-    // reason. ADMIN_LINK is the way to ask for it when it is actually needed.
+    // Silence is the default on purpose: minting a link on every boot for an
+    // admin who is already signed in retires the one they might still be
+    // holding, for no reason. ADMIN_LINK is the way to ask for one when it is
+    // actually needed.
     if (liveSession && !FORCE_LINK) {
       console.log(`[bootstrap] ${email} has an active session; no link needed.`);
       console.log("[bootstrap] Set ADMIN_LINK=1 and redeploy if you can't actually get in.");
@@ -149,19 +216,16 @@ export async function bootstrapAdmins(prisma: PrismaClient) {
     }
 
     const link = await issueSignInLink(prisma, existing.id);
-    console.log("[bootstrap] ---------------------------------------------");
-    console.log(
+    await deliverLink(
+      email,
+      link,
       liveSession
-        ? `[bootstrap]  ADMIN_LINK is set — a fresh link for ${email}:`
-        : `[bootstrap]  ${email} is not signed in. Sign in with:`,
+        ? `ADMIN_LINK is set — issued a fresh link for ${email}.`
+        : `${email} is not signed in — issued a sign-in link.`,
     );
-    console.log(`[bootstrap]  ${link}`);
-    console.log(`[bootstrap]  Works once, valid for ${INVITE_TTL_DAYS} days.`);
-    console.log(`[bootstrap]  This replaces any link from an earlier deploy.`);
-    if (FORCE_LINK) {
-      console.log("[bootstrap]  Remove ADMIN_LINK from the environment once you're in.");
+    if (FORCE_LINK && !PRINT_TOKEN) {
+      console.log("[bootstrap] Remove ADMIN_LINK from the environment once you're in.");
     }
-    console.log("[bootstrap] ---------------------------------------------");
   }
 }
 

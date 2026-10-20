@@ -8,6 +8,11 @@
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 
+# No TTY in a builder, so debconf spends the install failing over from Dialog to
+# Readline to Teletype and logging a paragraph about it each time.
+ENV DEBIAN_FRONTEND=noninteractive \
+    NEXT_TELEMETRY_DISABLED=1
+
 # better-sqlite3 falls back to compiling from source when no prebuilt binary
 # matches the platform, so keep a toolchain available for the install.
 RUN apt-get update \
@@ -33,8 +38,10 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates \
+# Inline rather than ENV: noninteractive is only wanted for this install, and an
+# ENV here would stay set in the environment the server runs in.
+RUN DEBIAN_FRONTEND=noninteractive apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 # node_modules comes from the build stage so the runner needs no toolchain and

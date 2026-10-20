@@ -5,7 +5,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { Avatar } from "@/components/avatar";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
 import { assertCourseStaff } from "@/lib/access";
-import { requireStaff } from "@/lib/auth";
+import { isAdmin, requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate, formatDateTime, relativeDue } from "@/lib/format";
 import {
@@ -35,6 +35,7 @@ import {
   DecideExtensionForm,
   LogActivityForm,
   RearrangeForm,
+  RecordVideoLinkForm,
   RequestExtensionForm,
   ReviewForm,
 } from "../support-forms";
@@ -109,7 +110,12 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
   return (
     <>
       <PageHeader
-        breadcrumb={{ href: "/admin/support", label: "Post-course support" }}
+        // Back where they came from. The desk is the program's page; an
+        // educator's own list of this work is the one they opened it from.
+        breadcrumb={{
+          href: isAdmin(user) ? "/admin/support" : "/educator/support",
+          label: "Post-course support",
+        }}
         title={displayName(supportCase.user)}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
@@ -261,10 +267,15 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
               </div>
 
               {current.status === "AWAITING_VIDEO" ? (
-                <p className="rounded-lg bg-ink-50 px-3 py-2 text-sm text-ink-600">
-                  Waiting on {displayName(supportCase.user)} to submit their footage.{" "}
-                  {relativeDue(current.dueAt).text}.
-                </p>
+                <div className="space-y-4">
+                  <p className="rounded-lg bg-ink-50 px-3 py-2 text-sm text-ink-600">
+                    Waiting on {displayName(supportCase.user)} to submit their footage.{" "}
+                    {relativeDue(current.dueAt).text}.
+                  </p>
+                  {/* Film often arrives by email instead. Without this the case
+                      sits here waiting while the link is in somebody's inbox. */}
+                  <RecordVideoLinkForm attemptId={current.id} defaultUrl="" />
+                </div>
               ) : (
                 <div className="space-y-4">
                   {current.videoUrl && (
@@ -288,6 +299,20 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
                       >
                         {current.videoUrl}
                       </a>
+                      {/* Folded away: the link that is in is usually the right
+                          one, and the common reason to touch it is film set to
+                          private rather than unlisted. */}
+                      <details>
+                        <summary className="cursor-pointer text-xs font-medium text-ink-500 hover:text-ink-700">
+                          Wrong link?
+                        </summary>
+                        <div className="pt-3">
+                          <RecordVideoLinkForm
+                            attemptId={current.id}
+                            defaultUrl={current.videoUrl}
+                          />
+                        </div>
+                      </details>
                     </div>
                   )}
 

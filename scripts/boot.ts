@@ -25,6 +25,7 @@ import { applyMigrations } from "./migrate.ts";
 import { bootstrapAdmins } from "./bootstrap-admin.ts";
 import { DEMOTE_MARKER, demoteCourseTeams } from "./demote-course-teams.ts";
 import { seedCatalog } from "../prisma/cda-seed.ts";
+import { ensureDiplomaCoursework } from "../src/lib/diploma-coursework.ts";
 
 async function main() {
   const started = Date.now();
@@ -67,6 +68,24 @@ async function main() {
         console.log(`[teams] done — ${changed} changed. Remove DEMOTE_COURSE_TEAMS now.`);
       }
     }
+
+    // The coursework the diplomas themselves require — two session plans on a
+    // C Diploma, a journal on a B Diploma — on every course that owes it.
+    //
+    // In front of the server because it is the thing that makes a coach's
+    // to-do list true, and it is three queries whatever the size of the
+    // register: the courses, the requirement rows they already have, and one
+    // insert for the gap. On a database that is already provisioned it is two
+    // reads and no write.
+    //
+    // Creates only, so an educator's rewording survives it. The one thing it
+    // will do is bring back a requirement somebody deleted outright, which is
+    // why unpublishing is the way to withdraw one from a cohort.
+    const coursework = await ensureDiplomaCoursework(prisma);
+    if (coursework.created > 0) {
+      console.log(`[boot] diploma coursework: ${coursework.created} assignment(s) added.`);
+    }
+
     // Skips itself in one query when this image ships the catalogue the
     // database already has, which is every boot except the one after a release
     // that changed the rubric.

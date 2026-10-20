@@ -117,8 +117,8 @@ model User {
 
   // Session footage: the film an educator posted, and the notes they pinned to
   // moments in it.
-  postedFootage    DeliveryFootage[] @relation("FootagePoster")
-  footageNotes     FootageNote[]     @relation("FootageNoteAuthor")
+  postedFootage DeliveryFootage[] @relation("FootagePoster")
+  footageNotes  FootageNote[]     @relation("FootageNoteAuthor")
 
   // Post-course support. A coach holds cases; an educator is named on the ones
   // they run and on every attempt they have written up.
@@ -405,8 +405,29 @@ model Assignment {
   published    Boolean   @default(true)
   createdAt    DateTime  @default(now())
 
+  /// Which standing diploma requirement this assignment is, if it is one.
+  ///
+  /// The diplomas carry coursework every coach on them owes regardless of who
+  /// authored the cohort: two session plans on a C Diploma, a journal on a B
+  /// Diploma. Those are provisioned from the catalogue in
+  /// `src/lib/diploma-coursework.ts` rather than typed out again per intake —
+  /// all three B Diploma cohorts in the register carried no coursework at all,
+  /// so every coach on them was shown an empty to-do list.
+  ///
+  /// Null is an ordinary assignment somebody wrote for one course, and null is
+  /// what every assignment created through the authoring form stays. The unique
+  /// constraint is what makes provisioning idempotent: SQLite treats nulls as
+  /// distinct, so it binds the requirement rows and leaves the hand-written
+  /// ones alone.
+  ///
+  /// Editing a requirement row is fine — provisioning only ever creates. To
+  /// withdraw one from a cohort, unpublish it; deleting it outright means the
+  /// next boot provisions it again.
+  requirement String?
+
   submissions Submission[]
 
+  @@unique([courseId, requirement])
   @@index([courseId])
 }
 
@@ -717,6 +738,13 @@ model PracticalDelivery {
   /// "Play" or "Practice" — which half of the session was assessed.
   component String?
   topic     String?
+  /// Which session of the block it was: "Session 2", "Friday night".
+  session   String?
+
+  /// The day the coach delivered it, which is not the day it was written up.
+  /// `createdAt` answers the second question and was standing in for the
+  /// first; a write-up typed a fortnight later dated the session wrong.
+  deliveredOn DateTime?
 
   comment    String?
   actionPlan String?
@@ -727,6 +755,8 @@ model PracticalDelivery {
   raw       String?
   createdAt DateTime @default(now())
 
+  /// Football Australia's rubric, one row per area it was scored on.
+  scores  DeliveryScore[]
   footage DeliveryFootage[]
 
   @@unique([enrollmentId, deliveryNo])
@@ -791,6 +821,30 @@ model FootageNote {
 
   @@index([footageId, atSeconds])
   @@index([authorId])
+}
+
+/**
+ * One area of Football Australia's delivery rubric, scored.
+ * A child table rather than six columns on the delivery, the way SupportRating
+ * hangs off an attempt: the rubric is FA's and has been reworded before, and a
+ * seventh area arriving should not be a migration on a table the registers are
+ * imported into.
+ * Only rows that were actually scored exist. An area with no row has no answer
+ * yet, which is a different fact from Not Evident — and the one that decides
+ * whether a scoresheet is finished.
+ */
+model DeliveryScore {
+  id         String            @id @default(cuid())
+  deliveryId String
+  delivery   PracticalDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  /// Matches a `code` in DELIVERY_AREAS (src/lib/delivery-rubric.ts).
+  code  String
+  /// 0-3: Not Evident, Developing, Proficient, Expertise.
+  score Int
+
+  @@unique([deliveryId, code])
+  @@index([deliveryId])
 }
 
 /// Whether a debt has been settled, and how far along it is.

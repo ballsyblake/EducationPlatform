@@ -9,7 +9,8 @@ before changing anything about how a coach is rated.
 ## The shape of it
 
 ```
-dashboard/          Coach home; also carries the staff queues and banners
+dashboard/          Coach home; educators get `educator-dashboard.tsx` instead
+educator/           An educator's whole view: grading, and post-course support
 courses/[id]/       What a coach sees: library, their own register row, results
 assignments/ quizzes/ grades/   Coursework and its feedback
 support/[id]/       A coach's own post-course support case
@@ -20,7 +21,7 @@ admin/
   coaches/          Every coach, one row per enrolment, across all registers
   grading/          The queue: submissions and written quiz answers
   support/          The post-course support desk
-  make-ups/         The hours desk — debts that follow a coach across courses
+  make-ups/         Make-up days — debts that follow a coach across courses
   progress/         Coursework completion (the online courses' measure)
   people/           Accounts and roles (ADMIN only)
   actions/          Every server action for the above
@@ -32,12 +33,15 @@ admin/
 |---|---|
 | `lib/attendance.ts` | Pure hours. Day lengths, totals, debts, enrolment windows. No database. |
 | `lib/support-rubric.ts` | FA's rubric: 7 criteria, 1–5 in half steps, bands, verdicts. Client-safe. |
+| `lib/delivery-rubric.ts` | FA's assessor guide: 6 areas, 0–3 each, 18 points, thresholds per diploma. Client-safe. |
 | `lib/courses.ts` | Where a cohort stands: delivered, what it still owes, closed. Pure. |
 | `lib/support.ts` | Support-case queries. `server-only`. |
 | `lib/coaches.ts` | The cross-course roster: one row per enrolment. `server-only`. |
 | `lib/coursework.ts` | Task aggregation and progress summaries. |
+| `lib/educator.ts` | The three questions an educator opens the app with. `server-only`. |
 | `lib/footage.ts` | Timecodes, and what a player can do with a film link. Pure, client-safe. |
 | `lib/grading.ts` | Auto-grading and score rollups. |
+| `lib/diploma-coursework.ts` | What a B or C Diploma requires, and putting it on the courses that owe it. |
 
 `attendance.ts` and `support-rubric.ts` are deliberately pure — the register,
 the desks and the coach's own page all total the same way rather than three
@@ -58,6 +62,15 @@ approximations of it. **Keep database access out of them.**
 - **Hours are not carried across a transfer automatically.** A coach who sat
   Block 1 twice has not done three-quarters of the qualification. The link makes
   the hours visible; crediting them is a judgement, written on the ledger.
+- **Two instruments, and neither converts into the other.** `support-rubric.ts`
+  rates a coach 1–5 in half steps and is what the register's columns, the pass
+  mark, the support desk and every imported 2026 score are in.
+  `delivery-rubric.ts` scores one session 0–3 across six areas out of eighteen,
+  which is what Football Australia's assessor guide asks of a tutor on the
+  grass, and what `/educator/grading/<enrolment>` writes. A delivery can carry
+  both; nothing derives one from the other, because nobody has published a
+  conversion. The *outcome* of a scoresheet is arithmetic and is derived; the
+  course rating is a judgement and stays a person's to set.
 - **A rating decides an outcome, and the action enforces it.** Below the
   threshold cannot be "Passed"; the form won't offer it and `saveResults`
   refuses it. An educator who means to pass somebody short has to move the
@@ -73,6 +86,14 @@ approximations of it. **Keep database access out of them.**
 - **Educators are scoped.** `staffCourseIds(user)` returns `null` for an admin —
   the absence of a filter — and a list of course ids for an educator. Every list
   page here filters by it, and every action calls `assertCourseStaff`.
+- **An educator's view is `/dashboard` and `/educator/*`, and that is all.** The
+  pages under `admin/` are the program's and are an admin's in the navigation:
+  an educator was given all six of them scoped, which is six pages of somebody
+  else's job to read past. They still work and are still scoped — an educator
+  who follows a link into one is not stopped — they are simply not offered.
+  "Attached" is the course roster rather than a coach-to-educator table: the
+  register is what FQ keeps, and a second attachment would be a second thing to
+  disagree with it.
 - **A course ends twice.** *Delivered* is derived — the last `CourseDay.date`
   has passed — and moves if the register does, because if a tenth day is added
   delivery finished later. *Closed* is `Course.closedAt`, somebody's judgement
@@ -107,6 +128,21 @@ approximations of it. **Keep database access out of them.**
   other page here. It looked fine locally because SQLite is a function call
   away; production talks to Turso over the network, where round trips are the
   whole cost. If you add a column to that page, add it to the batch.
+- **A diploma's coursework belongs to the diploma, not to the cohort.** Two
+  session plans on a C Diploma, a journal on a B Diploma, from the catalogue in
+  `lib/diploma-coursework.ts` and marked by `Assignment.requirement`.
+  `ensureDiplomaCoursework` creates and never edits or deletes, and runs on
+  course create, on the settings save that names the qualification, on
+  enrolment, on a transfer, in the importer and from `scripts/boot.ts` — which
+  is what covers the cohorts imported before any of it existed. Withdraw one
+  from a cohort by unpublishing it; delete it and the next boot puts it back.
+  The level is read from `Course.qualification`, falling back to the title,
+  because the create form has no qualification field.
+- **The journal tick and the journal are two different facts.** The register's
+  `journalComplete` is an educator's sign-off; the JOURNAL assignment is what
+  the coach hands in. Neither sets the other — nothing here is decided
+  automatically that a person should decide — and the register shows both
+  side by side.
 - **Film is a link, never an upload.** Session footage is hundreds of megabytes
   and this app stores files as database rows. `DeliveryFootage` hangs a link off
   a `PracticalDelivery`, and `FootageNote` pins feedback to a second in it;

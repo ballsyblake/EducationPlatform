@@ -24,6 +24,7 @@ import {
   logActivity,
   rearrangeAttempt,
   recordReview,
+  recordVideoLink,
   referToSupport,
   requestExtension,
   updateCase,
@@ -344,6 +345,54 @@ export function RearrangeForm({
       <FormSuccess message={state.status === "ok" ? state.message : null} />
       <SubmitButton className="btn-secondary btn-sm" pendingLabel="Saving…">
         Save changes
+      </SubmitButton>
+    </form>
+  );
+}
+
+/**
+ * The link to the film, entered by whoever is running the case.
+ *
+ * Controlled, like every form here: React 19 clears an uncontrolled field once
+ * the action settles, and a mistyped link that comes back as an error should
+ * still be there to correct.
+ */
+export function RecordVideoLinkForm({
+  attemptId,
+  defaultUrl,
+}: {
+  attemptId: string;
+  defaultUrl: string;
+}) {
+  const [state, formAction] = useActionState(recordVideoLink, idle);
+  const [videoUrl, setVideoUrl] = useState(defaultUrl);
+
+  return (
+    <form action={formAction} className="space-y-3">
+      <input type="hidden" name="attemptId" value={attemptId} />
+      <div>
+        <label className="label" htmlFor={`videoUrl-${attemptId}`}>
+          Link to the coach&apos;s session
+        </label>
+        <input
+          id={`videoUrl-${attemptId}`}
+          name="videoUrl"
+          type="url"
+          value={videoUrl}
+          onChange={(e) => setVideoUrl(e.target.value)}
+          placeholder="https://www.youtube.com/watch?v=…"
+          className="input"
+        />
+        <p className="hint">
+          For film that reached you by email rather than through the app. YouTube and Vimeo play
+          on this page; anything else is kept as a link. The coach can still replace it from their
+          own page until the assessment is written up.
+        </p>
+      </div>
+      <FormError message={state.status === "error" ? state.message : null} />
+      <FormSuccess message={state.status === "ok" ? state.message : null} />
+      <SubmitButton className="btn-secondary btn-sm" pendingLabel="Saving…">
+        {defaultUrl ? "Replace the link" : "Record the link"}
       </SubmitButton>
     </form>
   );

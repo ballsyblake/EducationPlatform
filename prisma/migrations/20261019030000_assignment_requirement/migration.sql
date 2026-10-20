@@ -1,0 +1,29 @@
+-- The coursework a diploma carries, as opposed to the coursework one cohort's
+-- author wrote.
+--
+-- FQ's diplomas each come with work every coach on them owes — two session
+-- plans on a C Diploma, a journal on a B Diploma — and none of it was anywhere
+-- in the product. All three imported B Diploma cohorts carried no assignments
+-- and no quizzes, so eighty-odd coaches opened their dashboard to an empty
+-- to-do list and nothing said they owed a journal.
+--
+-- `requirement` is which standing item an assignment is, from the catalogue in
+-- src/lib/diploma-coursework.ts. Null is an ordinary assignment somebody typed,
+-- which is what every existing row is and what the authoring form keeps
+-- creating.
+--
+-- The unique index is what makes provisioning idempotent — it runs on boot and
+-- on every enrolment. SQLite treats nulls as distinct in a unique index, so it
+-- binds one row per requirement per course and leaves the hand-written
+-- assignments alone however many a course has.
+--
+-- Written by hand rather than taken from `migrate diff`, which rebuilds the
+-- table to add a column that SQLite can add in place. Assignment is the parent
+-- of every submission in the product; a rebuild of it is a worse risk than the
+-- thing it buys.
+--
+-- No backfill here. The rows themselves are created by
+-- `ensureDiplomaCoursework`, which needs to read each course's qualification
+-- and the catalogue, and runs from scripts/boot.ts on the next start.
+ALTER TABLE "Assignment" ADD COLUMN "requirement" TEXT;
+CREATE UNIQUE INDEX "Assignment_courseId_requirement_key" ON "Assignment" ("courseId", "requirement");

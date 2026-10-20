@@ -2,7 +2,7 @@ import Link from "next/link";
 import { TaskList } from "@/components/task-list";
 import { EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { staffCourseIds } from "@/lib/access";
-import { formatHours, makeUpBalance } from "@/lib/attendance";
+import { formatHours, makeUpBalance, standardDayMinutes, sumMakeUpDays } from "@/lib/attendance";
 import { isAdmin, isStaff, requireUser } from "@/lib/auth";
 import { getGradingQueueCounts, getTasksForCoach, summarizeTasks } from "@/lib/coursework";
 import { prisma } from "@/lib/db";
@@ -12,11 +12,23 @@ import {
   getSupportQueueCount,
 } from "@/lib/support";
 import { stageOf } from "@/lib/support-rubric";
+import { EducatorDashboard } from "./educator-dashboard";
 
 export const metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const user = await requireUser();
+
+  // An educator gets their own page rather than this one with staff callouts
+  // bolted on above it. An admin keeps this one: the program's own figures are
+  // on Manage, and an admin is as likely to be enrolled on something as not.
+  if (isStaff(user) && !isAdmin(user)) {
+    const enrolments = await prisma.enrollment.count({
+      where: { userId: user.id, course: { published: true } },
+    });
+    return <EducatorDashboard user={user} enrolments={enrolments} />;
+  }
+
   const tasks = await getTasksForCoach(user.id);
   const summary = summarizeTasks(tasks);
   // Both queues are scoped: an educator is shown what is waiting on them, not
@@ -31,16 +43,34 @@ export default async function DashboardPage() {
   const supportCases = await getSupportCasesForCoach(user.id);
   const openCase = supportCases.find((c) => c.status === "IN_PROGRESS") ?? null;
 
-  // Hours owed, for the same reason: a coach who missed a day usually finds out
+  // Days owed, for the same reason: a coach who missed a day usually finds out
   // it still counts against them months later, when somebody goes to sign off
   // their qualification.
   const owed = isStaff(user)
     ? []
     : await prisma.attendanceMakeUp.findMany({
         where: { status: { in: ["OWED", "ARRANGED"] }, enrollment: { userId: user.id } },
-        include: { enrollment: { select: { courseId: true, course: { select: { title: true } } } } },
+        include: {
+          enrollment: {
+            select: {
+              courseId: true,
+              course: {
+                select: {
+                  title: true,
+                  days: { select: { startTime: true, endTime: true } },
+                },
+              },
+            },
+          },
+        },
       });
   const owedMinutes = owed.reduce((sum, m) => sum + makeUpBalance(m), 0);
+  const owedDays = sumMakeUpDays(
+    owed.map((m) => ({
+      minutes: makeUpBalance(m),
+      dayLength: standardDayMinutes(m.enrollment.course.days),
+    })),
+  );
 
   const upNext = tasks
     .filter((t) => t.state === "not_started" || t.state === "in_progress")
@@ -92,8 +122,19 @@ export default async function DashboardPage() {
           className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-highlight-orange/40 bg-status-orange-bg px-5 py-4 transition-colors"
         >
           <div>
+            {/* Days, because a day is what the coach will go and sit. Under a
+                day it says the hours instead: rounding three hours up to "a
+                day" would have them sit five they never missed. */}
             <p className="font-semibold text-status-orange-fg">
-              {formatHours(owedMinutes)} to make up
+              {owedDays.days > 0
+                ? `${owedDays.days} day${owedDays.days === 1 ? "" : "s"} to make up`
+                : `${formatHours(owedMinutes)} to make up`}
+              {owedDays.days > 0 && owedDays.extraMinutes + owedDays.unknownMinutes > 0 && (
+                <span className="font-normal">
+                  {" "}
+                  and {formatHours(owedDays.extraMinutes + owedDays.unknownMinutes)}
+                </span>
+              )}
             </p>
             <p className="text-sm text-status-orange-fg">
               Time missed on {owed[0].enrollment.course.title}
