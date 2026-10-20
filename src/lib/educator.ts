@@ -31,6 +31,21 @@ function within(scope: string[] | null) {
   return scope === null ? {} : { courseId: { in: scope } };
 }
 
+/**
+ * Who is asking, and what they can see.
+ *
+ * Two different attachments, and support needs both. `courses` is the roster —
+ * `staffCourseIds`, null for an admin — which is how a cohort's assessor gets
+ * the coaches on it. `userId` is the assessor themselves, because a support
+ * case names who is running it: an admin can hand one coach's reassessment to
+ * somebody who was never on that cohort's team, and that assignment has to
+ * reach their list or it does nothing at all.
+ */
+export type AssessorScope = {
+  courses: string[] | null;
+  userId: string;
+};
+
 /* ------------------------- On-course delivery ----------------------------- */
 
 /** Why a coach is on the grading list. The two are different jobs. */
@@ -152,9 +167,17 @@ const SUPPORT_CASE_SELECT = {
 
 type SupportCaseRow = Awaited<ReturnType<typeof openCases>>[number];
 
-async function openCases(scope: string[] | null) {
+async function openCases(scope: AssessorScope) {
   return prisma.supportCase.findMany({
-    where: { status: "IN_PROGRESS", ...within(scope) },
+    where: {
+      status: "IN_PROGRESS",
+      // An admin has no filter at all. Everybody else gets their cohorts' cases
+      // *or* the ones assigned to them by name — the second is what makes a
+      // case given to an assessor off the roster reachable.
+      ...(scope.courses === null
+        ? {}
+        : { OR: [{ courseId: { in: scope.courses } }, { educatorId: scope.userId }] }),
+    },
     select: SUPPORT_CASE_SELECT,
     orderBy: { openedAt: "desc" },
   });
@@ -192,7 +215,7 @@ export type SupportItem = {
  * so this page and the desk quote the same day for the same case.
  */
 export async function getSupportWork(
-  scope: string[] | null,
+  scope: AssessorScope,
   now = new Date(),
 ): Promise<SupportItem[]> {
   const cases = await openCases(scope);
@@ -245,69 +268,6 @@ export async function getSupportWork(
 /** The items in one pile, in the order `getSupportWork` resolved them. */
 export function inBucket(items: SupportItem[], bucket: SupportBucket) {
   return items.filter((i) => i.bucket === bucket);
-}
-
-/* --------------------------- What is outstanding -------------------------- */
-
-export type EducatorOutstanding = {
-  /** Coaches with no delivery written up at all. */
-  unassessed: number;
-  /** Coaches whose deliveries are in but who have no course rating. */
-  unrated: number;
-  /** Film in, and observations to write up. */
-  toReview: number;
-  /** Live assessments to put a date on, availability in hand. */
-  toSchedule: number;
-  /** Live assessments with no availability — a coach to reach out to. */
-  toBook: number;
-  /** Film asked for, the date gone, nothing submitted. */
-  toChase: number;
-  /** Open cases past the date in force. */
-  pastDeadline: number;
-  /** Coursework still unmarked on their courses, which lives on the old desk. */
-  ungraded: number;
-  /** Everything above that is somebody's to do, minus the overlap. */
-  total: number;
-};
-
-/**
- * The dashboard's one job: what is outstanding on the courses I am attached to.
- *
- * Built from the same two functions the pages below it draw, rather than its
- * own counts — the page that tells an educator they have four things to do and
- * the page that lists three of them is worse than either alone.
- */
-export async function getEducatorOutstanding(
-  scope: string[] | null,
-  ungraded: number,
-  now = new Date(),
-): Promise<EducatorOutstanding> {
-  const [deliveries, support] = await Promise.all([
-    getDeliveryQueue(scope),
-    getSupportWork(scope, now),
-  ]);
-
-  const unassessed = deliveries.filter((d) => d.need === "unassessed").length;
-  const unrated = deliveries.filter((d) => d.need === "unrated").length;
-  const toReview = inBucket(support, "to_review").length;
-  const toSchedule = inBucket(support, "to_schedule").length;
-  const toBook = inBucket(support, "to_book").length;
-  const toChase = inBucket(support, "to_chase").length;
-
-  return {
-    unassessed,
-    unrated,
-    toReview,
-    toSchedule,
-    toBook,
-    toChase,
-    // Counted but not added in: a case past its deadline is already in one of
-    // the piles above, and adding it again would inflate the figure the
-    // dashboard leads with.
-    pastDeadline: support.filter((i) => i.overdue).length,
-    ungraded,
-    total: unassessed + unrated + toReview + toSchedule + toBook + toChase + ungraded,
-  };
 }
 
 /* --------------------------- The assessor's list -------------------------- */
@@ -367,11 +327,13 @@ export type AssessorRow = {
  * maintain and a second thing to disagree with it.
  */
 export async function getAssessorQueue(
-  scope: string[] | null,
+  scope: AssessorScope,
   now = new Date(),
 ): Promise<AssessorRow[]> {
   const [deliveries, support] = await Promise.all([
-    getDeliveryQueue(scope),
+    // Deliveries are the roster's: watching somebody deliver on a course is
+    // being on that course's team, and there is nothing per-coach to assign.
+    getDeliveryQueue(scope.courses),
     getSupportWork(scope, now),
   ]);
 

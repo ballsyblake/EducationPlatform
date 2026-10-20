@@ -91,6 +91,35 @@ export async function assertCourseStaff(user: User, courseId: string): Promise<v
   if (!(await isCourseStaff(user, courseId))) redirect(homePathFor(user));
 }
 
+/**
+ * Acting on one support case: an admin, somebody rostered on its course, or the
+ * educator the case is assigned to.
+ *
+ * The third one is the point. A case names who is running it — `educatorId`,
+ * picked on the case itself — and that is an admin assigning one coach to one
+ * assessor, which the course roster cannot express. An assessor given a case on
+ * a cohort they were never on the team for could see nothing and do nothing:
+ * the coach was missing from their list, and the case redirected them away.
+ */
+export async function isCaseStaff(user: User, caseId: string): Promise<boolean> {
+  if (isAdmin(user)) return true;
+  if (!isStaff(user)) return false;
+
+  const supportCase = await prisma.supportCase.findUnique({
+    where: { id: caseId },
+    select: { courseId: true, educatorId: true },
+  });
+  if (!supportCase) return false;
+  if (supportCase.educatorId === user.id) return true;
+
+  return isCourseStaff(user, supportCase.courseId);
+}
+
+/** The same, as a gate. Redirects for the reasons `assertCourseStaff` does. */
+export async function assertCaseStaff(user: User, caseId: string): Promise<void> {
+  if (!(await isCaseStaff(user, caseId))) redirect(homePathFor(user));
+}
+
 /** True when the user may read a stored file. */
 export async function canAccessUpload(user: User, uploadId: string) {
   const upload = await prisma.upload.findUnique({
@@ -98,7 +127,7 @@ export async function canAccessUpload(user: User, uploadId: string) {
     include: {
       material: { select: { courseId: true } },
       submissionFileOf: { select: { userId: true, assignment: { select: { courseId: true } } } },
-      supportAttemptOf: { select: { case: { select: { userId: true } } } },
+      supportAttemptOf: { select: { case: { select: { id: true, userId: true } } } },
       staffCertificateOf: { select: { assessmentId: true } },
       nonNegotiableProofOf: { select: { assessmentId: true } },
       photoOf: { select: { id: true } },
@@ -130,10 +159,13 @@ export async function canAccessUpload(user: User, uploadId: string) {
   }
 
   // Post-course support: the session plan a coach attached to a delivery being
-  // reassessed. Theirs and their educator's — and every educator is an admin,
-  // who returned above.
+  // reassessed. Theirs, and whoever is reviewing it — which is the case's own
+  // staff, not the course's: an assessor can be given one case on a cohort they
+  // are not on the team for, and a session plan they cannot open is a
+  // reassessment they cannot write up.
   if (upload.supportAttemptOf) {
-    return upload.supportAttemptOf.case.userId === user.id ? upload : null;
+    if (upload.supportAttemptOf.case.userId === user.id) return upload;
+    return (await isCaseStaff(user, upload.supportAttemptOf.case.id)) ? upload : null;
   }
 
   // CDA evidence — a staff qualification certificate or a Non-Negotiable

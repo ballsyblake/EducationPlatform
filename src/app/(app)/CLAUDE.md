@@ -100,10 +100,20 @@ approximations of it. **Keep database access out of them.**
   case page hides the program's own levers (arranging, rearranging, cancelling,
   case settings, closing, granting an extension, recording the film) from
   anybody who isn't an admin.
-  "Attached" is the course roster rather than a coach-to-educator table: the
-  register is what FQ keeps, and a second attachment would be a second thing to
-  disagree with it. An assessor gets a coach because the admin put them on that
-  coach's course.
+- **Two attachments, and support needs both.** The roster — `CourseStaff`, what
+  `staffCourseIds` resolves — is how a cohort's assessor gets the coaches on it,
+  and it stays the only one for deliveries: watching somebody deliver on a
+  course is being on that course's team, and there is nothing per-coach to
+  assign. A support case is different: it names who is running it
+  (`SupportCase.educatorId`), which is an admin handing one coach to one
+  assessor, and that assessor is often not on that cohort's team at all. So
+  `openCases` matches the roster **or** the assignment, and `assertCaseStaff`
+  (not `assertCourseStaff`) guards the case page and every support action.
+  Before that, a case assigned to somebody off the roster was invisible on their
+  list and redirected them away when they opened it by URL — the assignment did
+  nothing.
+  `canAccessUpload` follows the same rule for a session plan attached to a
+  reassessment: a file the reviewer cannot open is a write-up they cannot do.
 - **A coach cannot sign in.** The portal is parked — see the root `CLAUDE.md`.
   Every coach-facing page under here is still correct and still reachable by an
   admin who is enrolled on something; nothing about a coach's *records* changed.
