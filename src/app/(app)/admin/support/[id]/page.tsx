@@ -112,10 +112,13 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
       <PageHeader
         // Back where they came from. The desk is the program's page; an
         // educator's own list of this work is the one they opened it from.
-        breadcrumb={{
-          href: isAdmin(user) ? "/admin/support" : "/educator/support",
-          label: "Post-course support",
-        }}
+        breadcrumb={
+          isAdmin(user)
+            ? { href: "/admin/support", label: "Post-course support" }
+            : // An assessor has one page, and a reassessment to review is a row
+              // on it. The desk is the program's.
+              { href: "/educator", label: "Your coaches" }
+        }
         title={displayName(supportCase.user)}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
@@ -272,9 +275,11 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
                     Waiting on {displayName(supportCase.user)} to submit their footage.{" "}
                     {relativeDue(current.dueAt).text}.
                   </p>
-                  {/* Film often arrives by email instead. Without this the case
-                      sits here waiting while the link is in somebody's inbox. */}
-                  <RecordVideoLinkForm attemptId={current.id} defaultUrl="" />
+                  {/* Film often arrives by email instead, and with the coach
+                      portal parked that is the only way it arrives. Putting it
+                      on the case is the program's job — an assessor is given
+                      the film to review, not the job of chasing it. */}
+                  {isAdmin(user) && <RecordVideoLinkForm attemptId={current.id} defaultUrl="" />}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -301,18 +306,22 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
                       </a>
                       {/* Folded away: the link that is in is usually the right
                           one, and the common reason to touch it is film set to
-                          private rather than unlisted. */}
-                      <details>
-                        <summary className="cursor-pointer text-xs font-medium text-ink-500 hover:text-ink-700">
-                          Wrong link?
-                        </summary>
-                        <div className="pt-3">
-                          <RecordVideoLinkForm
-                            attemptId={current.id}
-                            defaultUrl={current.videoUrl}
-                          />
-                        </div>
-                      </details>
+                          private rather than unlisted. An assessor who hits that
+                          says so — whoever recorded the link is the one who can
+                          ask the coach for another. */}
+                      {isAdmin(user) && (
+                        <details>
+                          <summary className="cursor-pointer text-xs font-medium text-ink-500 hover:text-ink-700">
+                            Wrong link?
+                          </summary>
+                          <div className="pt-3">
+                            <RecordVideoLinkForm
+                              attemptId={current.id}
+                              defaultUrl={current.videoUrl}
+                            />
+                          </div>
+                        </details>
+                      )}
                     </div>
                   )}
 
@@ -362,29 +371,34 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
                 </div>
               )}
 
-              <details className="mt-4 border-t border-ink-200 pt-3">
-                <summary className="cursor-pointer text-sm font-medium text-ink-600">
-                  Change the arrangements
-                </summary>
-                <div className="mt-3 space-y-4">
-                  <RearrangeForm attempt={current} />
-                  <form action={cancelAttempt} className="border-t border-ink-200 pt-3">
-                    <input type="hidden" name="attemptId" value={current.id} />
-                    <SubmitButton
-                      className="btn-danger btn-sm"
-                      pendingLabel="Cancelling…"
-                      confirm="Cancel this assessment? Anything the coach has submitted for it goes with it."
-                    >
-                      Cancel this assessment
-                    </SubmitButton>
-                  </form>
-                </div>
-              </details>
+              {/* Rearranging and cancelling are the program's. An assessor is
+                  told where to be and what to review; moving the date is a
+                  conversation with the coach, which is the desk's end. */}
+              {isAdmin(user) && (
+                <details className="mt-4 border-t border-ink-200 pt-3">
+                  <summary className="cursor-pointer text-sm font-medium text-ink-600">
+                    Change the arrangements
+                  </summary>
+                  <div className="mt-3 space-y-4">
+                    <RearrangeForm attempt={current} />
+                    <form action={cancelAttempt} className="border-t border-ink-200 pt-3">
+                      <input type="hidden" name="attemptId" value={current.id} />
+                      <SubmitButton
+                        className="btn-danger btn-sm"
+                        pendingLabel="Cancelling…"
+                        confirm="Cancel this assessment? Anything the coach has submitted for it goes with it."
+                      >
+                        Cancel this assessment
+                      </SubmitButton>
+                    </form>
+                  </div>
+                </details>
+              )}
             </section>
           )}
 
           {/* ------------------------ Arrange the next ---------------------- */}
-          {!current && supportCase.status === "IN_PROGRESS" && (
+          {isAdmin(user) && !current && supportCase.status === "IN_PROGRESS" && (
             <section className="card card-pad">
               <h2 className="mb-1 text-lg font-semibold text-ink-900">
                 Arrange {supportCase.attempts.length ? "the next assessment" : "an assessment"}
@@ -617,12 +631,17 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
                 <p className="mb-2 text-xs font-medium text-ink-700">
                   Waiting on an answer to the request of {formatDate(pending.requestedAt)}.
                 </p>
+                {/* Asking for more time is an assessor's; granting it is the
+                    program's, and showing them the form they cannot use would
+                    read as a decision they had been left to make. */}
+                {isAdmin(user) && (
                 <DecideExtensionForm
                   extension={{
                     id: pending.id,
                     requestedUntil: dayValue(pending.requestedUntil),
                   }}
                 />
+                )}
               </div>
             ) : (
               supportCase.status === "IN_PROGRESS" && (
@@ -690,19 +709,26 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
               {supportCase.closingNote && (
                 <p className="prose-note mt-2">{supportCase.closingNote}</p>
               )}
-              <form action={reopenCase} className="mt-3">
-                <input type="hidden" name="caseId" value={supportCase.id} />
-                <SubmitButton
-                  className="btn-secondary btn-sm"
-                  pendingLabel="Reopening…"
-                  confirm="Reopen this case?"
-                >
-                  Reopen case
-                </SubmitButton>
-              </form>
+              {isAdmin(user) && (
+                <form action={reopenCase} className="mt-3">
+                  <input type="hidden" name="caseId" value={supportCase.id} />
+                  <SubmitButton
+                    className="btn-secondary btn-sm"
+                    pendingLabel="Reopening…"
+                    confirm="Reopen this case?"
+                  >
+                    Reopen case
+                  </SubmitButton>
+                </form>
+              )}
             </section>
           )}
 
+          {/* Who runs the case, this coach's own deadline and how many
+              assessments they are allowed are the program's settings, and so is
+              closing: a successful write-up closes the case by itself, and the
+              rest is somebody deciding where a coach stands. */}
+          {isAdmin(user) && (
           <section className="card card-pad">
             <h2 className="section-title mb-3">Case settings</h2>
             <CaseSettingsForm
@@ -715,8 +741,9 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
               }
             />
           </section>
+          )}
 
-          {supportCase.status === "IN_PROGRESS" && (
+          {isAdmin(user) && supportCase.status === "IN_PROGRESS" && (
             <section className="card card-pad">
               <h2 className="section-title mb-3">Close the case</h2>
               <CloseCaseForm caseId={supportCase.id} lapsed={overdue} />

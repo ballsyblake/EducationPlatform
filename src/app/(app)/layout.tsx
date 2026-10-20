@@ -2,7 +2,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BrandLogo } from "@/components/brand";
 import { NavLinks, type NavLink } from "@/components/nav";
-import { homePathFor, isAdmin, isCdu, isEducator, isStaff, requireUser } from "@/lib/auth";
+import {
+  coachPortalEnabled,
+  isAdmin,
+  isCdaRole,
+  isCdu,
+  isEducator,
+  isStaff,
+  requireUser,
+} from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, initials } from "@/lib/format";
 
@@ -18,7 +26,12 @@ import { displayName, initials } from "@/lib/format";
  */
 const DASHBOARD: NavLink = { href: "/dashboard", label: "Dashboard" };
 
-/** Only for somebody who is actually on a course as a coach. */
+/**
+ * Only for somebody who is actually on a course as a coach — and only while the
+ * coach portal is unparked. These three are the coach's own view of the app,
+ * and with coaches switched off the only accounts that can reach them are staff
+ * who happen to be sitting a diploma themselves.
+ */
 const ENROLLED_LINKS: NavLink[] = [
   { href: "/courses", label: "Courses" },
   { href: "/grades", label: "Grades & Feedback" },
@@ -41,22 +54,19 @@ const COURSE_LINKS: NavLink[] = [
 ];
 
 /**
- * An educator's whole view: the dashboard, and these two.
+ * An assessor's whole view: one page.
  *
- * Not a filtered version of the row above — a different set of questions. An
- * educator was given the program's six tabs scoped to their courses, which is
- * six pages of somebody else's job to read past. What they are actually asked
- * for is who they still have to watch deliver, and who is waiting on a visit.
+ * It was the program's six tabs scoped by course, then a dashboard and two
+ * queues, and it is now the list of coaches assigned to them with what each one
+ * needs on the row. There is nothing to navigate between, so there is one tab
+ * and no Dashboard beside it — `/dashboard` sends them here.
  *
- * Shown on being an educator rather than on holding a seat, like every other
+ * Shown on being an assessor rather than on holding a seat, like every other
  * link here: a tab that appeared the day somebody was rostered and vanished
- * when the course closed would be worse than a quiet one, and both pages
- * explain an empty list.
+ * when the course closed would be worse than a quiet one, and the page explains
+ * an empty list.
  */
-const EDUCATOR_LINKS: NavLink[] = [
-  { href: "/educator/grading", label: "Grading" },
-  { href: "/educator/support", label: "Post-course support" },
-];
+const EDUCATOR_LINKS: NavLink[] = [{ href: "/educator", label: "Your coaches" }];
 
 /**
  * Manage, which every staff account keeps even with no courses.
@@ -75,32 +85,43 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // A club administrator or an assessor has a valid account for the other
   // product in this instance, not this one. Sending them on beats showing them
   // a coach dashboard with nothing on it.
-  const home = homePathFor(user);
-  if (home !== "/dashboard") redirect(home);
+  //
+  // Asked as "is this the other product's account", not as "is their home page
+  // somewhere else": an educator's home is now `/educator`, which is inside
+  // this layout, and testing the path would have redirected them to a page that
+  // redirects them again.
+  if (isCdaRole(user)) redirect("/cda");
 
-  const [enrolments, cases] = await Promise.all([
-    // Matches what /courses actually lists, unpublished courses included in
-    // neither — otherwise the tab appears and the page is empty anyway.
-    prisma.enrollment.count({ where: { userId: user.id, course: { published: true } } }),
-    // A coach only gets a Support tab once they have a case. Most coaches never
-    // will, and a permanent tab labelled "Support" reads as an accusation to
-    // everyone who doesn't need it.
-    isStaff(user) ? Promise.resolve(0) : prisma.supportCase.count({ where: { userId: user.id } }),
-  ]);
+  // Both are the coach's own view of the app, so neither is worth a query while
+  // that view is parked.
+  const [enrolments, cases] = coachPortalEnabled()
+    ? await Promise.all([
+        // Matches what /courses actually lists, unpublished courses included in
+        // neither — otherwise the tab appears and the page is empty anyway.
+        prisma.enrollment.count({ where: { userId: user.id, course: { published: true } } }),
+        // A coach only gets a Support tab once they have a case. Most coaches
+        // never will, and a permanent tab labelled "Support" reads as an
+        // accusation to everyone who doesn't need it.
+        isStaff(user)
+          ? Promise.resolve(0)
+          : prisma.supportCase.count({ where: { userId: user.id } }),
+      ])
+    : [0, 0];
 
   const links = [
-    DASHBOARD,
+    // An assessor's one page is their list, so the Dashboard tab would be a
+    // second name for it.
+    ...(isEducator(user) ? [] : [DASHBOARD]),
     // An admin who has never been enrolled has no courses of their own and no
     // grades of their own, and two tabs that lead to an empty state are two
     // tabs. They appear on their own the day the account is enrolled in
     // something — an educator sitting their own diploma is not unusual.
     ...(enrolments > 0 ? ENROLLED_LINKS : []),
     ...(cases > 0 ? [SUPPORT_LINK] : []),
-    // The program's tabs are an admin's. An educator gets the two pages above
-    // instead; Manage, the roster, the coursework queue, the hours ledger, the
-    // cohorts roll-up and the support desk all still work and are still scoped
-    // — they are just not what an educator is asked to do, and the dashboard
-    // links to the coursework queue on the one course in ten that has any.
+    // The program's tabs are an admin's. An educator gets the one list instead;
+    // Manage, the roster, the coursework queue, the hours ledger, the cohorts
+    // roll-up and the support desk all still work and are still scoped — they
+    // are just not what an educator is asked to do.
     ...(isAdmin(user) ? [MANAGE, ...COURSE_LINKS] : []),
     ...(isEducator(user) ? EDUCATOR_LINKS : []),
     ...(isAdmin(user) ? [STAFF_LINK] : []),

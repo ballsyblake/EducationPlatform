@@ -141,6 +141,14 @@ Only ~2,100 lines. A chat that needs it can read all of it.
 to the CDA portal. `ADMIN` runs Coach Education and may *additionally* hold
 `User.cdu`, which is what grants the Club Development Unit.
 
+**The coach portal is parked.** A `COACH` cannot sign in — `canSignIn()` in
+`auth.ts` is the only place that decides it, and the sign-in form, a link
+already issued and a session already in the jar all go through it. Nothing was
+deleted: the accounts, the records and the coach-facing pages are all still
+there, and `COACH_PORTAL=on` brings them back. So Coach Education has two roles
+that sign in, the assessor and the admin, and the assessor's whole view is the
+one list at `/educator`.
+
 **`cdu` is a grant, not a consequence of being an admin.** It used to be
 `role === "ADMIN"`, which meant promoting an educator handed them every club's
 assessment. Don't put that back.

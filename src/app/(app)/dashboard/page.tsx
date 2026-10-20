@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { TaskList } from "@/components/task-list";
 import { EmptyState, PageHeader, ProgressBar, StatTile } from "@/components/ui";
 import { staffCourseIds } from "@/lib/access";
@@ -12,22 +13,17 @@ import {
   getSupportQueueCount,
 } from "@/lib/support";
 import { stageOf } from "@/lib/support-rubric";
-import { EducatorDashboard } from "./educator-dashboard";
 
 export const metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const user = await requireUser();
 
-  // An educator gets their own page rather than this one with staff callouts
-  // bolted on above it. An admin keeps this one: the program's own figures are
-  // on Manage, and an admin is as likely to be enrolled on something as not.
-  if (isStaff(user) && !isAdmin(user)) {
-    const enrolments = await prisma.enrollment.count({
-      where: { userId: user.id, course: { published: true } },
-    });
-    return <EducatorDashboard user={user} enrolments={enrolments} />;
-  }
+  // An assessor has one page, and it is the list of their coaches. This used to
+  // be a dashboard of counts in front of it — three tiles, each a link to a
+  // page that said the same thing in full — and the counts are on the list
+  // itself now.
+  if (isStaff(user) && !isAdmin(user)) redirect("/educator");
 
   const tasks = await getTasksForCoach(user.id);
   const summary = summarizeTasks(tasks);

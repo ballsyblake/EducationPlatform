@@ -9,8 +9,8 @@ before changing anything about how a coach is rated.
 ## The shape of it
 
 ```
-dashboard/          Coach home; educators get `educator-dashboard.tsx` instead
-educator/           An educator's whole view: grading, and post-course support
+dashboard/          Coach home; an educator is redirected to their list
+educator/           An assessor's whole view: one list of their coaches
 courses/[id]/       What a coach sees: library, their own register row, results
 assignments/ quizzes/ grades/   Coursework and its feedback
 support/[id]/       A coach's own post-course support case
@@ -38,7 +38,7 @@ admin/
 | `lib/support.ts` | Support-case queries. `server-only`. |
 | `lib/coaches.ts` | The cross-course roster: one row per enrolment. `server-only`. |
 | `lib/coursework.ts` | Task aggregation and progress summaries. |
-| `lib/educator.ts` | The three questions an educator opens the app with. `server-only`. |
+| `lib/educator.ts` | The assessor's list: the three jobs, per coach. `server-only`. |
 | `lib/grading.ts` | Auto-grading and score rollups. |
 | `lib/diploma-coursework.ts` | What a B or C Diploma requires, and putting it on the courses that owe it. |
 
@@ -85,14 +85,30 @@ approximations of it. **Keep database access out of them.**
 - **Educators are scoped.** `staffCourseIds(user)` returns `null` for an admin —
   the absence of a filter — and a list of course ids for an educator. Every list
   page here filters by it, and every action calls `assertCourseStaff`.
-- **An educator's view is `/dashboard` and `/educator/*`, and that is all.** The
-  pages under `admin/` are the program's and are an admin's in the navigation:
-  an educator was given all six of them scoped, which is six pages of somebody
-  else's job to read past. They still work and are still scoped — an educator
-  who follows a link into one is not stopped — they are simply not offered.
+- **An educator's view is `/educator`, and that is all.** One list: every coach
+  assigned to them who still needs something, tagged with which of the three
+  jobs it is — watch them deliver, pass or fail them, review the reassessment
+  that came back. `getAssessorQueue` builds it from the same two queries the
+  grading queue and the support desk used, so the list cannot disagree with the
+  write-up pages it links to, and the support half is filtered to `to_review`:
+  booking a visit, chasing film and taking somebody's availability are the
+  program's jobs and live on `/admin/support`. The dashboard, `/educator/grading`
+  and `/educator/support` are redirects to it now.
+  The pages under `admin/` are the program's and are an admin's in the
+  navigation. They still work and are still scoped — an educator who follows a
+  link into one is not stopped — they are simply not offered, and the support
+  case page hides the program's own levers (arranging, rearranging, cancelling,
+  case settings, closing, granting an extension, recording the film) from
+  anybody who isn't an admin.
   "Attached" is the course roster rather than a coach-to-educator table: the
   register is what FQ keeps, and a second attachment would be a second thing to
-  disagree with it.
+  disagree with it. An assessor gets a coach because the admin put them on that
+  coach's course.
+- **A coach cannot sign in.** The portal is parked — see the root `CLAUDE.md`.
+  Every coach-facing page under here is still correct and still reachable by an
+  admin who is enrolled on something; nothing about a coach's *records* changed.
+  Don't rebuild a coach page's logic into a staff page on the assumption it is
+  dead.
 - **A course ends twice.** *Delivered* is derived — the last `CourseDay.date`
   has passed — and moves if the register does, because if a tenth day is added
   delivery finished later. *Closed* is `Course.closedAt`, somebody's judgement
