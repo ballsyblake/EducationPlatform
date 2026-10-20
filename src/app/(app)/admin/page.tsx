@@ -80,6 +80,7 @@ export default async function AdminPage() {
           value={queue.total}
           tone={queue.total ? "warn" : "good"}
           hint={`${queue.submissions} submissions · ${queue.attempts} quizzes`}
+          href="/admin/grading"
         />
         <StatTile
           label="Published"
@@ -95,6 +96,7 @@ export default async function AdminPage() {
               ? `${supportQueue} deliver${supportQueue === 1 ? "y" : "ies"} to assess`
               : "Open post-course cases"
           }
+          href="/admin/support"
         />
       </div>
 
