@@ -144,7 +144,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-medium">{displayName(user)}</p>
                 <p className="text-xs text-white/70">
-                  {user.title ?? (isAdmin(user) ? "Program admin" : "Coach")}
+                  {/* An educator with no title of their own was being called a
+                      coach, which is the one thing they are not on this page. */}
+                  {user.title ??
+                    (isAdmin(user) ? "Program admin" : isEducator(user) ? "Educator" : "Coach")}
                 </p>
               </div>
               <span
