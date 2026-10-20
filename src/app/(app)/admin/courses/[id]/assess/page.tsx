@@ -55,10 +55,20 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
           makeUps: true,
           deliveries: {
             orderBy: { deliveryNo: "asc" },
-            // The count rather than the rows: the roster needs to know a
-            // scoresheet exists, and the scores themselves are read on the page
-            // that edits them.
-            include: { _count: { select: { scores: true } } },
+            include: {
+              // The count rather than the rows: the roster needs to know a
+              // scoresheet exists, and the scores themselves are read on the
+              // page that edits them.
+              _count: { select: { scores: true } },
+              // Film is the other way round — the notes are posted and read on
+              // this page, so they come with it.
+              footage: {
+                orderBy: { createdAt: "asc" },
+                include: {
+                  notes: { orderBy: { atSeconds: "asc" }, include: { author: true } },
+                },
+              },
+            },
           },
         },
       },
@@ -129,6 +139,17 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
         actions: planSteps(d.actionPlan),
         rating: d.rating,
         scored: d._count.scores,
+        footage: d.footage.map((f) => ({
+          id: f.id,
+          title: f.title,
+          url: f.url,
+          notes: f.notes.map((n) => ({
+            id: n.id,
+            atSeconds: n.atSeconds,
+            body: n.body,
+            author: n.author ? displayName(n.author) : null,
+          })),
+        })),
       })),
     };
   });
@@ -182,11 +203,11 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
         <h2 className="mb-1 text-lg font-semibold text-ink-900">Coaches</h2>
         <p className="mb-3 text-sm text-ink-500">
           Pick the day and tick who is here; nothing is written until you save. Open a coach to
-          write up a delivery you watched, or to leave a general comment about how they are going.
-          The write-up is theirs to read on their own course page; the comment stays on the
-          register, with the course team. Their course rating — the judgement across everything
-          they delivered — is set in the same place at the end of the course, and moves the
-          outcome with it.
+          write up a delivery you watched, post film of it and pin your notes to the moments they
+          are about, or leave a general comment about how they are going. The write-up and the film
+          are theirs to read on their own course page; the comment stays on the register, with the
+          course team. Their course rating — the judgement across everything they delivered — is
+          set in the same place at the end of the course, and moves the outcome with it.
         </p>
         {entries.length === 0 ? (
           <EmptyState

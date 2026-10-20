@@ -105,8 +105,8 @@ open the others.**
 
 ### Coach Education — `src/app/(app)/`
 Courses, coursework, grading, the attendance register, hours and make-ups,
-post-course support, the coaches list.
-Libraries: `src/lib/{coursework,grading,support,support-rubric,attendance,coaches}.ts`
+post-course support, session footage and its feedback notes, the coaches list.
+Libraries: `src/lib/{coursework,grading,support,support-rubric,attendance,coaches,footage}.ts`
 Data: `scripts/{extract-b-diploma-2026.py,import-b-diploma.ts,import-courses.ts}`
 See `src/app/(app)/CLAUDE.md`.
 

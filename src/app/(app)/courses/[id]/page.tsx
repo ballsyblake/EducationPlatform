@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FootagePlayer } from "@/components/footage-player";
 import { MaterialList } from "@/components/material-list";
 import { TaskList } from "@/components/task-list";
 import { Badge, EmptyState, PageHeader, ProgressBar } from "@/components/ui";
@@ -24,7 +25,7 @@ import {
   thresholdsFor,
   totalPoints,
 } from "@/lib/delivery-rubric";
-import { formatDate } from "@/lib/format";
+import { displayName, formatDate } from "@/lib/format";
 import { bandFor, courseResult, VERDICT_LABEL } from "@/lib/support-rubric";
 
 export default async function CoursePage({ params }: { params: Promise<{ id: string }> }) {
@@ -55,7 +56,14 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
       transferredFrom: { select: { courseId: true, course: { select: { title: true } } } },
       deliveries: {
         orderBy: { deliveryNo: "asc" },
-        include: { assessorUser: true, scores: true },
+        include: {
+          assessorUser: true,
+          scores: true,
+          footage: {
+            orderBy: { createdAt: "asc" },
+            include: { notes: { orderBy: { atSeconds: "asc" }, include: { author: true } } },
+          },
+        },
       },
     },
   });
@@ -370,6 +378,27 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
                     <p className="prose-note">{delivery.actionPlan}</p>
                   </>
                 )}
+
+                {/* The film of the session, if your educator posted it, with
+                    their notes pinned to the moments they are about. Clicking
+                    one plays from there. */}
+                {delivery.footage.map((clip) => (
+                  <div key={clip.id} className="mt-4 border-t border-ink-200 pt-4">
+                    <FootagePlayer
+                      footage={{
+                        id: clip.id,
+                        title: clip.title,
+                        url: clip.url,
+                        notes: clip.notes.map((note) => ({
+                          id: note.id,
+                          atSeconds: note.atSeconds,
+                          body: note.body,
+                          author: note.author ? displayName(note.author) : null,
+                        })),
+                      }}
+                    />
+                  </div>
+                ))}
               </div>
             ))}
           </div>
