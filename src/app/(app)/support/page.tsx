@@ -50,10 +50,12 @@ export default async function SupportIndexPage() {
                   </p>
                 )}
 
+                {/* The name, not the address. Coaches are pointed at the
+                    program inbox rather than at one educator who may be on the
+                    grass all week — the same reason the case page dropped it. */}
                 {supportCase.educator ? (
                   <p className="mt-1 text-xs text-ink-500">
-                    Your educator: {displayName(supportCase.educator)} ·{" "}
-                    {supportCase.educator.email}
+                    Your educator: {displayName(supportCase.educator)}
                   </p>
                 ) : (
                   supportCase.educatorName && (
