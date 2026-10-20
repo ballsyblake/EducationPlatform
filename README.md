@@ -92,7 +92,8 @@ an educator assesses and rates, and the support desk refers. The staff page says
 so when you add one, and refuses to issue it a sign-in link that could not work.
 
 **An educator's whole view is one page.** `/educator` lists every coach assigned
-to them who still needs something, with what each one needs on the row: a
+to them — on a course they are rostered onto, or by name on a support case —
+who still needs something, with what each one needs on the row: a
 session to go and watch, a pass-or-fail rating to set, or a reassessment
 delivery to review. A coach needing two of them is one row with two tags, and
 each tag links to where that job gets done. The dashboard, the grading queue and
@@ -111,6 +112,15 @@ The conditions are all stable properties of the account — enrolled, rostered, 
 the Unit — and never a count of outstanding work. A tab that vanished whenever
 its queue emptied would be worse than a quiet one: an educator would learn where
 their list lives, come back on a clear morning, and find it gone.
+
+**A coach is assigned to an assessor in one of two ways.** Rostering the
+assessor onto the coach's course gives them everybody on it, which is what the
+registers already record. Naming them on a coach's support case — the *Educator*
+field in Case settings — gives them that one coach's reassessment, and works
+whether or not they are on that cohort's team: that is how one coach's film goes
+to one assessor. The case decides who may open it, so an assessor named on a
+case can open it, read the session plan and write it up without a seat on the
+course.
 
 **An educator's courses** are the ones they are rostered onto as `CourseStaff` —
 the CET1–CET5 seats the registers already record. Everything they can reach is

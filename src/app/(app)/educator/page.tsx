@@ -37,13 +37,15 @@ const TASK: Record<AssessorTask["kind"], { badge: string; action: string; tone: 
  */
 export default async function AssessorPage() {
   const user = await requireStaff();
-  const scope = await staffCourseIds(user);
-  const rows = await getAssessorQueue(scope);
+  const courses = await staffCourseIds(user);
+  const rows = await getAssessorQueue({ courses, userId: user.id });
   const counts = countTasks(rows);
 
   // The absence of a filter is an admin's; an empty list of courses is an
-  // assessor nobody has rostered yet, and the two need different words.
-  const noCourses = scope !== null && scope.length === 0;
+  // assessor nobody has rostered yet, and the two need different words. A case
+  // assigned to them by name still reaches the list, so "no courses" only
+  // explains an empty one.
+  const noCourses = courses !== null && courses.length === 0;
 
   return (
     <>
@@ -84,7 +86,7 @@ export default async function AssessorPage() {
           title={noCourses ? "No coaches yet" : "Nobody outstanding"}
           description={
             noCourses
-              ? "You aren't on a course team yet. An admin adds you to a course from its register, and the coaches on it appear here."
+              ? "You aren't on a course team yet, and no reassessment is assigned to you. An admin adds you to a course from its register, or puts your name on a coach's support case, and they appear here."
               : "Every coach assigned to you has been assessed, rated, and has no reassessment waiting on you."
           }
         />

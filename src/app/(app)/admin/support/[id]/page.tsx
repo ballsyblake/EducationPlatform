@@ -4,7 +4,7 @@ import { embedUrl } from "@/components/material-list";
 import { SubmitButton } from "@/components/submit-button";
 import { Avatar } from "@/components/avatar";
 import { Badge, EmptyState, PageHeader, StatTile } from "@/components/ui";
-import { assertCourseStaff } from "@/lib/access";
+import { assertCaseStaff } from "@/lib/access";
 import { isAdmin, requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { displayName, formatDate, formatDateTime, relativeDue } from "@/lib/format";
@@ -65,8 +65,10 @@ export default async function SupportCasePage({ params }: { params: Promise<{ id
 
   const supportCase = await getSupportCase(id);
   if (!supportCase) notFound();
-  // A case belongs to a course, and the course decides who may open it.
-  await assertCourseStaff(user, supportCase.courseId);
+  // The case decides who may open it: an admin, its cohort's team, or whoever
+  // it is assigned to. The last is an admin giving one coach to one assessor,
+  // and before it was asked here that assessor was redirected off the page.
+  await assertCaseStaff(user, supportCase.id);
 
   const [educators, results, enrollment] = await Promise.all([
     prisma.user.findMany({
