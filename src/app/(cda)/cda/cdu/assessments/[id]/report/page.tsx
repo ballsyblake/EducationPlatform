@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { Fragment } from "react";
 import Link from "next/link";
 import {
@@ -64,6 +66,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const overview = await loadAssessment(id);
 
   const { assessment, areas, areaNotes, rating, technical } = overview;
+  const logoId = assessment.club.logoId;
   const club = assessment.club.name;
   const year = assessment.cycle.year;
   const tier = rating.tier === "T2" ? "Tier 2" : "Tier 1";
@@ -168,12 +171,12 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
 
       <div className="report-root">
         {/* 1-13: Football Queensland's standing pages. */}
-        <CoverSlide club={club} year={year} tier={tier} />
-        <DisclaimerSlide year={year} />
-        <PurposeSlide />
+        <CoverSlide club={club} year={year} tier={tier} logoId={logoId} />
+        <DisclaimerSlide year={year} photo={photo("disclaimer")} />
+        <PurposeSlide photo={photo("purpose")} />
         <ProcessCycleSlide />
         <AssessmentAreasSlide />
-        <ScopeSlide year={year} />
+        <ScopeSlide year={year} photo={photo("scope")} />
         <ProseSlide title="SHIFTING WEIGHTING WITHIN THE CLUB ASSESSMENT">
           <p>
             The balance between the four assessment areas has moved deliberately since 2020:
@@ -204,8 +207,8 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
             anywhere.
           </p>
         </ProseSlide>
-        <ProcessSlide />
-        <DeliveryProcessSlide />
+        <ProcessSlide photo={photo("process")} />
+        <DeliveryProcessSlide photo={photo("delivery")} />
         <RatingSlideBoilerplate year={year} />
         <CategoriesSlide
           goldMin={assessment.cycle.goldMin}
@@ -225,10 +228,10 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
             collateral.
           </p>
         </ProseSlide>
-        <ReviewAppealSlide />
+        <ReviewAppealSlide photo={photo("review")} />
 
         {/* 14-31: this club. */}
-        <DividerSlide club={club} year={year} />
+        <DividerSlide club={club} year={year} logoId={logoId} />
         <NonNegotiablesSlide checks={checks} />
         <NonNegotiableCommentsSlide club={club} checks={checks} target={rating.provisionalShield} />
         <TechnicalSlide
@@ -282,6 +285,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
         <AwardSlide
           club={club}
           year={year}
+          logoId={logoId}
           earned={rating.earned}
           percent={rating.percent}
           shield={rating.shield}
@@ -291,10 +295,30 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
 
         {/* 32-33. */}
         <NextStepsSlide />
-        <ClosingSlide year={year} />
+        <ClosingSlide year={year} club={club} logoId={logoId} />
       </div>
     </>
   );
+}
+
+/**
+ * Football Queensland's standing photography, if it has been supplied.
+ *
+ * Looked up on disk rather than configured, so dropping the files into
+ * `public/report/` is the whole installation step — six environment variables
+ * for six pictures is a configuration surface nobody would keep correct. A
+ * missing file is not an error: the page gives its text the full width and the
+ * document is one picture poorer, which is the right failure for artwork the
+ * Unit may not have to hand.
+ */
+const PHOTO_DIR = path.join(process.cwd(), "public", "report");
+const PHOTO_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
+
+function photo(name: string): string | null {
+  for (const ext of PHOTO_EXTENSIONS) {
+    if (existsSync(path.join(PHOTO_DIR, `${name}.${ext}`))) return `/report/${name}.${ext}`;
+  }
+  return null;
 }
 
 const SHARE_LABELS: Record<Domain, string> = {

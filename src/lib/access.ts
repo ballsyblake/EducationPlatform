@@ -102,6 +102,7 @@ export async function canAccessUpload(user: User, uploadId: string) {
       staffCertificateOf: { select: { assessmentId: true } },
       nonNegotiableProofOf: { select: { assessmentId: true } },
       photoOf: { select: { id: true } },
+      logoOf: { select: { id: true } },
     },
   });
   if (!upload) return null;
@@ -115,6 +116,12 @@ export async function canAccessUpload(user: User, uploadId: string) {
   if (upload.photoOf) {
     return upload.photoOf.id === user.id ? upload : null;
   }
+
+  // A club's crest. Readable by anyone signed in: it is the club's own public
+  // mark, it is printed on the document the club is sent, and nothing about
+  // holding it is confidential. Still its own branch rather than a fallthrough,
+  // so it can never be answered by a rule written for a different kind of file.
+  if (upload.logoOf) return upload;
 
   // Course material: readable by anyone enrolled in that course.
   if (upload.material) {

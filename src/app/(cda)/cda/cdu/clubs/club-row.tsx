@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui";
 import { setClubActive } from "../actions";
 import { AmbassadorsForm, type AmbassadorOption } from "./ambassadors-form";
 import { ClubForm } from "./club-forms";
+import { ClubLogoForm } from "./club-logo-form";
 import { SignInLink } from "../assessors/sign-in-link";
 
 export type ClubRowData = {
@@ -24,6 +25,8 @@ export type ClubRowData = {
   /** The CDAs who look after this club through the year. */
   ambassadorIds: string[];
   ambassadorNames: string[];
+  /** The club's crest, printed on the documents FQ sends them. */
+  logoId: string | null;
   members: { id: string; name: string; email: string; active: boolean; lastSeenAt: Date | null }[];
 };
 
@@ -58,6 +61,10 @@ export function ClubRow({
             assigned={club.ambassadorIds}
             options={ambassadors}
           />
+        </div>
+
+        <div className="border-t border-ink-200 pt-3">
+          <ClubLogoForm clubId={club.id} name={club.name} logoId={club.logoId} />
         </div>
       </div>
     );

@@ -71,6 +71,7 @@ export default async function ClubsPage() {
     assessmentTierName: c.tierId ? (tierName.get(c.tierId) ?? "") : "",
     ambassadorIds: c.ambassadors.map((a) => a.user.id),
     ambassadorNames: c.ambassadors.map((a) => displayName(a.user)),
+    logoId: c.logoId,
     members: c.members.map((m) => ({
       id: m.user.id,
       name: displayName(m.user),

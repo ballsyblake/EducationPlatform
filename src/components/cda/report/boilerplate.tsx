@@ -1,4 +1,4 @@
-import { ProseSlide, Slide, SlideHeader } from "@/components/cda/report/slides";
+import { Crest, ProseSlide, Slide, SlideHeader } from "@/components/cda/report/slides";
 
 /**
  * The pages that are the same for every club.
@@ -13,21 +13,25 @@ import { ProseSlide, Slide, SlideHeader } from "@/components/cda/report/slides";
  * read from the cycle, so a year that moves Silver to 60% moves this page too.
  * In FQ's own file those numbers are typed.
  *
- * The photographs are not reproduced. Drop the artwork into `public/brand/` and
- * these pages can carry it; nothing here invents imagery.
+ * The photographs are Football Queensland's own and are not reproduced here.
+ * Drop them into `public/report/` and these pages carry them, named for the
+ * page they belong to — `disclaimer`, `purpose`, `scope`, `process`,
+ * `delivery`, `review` — in .jpg, .png or .webp. Nothing invents imagery, and a
+ * page with no photograph gives the text the full width rather than leaving a
+ * hole where one should be.
  */
 
-export function DisclaimerSlide({ year }: { year: number }) {
+export function DisclaimerSlide({ year, photo }: { year: number; photo?: string | null }) {
   return (
-    <ProseSlide title="DISCLAIMER">
+    <ProseSlide title="DISCLAIMER" photo={photo}>
       <p>
         Congratulations on your work participating in Football Queensland&apos;s Club Development
         and Assessment process, this is the starting point of our club development initiative.
       </p>
       <p>
-        Please note that this document is <strong>not</strong> for the public domain. The score
-        provided is your club&apos;s preliminary score, and you can ask for review or other further
-        steps specified in this document.
+        Please note that this document is <strong>not</strong>{" "}
+        for the public domain. The score provided is your club&apos;s preliminary score, and you
+        can ask for review or other further steps specified in this document.
       </p>
       <p>
         After the assessment score is elevated to a &lsquo;confirmed&rsquo; status your Club will
@@ -49,9 +53,9 @@ export function DisclaimerSlide({ year }: { year: number }) {
   );
 }
 
-export function PurposeSlide() {
+export function PurposeSlide({ photo }: { photo?: string | null }) {
   return (
-    <ProseSlide title="DEVELOPMENT &amp; ASSESSMENT PURPOSE">
+    <ProseSlide title="DEVELOPMENT &amp; ASSESSMENT PURPOSE" photo={photo}>
       <p>
         The main purpose of the Club Development and Assessment process is to constructively
         reflect each club&apos;s position in terms of their individual growth and development.
@@ -139,9 +143,9 @@ export function AssessmentAreasSlide() {
   );
 }
 
-export function ScopeSlide({ year }: { year: number }) {
+export function ScopeSlide({ year, photo }: { year: number; photo?: string | null }) {
   return (
-    <ProseSlide title="SCOPE AND APPLICATION">
+    <ProseSlide title="SCOPE AND APPLICATION" photo={photo}>
       <p>
         The Advanced Academy assessment shall apply to all {year} FQ Academy Boys and Girls Program
         Licence Holders.
@@ -162,9 +166,9 @@ export function ScopeSlide({ year }: { year: number }) {
   );
 }
 
-export function ProcessSlide() {
+export function ProcessSlide({ photo }: { photo?: string | null }) {
   return (
-    <ProseSlide title="ASSESSMENT PROCESS">
+    <ProseSlide title="ASSESSMENT PROCESS" photo={photo}>
       <p className="font-bold">CLUB SUBMISSION</p>
       <p>
         Clubs submit their Planning, Delivery and Outcome documents throughout the year with the
@@ -191,9 +195,9 @@ export function ProcessSlide() {
   );
 }
 
-export function DeliveryProcessSlide() {
+export function DeliveryProcessSlide({ photo }: { photo?: string | null }) {
   return (
-    <ProseSlide title="ASSESSMENT PROCESS DELIVERY">
+    <ProseSlide title="ASSESSMENT PROCESS DELIVERY" photo={photo}>
       <p className="font-bold">INFORMAL CONSULTATIONS</p>
       <ul className="ml-6 list-disc">
         <li>
@@ -286,9 +290,9 @@ export function CategoriesSlide({
   );
 }
 
-export function ReviewAppealSlide() {
+export function ReviewAppealSlide({ photo }: { photo?: string | null }) {
   return (
-    <ProseSlide title="REVIEW AND APPEAL">
+    <ProseSlide title="REVIEW AND APPEAL" photo={photo}>
       <p>
         Upon receipt of the Preliminary Rating clubs can submit their review request with specific
         comments regarding areas they request a review of within 8 days through the Club
@@ -353,11 +357,20 @@ export function NextStepsSlide() {
   );
 }
 
-export function ClosingSlide({ year }: { year: number }) {
+export function ClosingSlide({
+  year,
+  club,
+  logoId,
+}: {
+  year: number;
+  club: string;
+  logoId: string | null;
+}) {
   return (
     <Slide dark>
       <div className="flex h-full flex-col items-center justify-center">
-        <p className="text-xl italic text-white/90">
+        <Crest logoId={logoId} name={club} size={120} />
+        <p className="mt-10 text-xl italic text-white/90">
           FQ is looking forward to collaborating with you again in {year + 1}
         </p>
       </div>

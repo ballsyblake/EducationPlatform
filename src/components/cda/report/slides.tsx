@@ -88,6 +88,26 @@ function Mark() {
   );
 }
 
+/**
+ * The club's own crest.
+ *
+ * Nothing is drawn or substituted when a club has none: the slot simply closes
+ * up. A placeholder crest on the cover of a rating document would be worse than
+ * no crest, because it looks like the club's and isn't.
+ */
+export function Crest({ logoId, name, size = 120 }: { logoId: string | null; name: string; size?: number }) {
+  if (!logoId) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- fixed-size print asset
+    <img
+      src={`/api/files/${logoId}`}
+      alt={`${name} crest`}
+      style={{ maxHeight: size, maxWidth: size }}
+      className="object-contain"
+    />
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Covers                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -96,18 +116,26 @@ export function CoverSlide({
   club,
   year,
   tier,
+  logoId,
   subtitle,
 }: {
   club: string;
   year: number;
   tier: string;
+  logoId: string | null;
   subtitle?: string;
 }) {
   return (
     <Slide dark>
       <div className="flex h-full flex-col items-center justify-center px-24 text-center">
-        <Mark />
-        <h1 className="mt-16 text-6xl font-bold text-[#7fd9e8]">{club.toUpperCase()}</h1>
+        {/* FQ's mark and the club's, side by side with a rule between them —
+            the arrangement their own covers use. */}
+        <div className="flex items-center gap-6">
+          <Mark />
+          {logoId && <span className="h-16 w-px bg-white/30" />}
+          <Crest logoId={logoId} name={club} size={110} />
+        </div>
+        <h1 className="mt-14 text-6xl font-bold text-[#7fd9e8]">{club.toUpperCase()}</h1>
         <p className="mt-4 text-5xl font-bold text-white">CLUB ASSESSMENT {year}</p>
         <p className="mt-6 text-xl text-white/80">
           {subtitle ?? `${tier} Preliminary Rating Score for ${year + 1}`}
@@ -117,11 +145,20 @@ export function CoverSlide({
   );
 }
 
-export function DividerSlide({ club, year }: { club: string; year: number }) {
+export function DividerSlide({
+  club,
+  year,
+  logoId,
+}: {
+  club: string;
+  year: number;
+  logoId: string | null;
+}) {
   return (
     <Slide dark>
       <div className="flex h-full flex-col items-center justify-center text-center">
-        <p className="text-6xl font-bold text-[#7fd9e8]">{year}</p>
+        <Crest logoId={logoId} name={club} size={150} />
+        <p className="mt-10 text-6xl font-bold text-[#7fd9e8]">{year}</p>
         <p className="mt-4 text-5xl font-bold text-white">CLUB ASSESSMENT</p>
         <p className="mt-8 text-xl text-white/70">{club}</p>
       </div>
@@ -133,15 +170,28 @@ export function DividerSlide({ club, year }: { club: string; year: number }) {
 export function ProseSlide({
   title,
   children,
+  photo,
 }: {
   title: string;
   children: React.ReactNode;
+  /**
+   * A standing photograph for the right-hand half, as FQ's own pages carry.
+   * Absent, the text takes the full width rather than leaving a hole — a
+   * missing photo should cost the document nothing.
+   */
+  photo?: string | null;
 }) {
   return (
     <Slide>
       <SlideHeader title={title} />
-      <div className="report-prose px-12 py-8 text-[17px] leading-relaxed text-maroon-800">
-        {children}
+      <div className={photo ? "grid h-[590px] grid-cols-[1fr_minmax(0,46%)]" : undefined}>
+        <div className="report-prose px-12 py-8 text-[17px] leading-relaxed text-maroon-800">
+          {children}
+        </div>
+        {photo && (
+          // eslint-disable-next-line @next/next/no-img-element -- fixed-size print asset
+          <img src={photo} alt="" aria-hidden="true" className="h-full w-full object-cover" />
+        )}
       </div>
     </Slide>
   );
@@ -581,6 +631,7 @@ export function RatingSlide({
 export function AwardSlide({
   club,
   year,
+  logoId,
   earned,
   percent,
   shield,
@@ -589,6 +640,7 @@ export function AwardSlide({
 }: {
   club: string;
   year: number;
+  logoId: string | null;
   earned: number;
   percent: number;
   shield: Parameters<typeof ShieldBadge>[0]["shield"];
@@ -614,8 +666,14 @@ export function AwardSlide({
           </thead>
           <tbody>
             <tr>
-              <td className="border border-ink-400 px-10 py-10 text-lg font-semibold text-ink-800">
-                {club}
+              <td className="border border-ink-400 px-10 py-8">
+                {logoId ? (
+                  <div className="flex justify-center">
+                    <Crest logoId={logoId} name={club} size={92} />
+                  </div>
+                ) : (
+                  <span className="text-lg font-semibold text-ink-800">{club}</span>
+                )}
               </td>
               <td className="border border-ink-400 px-10 py-10 text-3xl font-bold tabular-nums text-maroon-800">
                 {earned}

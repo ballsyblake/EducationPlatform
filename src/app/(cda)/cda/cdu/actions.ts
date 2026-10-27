@@ -18,6 +18,13 @@ import { HARMONISED_DOMAINS, THRESHOLD_LEVELS } from "@/lib/cda/scoring";
 import { ensureCycleStandards } from "@/lib/cda/assessment";
 import { parseClubCsv, planImport, type ImportPlan } from "@/lib/cda/club-import";
 import { prisma } from "@/lib/db";
+import {
+  MAX_PHOTO_BYTES,
+  UploadError,
+  deleteUpload,
+  formatBytes,
+  storeUpload,
+} from "@/lib/uploads";
 
 export type CduFormState = {
   status: "idle" | "ok" | "error";
@@ -881,6 +888,60 @@ export async function setRefreshedCriteria(
       ? `${ids.length} line item${ids.length === 1 ? "" : "s"} counted at this season's score for Pool ${pool.name}; the rest are pooled across both.`
       : `Pool ${pool.name} has nothing read again — its whole ${HARMONISED_DOMAINS.map((d) => DOMAIN_LABELS[d]).join(" and ")} is pooled across both seasons.`,
   };
+}
+
+/**
+ * Sets a club's crest, for the documents Football Queensland sends them.
+ *
+ * The Unit's to upload rather than the club's. It appears on the cover of the
+ * rating document and on the slide bearing the shield, so it is part of what FQ
+ * issues; a club replacing it the week a report goes out would change a
+ * published document without anyone deciding to.
+ *
+ * One crest, not an album: the previous upload is removed once the new one is
+ * in place, and in that order, so nothing is deleted until there is something
+ * to show instead.
+ */
+export async function setClubLogo(
+  _prev: CduFormState,
+  formData: FormData,
+): Promise<CduFormState> {
+  await requireCdu();
+
+  const clubId = String(formData.get("clubId") ?? "");
+  const club = await prisma.club.findUnique({
+    where: { id: clubId },
+    select: { name: true, logoId: true },
+  });
+  if (!club) return { status: "error", message: "That club no longer exists." };
+
+  const file = formData.get("logo");
+  if (!(file instanceof File) || file.size === 0) {
+    return { status: "error", message: "Choose an image first." };
+  }
+  if (!file.type.startsWith("image/")) {
+    return { status: "error", message: "A crest has to be an image." };
+  }
+  if (file.size > MAX_PHOTO_BYTES) {
+    return {
+      status: "error",
+      message: `That file is ${formatBytes(file.size)}. A crest has to come in under ${formatBytes(
+        MAX_PHOTO_BYTES,
+      )} — it is printed at about two centimetres.`,
+    };
+  }
+
+  try {
+    const upload = await storeUpload(file);
+    await prisma.club.update({ where: { id: clubId }, data: { logoId: upload.id } });
+    if (club.logoId) await deleteUpload(club.logoId);
+  } catch (error) {
+    if (error instanceof UploadError) return { status: "error", message: error.message };
+    throw error;
+  }
+
+  refresh();
+  return { status: "ok", message: `Crest set for ${club.name}.` };
 }
 
 /**

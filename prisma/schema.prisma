@@ -345,6 +345,9 @@ model Upload {
   // A coach's photo. The back half of the one-to-one on User.photoId.
   photoOf User? @relation("CoachPhoto")
 
+  // A club's crest. The back half of the one-to-one on Club.logoId.
+  logoOf Club? @relation("ClubLogo")
+
   @@index([submissionId])
   @@index([staffMemberId])
   @@index([nonNegotiableResultId])
@@ -996,6 +999,15 @@ model Club {
   /// club between tiers never rewrites a season already scored.
   tierId      String?
   defaultTier Tier?   @relation(fields: [tierId], references: [id], onDelete: SetNull)
+
+  /// The club's crest.
+  ///
+  /// Held because the documents Football Queensland sends a club carry it —
+  /// the cover, the divider and the slide bearing the shield all show the club
+  /// mark beside FQ's. A rating document that arrives without the club's own
+  /// crest on it reads as a form letter.
+  logoId String? @unique
+  logo   Upload? @relation("ClubLogo", fields: [logoId], references: [id], onDelete: SetNull)
 
   members     ClubMembership[]
   assessments ClubAssessment[]
