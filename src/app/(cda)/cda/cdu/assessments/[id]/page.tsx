@@ -187,6 +187,9 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
             <Link href={`/cda/cdu/assessments/${id}/audit`} className="btn-secondary btn-sm">
               Audit trail
             </Link>
+            <Link href={`/cda/cdu/assessments/${id}/report`} className="btn-secondary btn-sm">
+              Preliminary report
+            </Link>
             <Link href={`/cda/cdu/assessments/${id}/reconcile`} className="btn-primary btn-sm">
               Reconcile scores
             </Link>
