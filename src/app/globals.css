@@ -142,3 +142,54 @@ body {
     @apply text-sm leading-relaxed whitespace-pre-wrap text-ink-700;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Paper.
+
+   For the coach assessment outcome document (src/components/outcome-sheet.tsx),
+   which exists to be printed or saved as a PDF and sent to a coach. Everything
+   here is about the page rather than the screen: a real margin, no app
+   background bleeding into it, and one coach per sheet.
+--------------------------------------------------------------------------- */
+
+@page {
+  size: A4;
+  margin: 14mm;
+}
+
+@media print {
+  /* The browser drops backgrounds by default, which would print the maroon
+     section bands as white type on white paper. The sheet asks for ink-100
+     behind them under `print:` for that reason; this makes the request stick
+     in the browsers that honour it, and the headings stay legible either way. */
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background: #fff;
+  }
+
+  /* A new page for each coach, and never a session block split across two.
+     Not `break-inside: avoid` on the sheet itself: a coach with three
+     deliveries written up is taller than A4, and asking the browser to keep
+     that on one page gets it clipped rather than paginated.
+
+     The zoom is what makes one write-up fit one sheet of paper. At full size a
+     single-delivery sheet runs about fifteen percent over A4, so every coach in
+     a cohort of twenty-five came out as two pages, the second carrying four
+     lines and a signature rule. Scaling the whole sheet keeps the proportions
+     the layout was designed at, which setting nine smaller type sizes by hand
+     would not. */
+  .sheet {
+    break-after: page;
+    zoom: 0.85;
+  }
+
+  .sheet:last-child {
+    break-after: auto;
+  }
+
+  .sheet section,
+  .sheet table {
+    break-inside: avoid;
+  }
+}

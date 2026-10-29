@@ -126,12 +126,25 @@ export default async function DeliveryAssessmentPage({
           </span>
         }
         action={
-          <Link
-            href={`/admin/courses/${enrollment.courseId}/assess`}
-            className="btn-secondary btn-sm"
-          >
-            The whole course →
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {/* The coach's own copy of what is on this page, in FQ's layout.
+                Opens in a tab of its own because what happens to it next is the
+                browser's print dialog, and losing the form behind that is how
+                an assessor loses a write-up they hadn't saved. */}
+            <Link
+              href={`/outcome/${enrollment.id}`}
+              target="_blank"
+              className="btn-secondary btn-sm"
+            >
+              Assessment document →
+            </Link>
+            <Link
+              href={`/admin/courses/${enrollment.courseId}/assess`}
+              className="btn-secondary btn-sm"
+            >
+              The whole course →
+            </Link>
+          </div>
         }
       />
 
