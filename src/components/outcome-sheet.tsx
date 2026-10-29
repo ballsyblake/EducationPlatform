@@ -143,11 +143,20 @@ function DeliveryBlock({
                 yet. A blank area is not a nought.
               </>
             )}
-            {delivery.rating !== null && (
-              <> Rated {delivery.rating.toFixed(1)} / 5 on the register.</>
-            )}
           </p>
         </>
+      )}
+
+      {/* Outside the scoresheet block on purpose. The 2026 registers carry a
+          1-5 session rating and no area scores at all, so a rating printed only
+          beside a scoresheet is a rating that never prints for the intakes
+          whose write-ups are already imported. */}
+      {delivery.rating !== null && (
+        <p className="mt-1.5 text-[11px] text-ink-600">
+          Rated {delivery.rating.toFixed(1)} / 5 on the register.
+          {!delivery.points &&
+            " This session has not been scored on the six areas."}
+        </p>
       )}
 
       <SheetHeading>Assessor comment / evidence</SheetHeading>

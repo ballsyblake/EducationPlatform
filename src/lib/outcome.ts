@@ -131,10 +131,19 @@ function sheetDate(date: Date | null) {
 /** The numbering the action plan is written with, taken back off for printing. */
 function planSteps(actionPlan: string | null) {
   if (!actionPlan) return [];
-  return actionPlan
-    .split("\n")
-    .map((line) => line.replace(/^\s*\d+[.)]\s*/, "").trim())
-    .filter(Boolean);
+  return (
+    actionPlan
+      .split("\n")
+      .map((line) => line.replace(/^\s*\d+[.)]\s*/, "").trim())
+      .filter(Boolean)
+      // Some assessors number the steps with a bare digit and no stop — "1 Be
+      // clear with the game rules" — which the strip above leaves alone, and
+      // the sheet then prints "1. 1 Be clear…". Only taken off where the digit
+      // is the step's own position, so an action that genuinely opens with a
+      // number ("3 sessions a week on…") keeps it unless it happens to be the
+      // third step.
+      .map((step, i) => step.replace(new RegExp(`^${i + 1}\\s+(?=\\D)`), ""))
+  );
 }
 
 /** What Prisma has to hand back for `toSheet` to build a page from it. */
