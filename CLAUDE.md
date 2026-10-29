@@ -110,6 +110,14 @@ Libraries: `src/lib/{coursework,grading,support,support-rubric,attendance,coache
 Data: `scripts/{extract-b-diploma-2026.py,import-b-diploma.ts,import-courses.ts}`
 See `src/app/(app)/CLAUDE.md`.
 
+**The coach assessment outcome sheet exists twice.** `src/components/outcome-sheet.tsx`
+is the one people read and print, at `/outcome/<enrollmentId>` and
+`/outcome/course/<id>`; `scripts/export-assessment-docx.py` writes the same
+layout as a Word file, because FQ circulates .docx that other people edit and
+sign. They *will* drift — when a field moves, move it in both. The script needs
+`python-docx` and reads the extractors' JSON rather than the database, so it
+runs on a register nobody has imported.
+
 ### Club Development — `src/app/(cda)/`
 The cycle, clubs, pools, assessors, scoring, reconciliation, the shield.
 Libraries: `src/lib/cda/`, components in `src/components/cda/`
