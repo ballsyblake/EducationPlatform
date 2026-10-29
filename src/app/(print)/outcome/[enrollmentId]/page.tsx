@@ -25,6 +25,7 @@ export default async function OutcomePage({
       <PrintBar
         title={`${sheet.name} — ${sheet.qualification} coach assessment`}
         subtitle={sheet.courseTitle}
+        exportHref={`/outcome/${enrollmentId}/export`}
       />
       <OutcomeSheetPage sheet={sheet} />
     </>

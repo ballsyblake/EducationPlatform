@@ -127,6 +127,12 @@ export default async function CoachProfilePage({
             >
               Print view →
             </Link>
+            {/* A plain link, not a form or a fetch: the browser's own download
+                is what the response asks for, and anything cleverer in front
+                of it is a spinner that can fail its own way. */}
+            <a href={`/outcome/${enrollment.id}/export`} className="btn-secondary btn-sm">
+              Export to Word
+            </a>
           </div>
         </div>
       </div>

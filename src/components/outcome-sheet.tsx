@@ -404,9 +404,12 @@ export function OutcomeSheetPage({ sheet }: { sheet: OutcomeSheet }) {
 export function PrintBar({
   title,
   subtitle,
+  exportHref,
 }: {
   title: string;
   subtitle: string;
+  /// Omitted where there is nothing to export, rather than offering an empty file.
+  exportHref?: string;
 }) {
   return (
     <div className="mx-auto mb-6 flex max-w-[820px] flex-wrap items-center justify-between gap-3 print:hidden">
@@ -414,9 +417,19 @@ export function PrintBar({
         <p className="headline text-sm text-ink-900">{title}</p>
         <p className="text-xs text-ink-500">{subtitle}</p>
       </div>
-      <p className="text-xs text-ink-500">
-        Print this page, or save it as a PDF from the print dialog.
-      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-xs text-ink-500">
+          Print, or save as a PDF from the print dialog.
+        </p>
+        {/* A plain anchor: the response is a download, and anything cleverer
+            in front of the browser's own is a spinner that can fail its own
+            way. */}
+        {exportHref && (
+          <a href={exportHref} className="btn-secondary btn-sm">
+            Export to Word
+          </a>
+        )}
+      </div>
     </div>
   );
 }

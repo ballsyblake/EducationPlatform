@@ -30,6 +30,7 @@ export default async function CourseOutcomesPage({
       <PrintBar
         title={`${course.title} — coach assessments`}
         subtitle={`${sheets.length} coach${sheets.length === 1 ? "" : "es"}, one page each`}
+        exportHref={sheets.length ? `/outcome/course/${id}/export` : undefined}
       />
       {sheets.map((sheet) => (
         <OutcomeSheetPage key={sheet.enrollmentId} sheet={sheet} />

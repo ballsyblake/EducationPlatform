@@ -111,12 +111,19 @@ Data: `scripts/{extract-b-diploma-2026.py,import-b-diploma.ts,import-courses.ts}
 See `src/app/(app)/CLAUDE.md`.
 
 **The coach assessment outcome sheet exists twice.** `src/components/outcome-sheet.tsx`
-is the one people read and print, at `/outcome/<enrollmentId>` and
-`/outcome/course/<id>`; `scripts/export-assessment-docx.py` writes the same
-layout as a Word file, because FQ circulates .docx that other people edit and
-sign. They *will* drift — when a field moves, move it in both. The script needs
-`python-docx` and reads the extractors' JSON rather than the database, so it
-runs on a register nobody has imported.
+renders it in HTML — the coach profile at `/admin/coaches/<enrollmentId>`, and
+the print pages at `/outcome/<enrollmentId>` and `/outcome/course/<id>`.
+`src/lib/outcome-docx.ts` renders the same sheet as a Word file behind the
+Export to Word button, because FQ circulates .docx that other people edit and
+sign. Both read the same `OutcomeSheet` from `src/lib/outcome.ts`, so they
+cannot disagree about *what* is on a record — but each owns its own layout, and
+those **will** drift. When a field moves, move it in both.
+
+There was briefly a third, `scripts/export-assessment-docx.py`, which built the
+Word file from the extractors' JSON so it ran on a register nobody had
+imported. It went when the route arrived: three copies of one layout is two too
+many, and the register path is import-then-export. It is in the history if that
+path is ever wanted back.
 
 ### Club Development — `src/app/(cda)/`
 The cycle, clubs, pools, assessors, scoring, reconciliation, the shield.
