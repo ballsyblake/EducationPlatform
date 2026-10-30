@@ -51,6 +51,15 @@ services:
       - key: MAX_UPLOAD_MB
         value: "10"
 
+      # Football Queensland's master logo, as `BrandLogo` and the Word export
+      # both read it. Baked in rather than left unset: the artwork is committed
+      # at public/brand/, and without this the app sets its own name in brand
+      # type instead — which the guidelines permit but which is not the mark.
+      #
+      # NEXT_PUBLIC_* is read at build time, so changing it needs a redeploy.
+      - key: NEXT_PUBLIC_FQ_LOGO
+        value: /brand/fq-logo-horizontal.png
+
       # Set to "1" to load Football Queensland's 2026 season on the next boot:
       # 48 clubs, three pools, 243 allocations, 2,948 assessor scores, 1,360
       # agreed scores and 52 ambassador portfolios, from the workbooks FQ

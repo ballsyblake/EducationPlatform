@@ -201,9 +201,23 @@ export default async function CoachesPage({
                         <Avatar user={row.user} />
                         <span className="min-w-0">
                           <span className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-ink-900">
-                              {displayName(row.user)}
-                            </span>
+                            {/* The name goes to the coach's record. It used to
+                                go nowhere at all, so the only way into a
+                                coach from here was through their course. A row
+                                with no enrolment is a coach on no course this
+                                account can see, and has no record to open. */}
+                            {e ? (
+                              <Link
+                                href={`/admin/coaches/${e.id}`}
+                                className="font-medium text-ink-900 hover:text-maroon-700 hover:underline"
+                              >
+                                {displayName(row.user)}
+                              </Link>
+                            ) : (
+                              <span className="font-medium text-ink-900">
+                                {displayName(row.user)}
+                              </span>
+                            )}
                             {!row.user.active && <Badge tone="bad">Deactivated</Badge>}
                           </span>
                           <span className="mt-0.5 block text-xs text-ink-500">
