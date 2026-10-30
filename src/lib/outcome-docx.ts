@@ -1,16 +1,23 @@
 import "server-only";
 
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import {
   AlignmentType,
   BorderStyle,
   Document,
+  Footer,
+  Header,
+  ImageRun,
   PageBreak,
+  PageNumber,
   Packer,
   Paragraph,
   Table,
   TableCell,
   TableRow,
   TextRun,
+  VerticalAlign,
   WidthType,
 } from "docx";
 import { DELIVERY_LEVELS, MAX_DELIVERY_POINTS } from "@/lib/delivery-rubric";
@@ -143,24 +150,22 @@ function facts(delivery: OutcomeDelivery) {
   for (let i = 0; i < fields.length; i += 2) {
     rows.push(
       new TableRow({
-        children: fields
-          .slice(i, i + 2)
-          .map(([label, value]) =>
-            cell(
-              [
-                para([
-                  text(`${label}: `, {
-                    bold: true,
-                    size: 8,
-                    color: MUTED,
-                    caps: true,
-                  }),
-                  text(value ?? "", { size: 9 }),
-                ]),
-              ],
-              { width: 50 },
-            ),
+        children: fields.slice(i, i + 2).map(([label, value]) =>
+          cell(
+            [
+              para([
+                text(`${label}: `, {
+                  bold: true,
+                  size: 8,
+                  color: MUTED,
+                  caps: true,
+                }),
+                text(value ?? "", { size: 9 }),
+              ]),
+            ],
+            { width: 50 },
           ),
+        ),
       }),
     );
   }
@@ -313,6 +318,28 @@ const BLANK_DELIVERY: OutcomeDelivery = {
   points: null,
 };
 
+/**
+ * The caveat that belongs under a sheet, where there is one.
+ *
+ * Football Australia published the competency line for the B and A Diplomas
+ * but not the Highly Competent one, so those two follow the C Diploma's
+ * three-point step and the document has to admit it. On a C Diploma, and on a
+ * course whose level nothing names, there is nothing to say here that the
+ * grading band has not already said.
+ */
+function sheetFootnote(sheet: OutcomeSheet) {
+  if (sheet.thresholds.assumed) {
+    return "Nothing on this course names its diploma, so the C Diploma's lines are the ones applied above.";
+  }
+  if (sheet.thresholds.inferred) {
+    return (
+      "Football Australia has published the competency line for this diploma but not the " +
+      "Highly Competent one, which follows the C Diploma's three-point step."
+    );
+  }
+  return "Six areas, scored on a best fit of what the session showed, and never averaged.";
+}
+
 function thresholdSentence(sheet: OutcomeSheet) {
   const { thresholds } = sheet;
   const lines = thresholds.assumed
@@ -336,27 +363,10 @@ function sheetBlocks(sheet: OutcomeSheet, first: boolean) {
 
   if (!first) out.push(new Paragraph({ children: [new PageBreak()] }));
 
-  out.push(
-    para(`${sheet.qualification} coach assessment`, {
-      bold: true,
-      size: 10,
-      color: MAROON,
-      caps: true,
-      align: AlignmentType.RIGHT,
-    }),
-  );
-  out.push(
-    para(sheet.name, { bold: true, size: 16, color: "000000", caps: true }),
-  );
-  out.push(
-    para([
-      text("Coach", { size: 8, color: MUTED, caps: true }),
-      text(
-        `    ${[sheet.courseTitle, sheet.clubName, sheet.location].filter(Boolean).join(" · ")}`,
-        { size: 8, color: MUTED },
-      ),
-    ]),
-  );
+  // The title that was here has gone into the running header, which is where
+  // FQ's template carries it and means it appears on a coach's second page too.
+  out.push(candidateBlock(sheet));
+  out.push(gradingBand(sheet));
 
   const deliveries = sheet.deliveries.length
     ? sheet.deliveries
@@ -371,7 +381,10 @@ function sheetBlocks(sheet: OutcomeSheet, first: boolean) {
   // thirty-five coach cohort is thirty-five pages carrying a guide somebody
   // has already read. It opens the document instead; see `coverBlocks`.
   out.push(
-    para(thresholdSentence(sheet), { size: 8, color: MUTED, before: 4 }),
+    // Only the caveat. The grading band at the head of the sheet already
+    // states the three ranges in FQ's own shape, and printing the same numbers
+    // again as prose was what tipped a one-delivery sheet onto a second page.
+    para(sheetFootnote(sheet), { size: 7, color: MUTED, before: 4 }),
   );
 
   out.push(heading("Overall"));
@@ -523,6 +536,217 @@ function coverBlocks(sheets: OutcomeSheet[], courseTitle: string) {
   return out;
 }
 
+/* ------------------------------- Chrome ---------------------------------- */
+
+/**
+ * Football Queensland's master logo, for the page header.
+ *
+ * The same file the app serves at `/brand/fq-logo-horizontal.png`, read off
+ * disk rather than fetched: this runs on the server that would be answering
+ * the request, and a document that silently loses its letterhead because the
+ * app could not reach itself is worse than one that throws while being built.
+ *
+ * Read once. It is 80KB and every sheet in a thirty-five coach export would
+ * otherwise read it again.
+ */
+let logoCache: Buffer | null | undefined;
+
+async function fqLogo() {
+  if (logoCache !== undefined) return logoCache;
+  try {
+    logoCache = await readFile(
+      path.join(process.cwd(), "public", "brand", "fq-logo-horizontal.png"),
+    );
+  } catch {
+    // The guidelines are explicit that nothing may stand in for the mark, so a
+    // missing file means a header with no logo rather than a drawn one.
+    logoCache = null;
+  }
+  return logoCache;
+}
+
+/** The logo's own proportions, 2640x1021, at a sensible height on the page. */
+const LOGO = { width: 132, height: 51 };
+
+/**
+ * The letterhead, repeated on every page.
+ *
+ * Laid out as FQ's own `'C' DIPLOMA PRACTICAL COACHING ASSESSMENT` template
+ * does it: the mark on the left, the document's own name on the right, and a
+ * maroon rule under both.
+ */
+async function letterhead(title: string) {
+  const logo = await fqLogo();
+  return new Header({
+    children: [
+      new Table({
+        width: FULL_WIDTH,
+        borders: {
+          ...NO_BORDERS,
+          bottom: { style: BorderStyle.SINGLE, size: 12, color: MAROON },
+          insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
+          insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
+        },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({
+                borders: NO_BORDERS,
+                width: { size: 40, type: WidthType.PERCENTAGE },
+                margins: { top: 0, bottom: 80, left: 0, right: 0 },
+                children: [
+                  new Paragraph({
+                    children: logo
+                      ? [
+                          new ImageRun({
+                            data: new Uint8Array(logo),
+                            transformation: LOGO,
+                            type: "png",
+                            altText: {
+                              title: "Football Queensland",
+                              description: "Football Queensland",
+                              name: "Football Queensland",
+                            },
+                          }),
+                        ]
+                      : [
+                          text("Football Queensland", {
+                            bold: true,
+                            size: 11,
+                            color: MAROON,
+                          }),
+                        ],
+                    spacing: { before: 0, after: 0 },
+                  }),
+                ],
+              }),
+              new TableCell({
+                borders: NO_BORDERS,
+                width: { size: 60, type: WidthType.PERCENTAGE },
+                verticalAlign: VerticalAlign.BOTTOM,
+                margins: { top: 0, bottom: 80, left: 0, right: 0 },
+                children: [
+                  para(title, {
+                    bold: true,
+                    size: 12,
+                    color: MAROON,
+                    caps: true,
+                    align: AlignmentType.RIGHT,
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
+/** The document's name and the page number, as FQ's template foots a page. */
+function footer(title: string) {
+  return new Footer({
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        border: { top: { style: BorderStyle.SINGLE, size: 4, color: RULE } },
+        spacing: { before: pt(4), after: 0 },
+        children: [
+          text(`${title}    `, { size: 7, color: MUTED }),
+          new TextRun({
+            children: [
+              "Page ",
+              PageNumber.CURRENT,
+              " of ",
+              PageNumber.TOTAL_PAGES,
+            ],
+            size: pt(7),
+            color: MUTED,
+            font: FONT,
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
+/**
+ * The candidate block FQ's template opens with.
+ *
+ * Their four fields — name, accreditation level, course date, location —
+ * rather than our own line of text under the name, because this is the part of
+ * their paperwork somebody reads first and files by.
+ */
+function candidateBlock(sheet: OutcomeSheet) {
+  const field = (label: string, value: string | null, width: number) =>
+    cell(
+      [
+        para(label, { bold: true, size: 8, color: MUTED, caps: true }),
+        para(value || "", { size: 10 }),
+      ],
+      { width },
+    );
+  return new Table({
+    width: FULL_WIDTH,
+    rows: [
+      new TableRow({
+        children: [
+          field("Candidate name", sheet.name, 50),
+          field("Accreditation level", sheet.qualification, 50),
+        ],
+      }),
+      new TableRow({
+        children: [
+          field("Course", sheet.courseTitle, 50),
+          field("Course location", sheet.location || sheet.clubName, 50),
+        ],
+      }),
+    ],
+  });
+}
+
+/**
+ * The grading scale as one ruled row, which is how their template states it.
+ *
+ * On the page rather than in a sentence: an assessor reading a total wants the
+ * three bands side by side, and the document then evidences its own outcome.
+ */
+function gradingBand(sheet: OutcomeSheet) {
+  const { thresholds } = sheet;
+  const band = (label: string, range: string) =>
+    cell(
+      [
+        para(label, { bold: true, size: 8 }),
+        para(range, { size: 8, color: MUTED }),
+      ],
+      {
+        width: 30,
+      },
+    );
+  return new Table({
+    width: FULL_WIDTH,
+    rows: [
+      new TableRow({
+        children: [
+          cell([para("Grading", { bold: true, size: 8, caps: true })], {
+            width: 10,
+            shaded: true,
+          }),
+          band("NYC — Not Yet Competent", `0–${thresholds.competent - 1}`),
+          band(
+            "C — Competent",
+            `${thresholds.competent}–${thresholds.highlyCompetent - 1}`,
+          ),
+          band(
+            "HC — Highly Competent",
+            `${thresholds.highlyCompetent}–${MAX_DELIVERY_POINTS}`,
+          ),
+        ],
+      }),
+    ],
+  });
+}
+
 /* ------------------------------- Packing --------------------------------- */
 
 /**
@@ -544,6 +768,15 @@ export async function outcomeDocx(
     sheets.forEach((sheet, i) => children.push(...sheetBlocks(sheet, i === 0)));
   }
 
+  // What the letterhead and the footer say. A cohort file is named for its
+  // course; a single coach's is named for the accreditation, which is what
+  // FQ's own template puts up there.
+  const title =
+    courseTitle ??
+    (sheets[0]
+      ? `${sheets[0].qualification} coach assessment`
+      : "Coach assessment");
+
   const doc = new Document({
     styles: {
       default: {
@@ -553,8 +786,21 @@ export async function outcomeDocx(
     sections: [
       {
         properties: {
-          page: { margin: { top: 800, bottom: 800, left: 800, right: 800 } },
+          page: {
+            // Room for the running header and footer above and below the
+            // margin the sheet itself is laid out inside.
+            margin: {
+              top: 1500,
+              bottom: 1100,
+              left: 800,
+              right: 800,
+              header: 560,
+              footer: 560,
+            },
+          },
         },
+        headers: { default: await letterhead(title) },
+        footers: { default: footer(title) },
         children: children.length ? children : [para("Nothing to print.")],
       },
     ],

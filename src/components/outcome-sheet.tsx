@@ -209,8 +209,10 @@ export function OutcomeSheetPage({ sheet }: { sheet: OutcomeSheet }) {
     <article className="sheet mx-auto mb-8 max-w-[820px] bg-white p-8 shadow-sm print:mb-0 print:max-w-none print:p-0 print:shadow-none">
       {/* The header band, which FQ repeats on every page of the file. */}
       <header className="flex items-center justify-between gap-4 border-b-2 border-maroon-800 pb-3">
-        <BrandLogo />
-        <p className="headline text-sm text-maroon-800">
+        <BrandLogo className="shrink-0" height={44} />
+        {/* Right-aligned and allowed to wrap, as FQ's own letterhead sets it:
+            a course title can be long and the mark keeps its clear space. */}
+        <p className="headline text-right text-sm text-maroon-800">
           {sheet.qualification} coach assessment
         </p>
       </header>
