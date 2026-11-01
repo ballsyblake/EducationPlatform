@@ -168,7 +168,10 @@ function EducatorSelect({
           </option>
         ))}
       </select>
-      <p className="hint">Who the coach contacts. Any admin can still act on the case.</p>
+      <p className="hint">
+        Who assesses them. The coach is pointed at coaching@footballqueensland.com.au rather
+        than at this person, and any admin can still act on the case.
+      </p>
     </div>
   );
 }

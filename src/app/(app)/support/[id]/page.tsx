@@ -20,7 +20,6 @@ import {
 } from "@/lib/support-rubric";
 import { formatBytes } from "@/lib/uploads";
 import { removeSupportAttachment } from "../actions";
-import { AvailabilityForm } from "../availability-form";
 import { VideoSubmissionForm } from "../video-form";
 
 export const metadata = { title: "Support" };
@@ -119,8 +118,8 @@ export default async function CoachSupportCasePage({
                 </div>
               </dl>
               <p className="hint">
-                {relativeDue(current.dueAt).text}. If the session moves, tell your educator — they
-                change the booking here.
+                {relativeDue(current.dueAt).text}. If the session moves, email
+                coaching@footballqueensland.com.au and the booking is changed here.
               </p>
             </section>
           )}
@@ -279,51 +278,22 @@ export default async function CoachSupportCasePage({
             </div>
           </section>
 
-          {supportCase.status === "IN_PROGRESS" && (
-            <section className="card card-pad">
-              <h2 className="section-title mb-2">When suits you</h2>
-              <p className="mb-3 text-sm text-ink-600">
-                Your educator has to find you at a session. Tell them when you train and they can
-                arrange it around you rather than by email.
-              </p>
-              <AvailabilityForm
-                caseId={supportCase.id}
-                defaultDay={supportCase.availabilityDay ?? ""}
-                defaultTime={supportCase.availabilityTime ?? ""}
-                defaultNote={supportCase.availabilityNote ?? ""}
-                answered={supportCase.availabilityAt !== null}
-              />
-              {supportCase.availabilityAt && (
-                <p className="mt-2 text-xs text-ink-400">
-                  Sent {formatDate(supportCase.availabilityAt)}
-                </p>
-              )}
-            </section>
-          )}
-
-          {(supportCase.educator || supportCase.educatorName) && (
-            <section className="card card-pad">
-              <h2 className="section-title mb-2">Your educator</h2>
-              {supportCase.educator ? (
-                <>
-                  <p className="font-semibold text-ink-900">
-                    {displayName(supportCase.educator)}
-                  </p>
-                  <a
-                    href={`mailto:${supportCase.educator.email}`}
-                    className="text-sm font-medium text-maroon-700 hover:underline"
-                  >
-                    {supportCase.educator.email}
-                  </a>
-                </>
-              ) : (
-                // Somebody with no account here — a technical director
-                // elsewhere. A name and no address is still worth showing: it
-                // tells the coach who to expect.
-                <p className="font-semibold text-ink-900">{supportCase.educatorName}</p>
-              )}
-            </section>
-          )}
+          {/* Arranging the visit used to be a form here and an educator's
+              address beside it. Both sent coaches to one person who may be on
+              the grass all week; the program's own inbox is always read. */}
+          <section className="card card-pad">
+            <h2 className="section-title mb-2">Need to talk to somebody?</h2>
+            <p className="text-sm text-ink-600">
+              Contact{" "}
+              <a
+                href="mailto:coaching@footballqueensland.com.au"
+                className="font-medium text-maroon-700 hover:underline"
+              >
+                coaching@footballqueensland.com.au
+              </a>
+              .
+            </p>
+          </section>
         </aside>
       </div>
     </>
