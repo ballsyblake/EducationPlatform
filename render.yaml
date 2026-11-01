@@ -28,13 +28,30 @@ services:
     autoDeploy: true
 
     envVars:
-      # Comma-separated addresses granted admin access on boot. On the first
-      # deploy a sign-in link for each is printed to the logs.
+      # Comma-separated addresses granted admin access on boot. They sign in
+      # with ADMIN_PASSWORD_HASH below; nothing is printed to these logs.
       #
       # These accounts are admins of both products, and the CDA portal has no
       # other way in on a fresh deploy: club and assessor accounts are created
       # from /cda/cdu, which only an admin can reach.
       - key: ADMIN_EMAILS
+        sync: false
+
+      # The password every ADMIN_EMAILS address signs in with, as a scrypt hash.
+      #
+      # Generate it on your own machine with `npm run admin:password`, which
+      # reads the password from stdin and prints only the hash. Paste the hash
+      # here. The password never reaches this dashboard, these logs or a shell
+      # history, and the hash is worth nothing to anyone who reads it.
+      #
+      # This is what replaced ADMIN_LINK=print. That wrote a live sign-in token
+      # — a credential needing no password — into a log readable from this
+      # dashboard and routinely pasted into tickets.
+      #
+      # One password for the whole ADMIN_EMAILS list, so any address on it could
+      # sign in as any other. That is fine for the operator's own way in and is
+      # not a per-person password scheme; keep the list short.
+      - key: ADMIN_PASSWORD_HASH
         sync: false
 
       # Turso connection. Create with:
@@ -130,9 +147,14 @@ services:
       - key: DEMOTE_COURSE_TEAMS
         sync: false
 
-      # Locked out? Set this to "1" and save. The next boot issues a fresh
-      # sign-in link for every ADMIN_EMAILS address, whatever the database
-      # thinks about their sessions, and emails it. Remove it once you're in.
+      # The fallback for a forgotten password. Normally leave this unset:
+      # ADMIN_PASSWORD_HASH is how an admin signs in, and with it set this
+      # script issues no link at all.
+      #
+      # Set this to "1" and save to issue a fresh sign-in link for every
+      # ADMIN_EMAILS address, whatever the database thinks about their sessions,
+      # and email it. Remove it once you're in. Setting a new password with
+      # `npm run admin:password` is usually the quicker way back.
       #
       # The link itself never reaches this log unless you ask for that with
       # "print": a sign-in link needs no password, and these logs are readable
