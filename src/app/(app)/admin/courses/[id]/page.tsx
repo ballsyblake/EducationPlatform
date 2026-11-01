@@ -407,16 +407,27 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                   : "Nobody on this course yet"}
               </p>
             </div>
-            <form action={enrollAllCoaches}>
-              <input type="hidden" name="courseId" value={course.id} />
-              <SubmitButton
+            <div className="flex flex-wrap items-center gap-2">
+              {/* The ordinary way a cohort gets its roster: the export FQ takes
+                  enrolments in. "Enroll all coaches" beside it is the demo
+                  lever, and reads like one. */}
+              <Link
+                href={`/admin/courses/${course.id}/participants`}
                 className="btn-secondary btn-sm"
-                pendingLabel="Enrolling…"
-                confirm="Enrol every active coach in the system on this course?"
               >
-                Enroll all coaches
-              </SubmitButton>
-            </form>
+                Import participants
+              </Link>
+              <form action={enrollAllCoaches}>
+                <input type="hidden" name="courseId" value={course.id} />
+                <SubmitButton
+                  className="btn-secondary btn-sm"
+                  pendingLabel="Enrolling…"
+                  confirm="Enrol every active coach in the system on this course?"
+                >
+                  Enroll all coaches
+                </SubmitButton>
+              </form>
+            </div>
           </div>
 
           {roster.length ? (

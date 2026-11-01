@@ -41,6 +41,9 @@ admin/
 | `lib/educator.ts` | The assessor's list: the three jobs, per coach. `server-only`. |
 | `lib/grading.ts` | Auto-grading and score rollups. |
 | `lib/diploma-coursework.ts` | What a B or C Diploma requires, and putting it on the courses that owe it. |
+| `lib/participant-csv.ts` | FA's participant export, parsed. Column aliases, dates, ages. Pure. |
+| `lib/participants.ts` | Matching that export to accounts and enrolling it. `server-only`. |
+| `lib/course-from-export.ts` | What an export's file name says the cohort is. Suggestions only. Pure. |
 
 `attendance.ts` and `support-rubric.ts` are deliberately pure — the register,
 the desks and the coach's own page all total the same way rather than three
@@ -170,6 +173,41 @@ approximations of it. **Keep database access out of them.**
   side by side.
 - **Film is a link, never an upload.** Session footage is hundreds of megabytes
   and this app stores files as database rows.
+
+- **An import matches on an address first and an FA number second.** The address
+  is what an account *is* here; the FA number is what survives somebody changing
+  it, and it lives on `Enrollment.externalRef` — as-at-a-course, like everything
+  else off the register — so an account is reached through any enrolment
+  carrying the number. Where the two point at different accounts the row is
+  skipped: one participant and two accounts is a merge, and a merge is a
+  decision. The import never changes an address, a role or whether an account is
+  active, never renumbers a register, and never takes somebody off one because
+  an export stopped mentioning them.
+
+## Importing a cohort from the FA learning system
+
+`/admin/courses/<id>/participants`, admin only. The export is read in the
+browser and held in state rather than left in the file input — React 19 resets
+an uncontrolled form once an action settles, and a file input cannot be
+refilled, so "preview then import" would otherwise mean choosing the file twice.
+Preview and commit run the same `planImport`, so what you read is what gets
+written. `Phone Number`, `Department`, `Suborganisation` and the prerequisite
+questions have nowhere to go in this schema; the page says so on the preview
+rather than letting somebody find out later. `Suborganisation` is a federation
+region and is deliberately not written to `clubName`.
+
+There are two ways in. `/admin/courses/<id>/participants` puts an export onto a
+cohort that exists. `/admin/courses/new-from-export` makes the cohort *from* the
+export: the `Courses` column gives the qualification and the file name gives the
+stream and the venue — `fq-50-50-c-diploma-metro-logan-lightning-fc` — which
+`course-from-export.ts` reads into the title convention the 2026 registers
+already use. **Everything it derives is a suggestion in an editable field**, and
+that is the only reason guessing from a file name is safe at all. The cohort is
+created unpublished with no days and no course team, because the export carries
+neither and nothing here invents a schedule; ages stay null until days exist,
+and re-importing the same file fills them in. `planNewCourseImport` is the same
+plan against a cohort described rather than stored, so both routes agree about
+what a file says.
 
 ## Loading real course data
 
