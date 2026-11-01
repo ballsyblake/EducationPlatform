@@ -43,6 +43,7 @@ admin/
 | `lib/diploma-coursework.ts` | What a B or C Diploma requires, and putting it on the courses that owe it. |
 | `lib/participant-csv.ts` | FA's participant export, parsed. Column aliases, dates, ages. Pure. |
 | `lib/participants.ts` | Matching that export to accounts and enrolling it. `server-only`. |
+| `lib/course-from-export.ts` | What an export's file name says the cohort is. Suggestions only. Pure. |
 
 `attendance.ts` and `support-rubric.ts` are deliberately pure — the register,
 the desks and the coach's own page all total the same way rather than three
@@ -194,6 +195,19 @@ written. `Phone Number`, `Department`, `Suborganisation` and the prerequisite
 questions have nowhere to go in this schema; the page says so on the preview
 rather than letting somebody find out later. `Suborganisation` is a federation
 region and is deliberately not written to `clubName`.
+
+There are two ways in. `/admin/courses/<id>/participants` puts an export onto a
+cohort that exists. `/admin/courses/new-from-export` makes the cohort *from* the
+export: the `Courses` column gives the qualification and the file name gives the
+stream and the venue — `fq-50-50-c-diploma-metro-logan-lightning-fc` — which
+`course-from-export.ts` reads into the title convention the 2026 registers
+already use. **Everything it derives is a suggestion in an editable field**, and
+that is the only reason guessing from a file name is safe at all. The cohort is
+created unpublished with no days and no course team, because the export carries
+neither and nothing here invents a schedule; ages stay null until days exist,
+and re-importing the same file fills them in. `planNewCourseImport` is the same
+plan against a cohort described rather than stored, so both routes agree about
+what a file says.
 
 ## Loading real course data
 

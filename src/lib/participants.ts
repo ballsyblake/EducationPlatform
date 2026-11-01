@@ -71,7 +71,13 @@ export type RowPlan = {
 };
 
 export type ImportPlan = {
-  course: { id: string; title: string; qualification: string | null; firstDay: Date | null };
+  /** `id` is null when the cohort is one the importer is about to create. */
+  course: {
+    id: string | null;
+    title: string;
+    qualification: string | null;
+    firstDay: Date | null;
+  };
   rows: RowPlan[];
   /** Headings nothing is stored from — the prerequisite questions, and these. */
   unknownColumns: string[];
@@ -144,13 +150,36 @@ export async function planImport(courseId: string, text: string): Promise<Import
   });
   if (!course) throw new Error("No such course.");
 
-  const shell = {
-    id: course.id,
-    title: course.title,
-    qualification: course.qualification,
-    firstDay: course.days[0]?.date ?? null,
-  };
+  return planFor(
+    {
+      id: course.id,
+      title: course.title,
+      qualification: course.qualification,
+      firstDay: course.days[0]?.date ?? null,
+    },
+    text,
+  );
+}
 
+/**
+ * The same plan, for a cohort that does not exist yet.
+ *
+ * Creating a course from an export and enrolling its roster are one act to
+ * whoever is doing it, and they need to see who is in the file *before* a
+ * course exists to put them on. So the plan is computed against a cohort
+ * described rather than stored: no roster, so no row can be an update, and
+ * nobody can be missing from the file. Everything else — matching an account by
+ * address or FA number, the duplicates, the columns with nowhere to go — is the
+ * same code and gives the same answers.
+ */
+export async function planNewCourseImport(
+  course: { title: string; qualification: string | null; firstDay: Date | null },
+  text: string,
+): Promise<ImportPlan> {
+  return planFor({ id: null, ...course }, text);
+}
+
+async function planFor(shell: ImportPlan["course"], text: string): Promise<ImportPlan> {
   const parsed = parseParticipantCsv(text);
   const empty: ImportPlan = {
     course: shell,
@@ -194,17 +223,19 @@ export async function planImport(courseId: string, text: string): Promise<Import
           },
         })
       : [],
-    prisma.enrollment.findMany({
-      where: { courseId },
-      select: {
-        userId: true,
-        position: true,
-        externalRef: true,
-        enrolmentStatus: true,
-        ageAtCourse: true,
-        user: { select: { email: true, name: true } },
-      },
-    }),
+    shell.id
+      ? prisma.enrollment.findMany({
+          where: { courseId: shell.id },
+          select: {
+            userId: true,
+            position: true,
+            externalRef: true,
+            enrolmentStatus: true,
+            ageAtCourse: true,
+            user: { select: { email: true, name: true } },
+          },
+        })
+      : [],
   ]);
 
   const emailMap = new Map(byEmail.map((u) => [u.email, u]));
@@ -337,10 +368,10 @@ function planRow(row: ParticipantRow, lookups: Lookups): RowPlan {
   }
 
   const dob = parseDob(row.dob);
+  // Null where the cohort has no days yet: an age is an age *on a day*, and
+  // there is no day to work it out on. Said once on the page rather than on
+  // every row, because it is a fact about the cohort, not about this coach.
   const ageAtCourse = dob && course.firstDay ? ageOn(dob, course.firstDay) : null;
-  if (dob && !course.firstDay) {
-    notes.push("No course days yet, so there is no day to work an age out on.");
-  }
 
   const existing = account ? enrolled.get(account.id) : undefined;
 
