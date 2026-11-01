@@ -62,6 +62,18 @@ Every one of these cost somebody an afternoon. They are not hypothetical.
 12. **`npm run lint` is broken repo-wide** and was before any of this work:
     `next lint` was removed in Next 16 and the script tries to lint a directory
     called `lint`. Use `npm run typecheck`. Don't "fix" it as a side quest.
+13. **Next expands `$NAME` inside `.env` values.** The admin password hash is
+    `.`-separated, not `$`-separated like every other scrypt/PHC string you have
+    seen, because base64url contains `_` and a key beginning with a letter made
+    the tail of the hash a variable reference that Next replaced with nothing.
+    The hash still parsed, had an empty key, and refused the correct password in
+    two milliseconds. Don't put a `$` in anything that travels through an
+    environment variable here. See `src/lib/password.ts`.
+14. **A `"use server"` file may only export async functions.** Exporting an
+    initial-state object next to the actions it belongs with fails at module
+    evaluation with *"found object"* and takes the whole page down, not just the
+    form. Initial states live in the client component. See
+    `src/app/login/login-form.tsx`.
 
 ## Handling the data
 
@@ -119,7 +131,9 @@ See `src/app/(cda)/CLAUDE.md`.
 ### The spine — shared by both
 ```
 prisma/schema.prisma        One schema, one migration history
-src/lib/auth.ts             Sign-in links, sliding sessions, role guards
+src/lib/auth.ts             Sign-in links, the admin password, sessions, guards
+src/lib/password.ts         scrypt hashing — shared with scripts/, so not server-only
+src/lib/login-throttle.ts   In-memory attempt limiting for the admin password
 src/lib/access.ts           Course and upload authorization
 src/lib/db.ts               The client (note the `omit`)
 src/lib/adapter.ts          Picks SQLite or Turso from DATABASE_URL
@@ -131,6 +145,7 @@ docker-entrypoint.sh        Boot order — migrate, bootstrap, seed, then serve
 render.yaml                 The deploy, and every env var that arms something
 scripts/boot.ts             What runs before the port opens
 scripts/bootstrap-admin.ts  ADMIN_EMAILS, and ADMIN_LINK when locked out
+scripts/admin-password.ts   Generates ADMIN_PASSWORD_HASH from stdin
 ```
 
 Only ~2,100 lines. A chat that needs it can read all of it.
@@ -148,6 +163,14 @@ deleted: the accounts, the records and the coach-facing pages are all still
 there, and `COACH_PORTAL=on` brings them back. So Coach Education has two roles
 that sign in, the assessor and the admin, and the assessor's whole view is the
 one list at `/educator`.
+
+**An admin signs in with a password, everyone else with a link.**
+`ADMIN_PASSWORD_HASH` is one scrypt hash shared by every `ADMIN_EMAILS`
+address — a breakglass credential for whoever owns the deploy, not a password
+system. It replaced `ADMIN_LINK=print`, which wrote a live sign-in token into
+the deploy log on every boot. Don't put that back, and don't widen the password
+beyond `ADMIN_EMAILS`: if admins ever need passwords of their own they belong on
+`User`, hashed per account.
 
 **`cdu` is a grant, not a consequence of being an admin.** It used to be
 `role === "ADMIN"`, which meant promoting an educator handed them every club's

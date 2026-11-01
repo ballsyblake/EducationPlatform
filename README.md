@@ -747,10 +747,21 @@ the sign-in link appears on the page, so you can click straight through:
 
 ## Signing in
 
-Nobody has a password. A coach signs in by opening a link, and the session then
-slides forward on every visit — so anyone using the app regularly never has to
-sign in again. Only a genuinely dormant account lapses (60 days idle by
-default).
+Nobody has a password except the admin. Staff sign in by opening a link, and the
+session then slides forward on every visit — so anyone using the app regularly
+never has to sign in again. Only a genuinely dormant account lapses (60 days
+idle by default).
+
+**The admin password.** The one exception, and it exists for one reason: on a
+host with no shell and no mail server, an admin who isn't signed in has to be
+able to get in without anybody writing a sign-in token into a deploy log.
+`ADMIN_PASSWORD_HASH` holds a scrypt hash — generate it with
+`npm run admin:password` — and any address in `ADMIN_EMAILS` signs in with it
+from `/login`. Five wrong guesses per address in fifteen minutes, and a refusal
+never says which half was wrong, so the form cannot be used to work out who is
+an admin. It is one shared password for that list, which is right for a
+breakglass credential and wrong for anything else: everyone else gets a link.
+See [Deploying](#deploying).
 
 **Links handed out by an admin — no email server needed.** Adding a coach on
 `/admin/people` produces a sign-in link right there: copy it, text it, or hold
@@ -906,42 +917,71 @@ with no disk. Fill in the prompted variables:
 | `DATABASE_URL`     | the `libsql://…` URL from step 1             |
 | `TURSO_AUTH_TOKEN` | the token from step 1                        |
 | `ADMIN_EMAILS`     | your own email address                       |
+| `ADMIN_PASSWORD_HASH` | the output of `npm run admin:password`    |
 
 `APP_URL` is deliberately not required. Render injects `RENDER_EXTERNAL_URL`
 with the service's real public URL, and the app falls back to it — so sign-in
 links are correct on the first deploy, before you know your hostname. Set
 `APP_URL` only when you put a custom domain in front.
 
-**3. Sign in.** The first boot applies the migrations, creates your admin
-account, and issues a sign-in link. With `SMTP_*` set the link is emailed to
-that address and the log says only that it was sent. Without a mail server there
-is nowhere safe to put it, so nothing is sent: set `ADMIN_LINK=print` and
-redeploy to have the token written to the deploy log, use it, then remove the
-variable. Once you're in, add your staff from the Staff page.
+**3. Set your password.** On your own machine:
 
-If you do set `APP_URL`, it has to be right before you invite anyone — it's the
-base of every sign-in link. Get it wrong and you can just fix it and redeploy: a
-fresh link is issued whenever an admin has no active session.
+```bash
+npm run admin:password
+```
 
-**Locked out?** Set `ADMIN_LINK=1` and save. The next boot issues a fresh
-sign-in link for every `ADMIN_EMAILS` address, whatever the database thinks
-about their sessions, and emails it. Remove it once you're in.
+It reads the password from stdin, prints a scrypt hash, and that is all that
+leaves the process — the password itself never touches a file, a log or your
+shell history. Paste the hash into `ADMIN_PASSWORD_HASH` in Render.
 
-A sign-in link is a credential that needs no password, so it is **never written
-to the deploy log** unless you ask for that by name with `ADMIN_LINK=print` —
-logs are read from the host's dashboard, shipped off-box and pasted into tickets
-and chats. Treat a token printed that way as spent: sign in with it, then remove
-`ADMIN_LINK`. With no mail server and no `print`, the link is issued and simply
-not delivered, and the log says so.
+One password covers every address in `ADMIN_EMAILS`, so any of them could sign
+in as any other. That is deliberate — it is the deploy operator's way in, not a
+per-person password scheme. Keep the list short, and add everyone else from the
+Staff page, where they get a sign-in link of their own.
 
-A link is also only issued for an admin with **no live session**, so a redeploy
-doesn't retire a link they may still be holding. The trap is that a session row
-lives for sixty idle days: an admin who
-cleared their cookies, changed browser or lost the laptop stays locked out for
-two months while every redeploy reports *"has an active session; no link
+**4. Sign in.** The first boot applies the migrations and creates your admin
+account. Go to `/login`, enter an `ADMIN_EMAILS` address and the password. Once
+you're in, add your staff from the Staff page.
+
+If you set `APP_URL`, it has to be right before you invite anyone — it's the
+base of every sign-in link that goes out to staff. The admin password doesn't
+depend on it.
+
+**Why a password and not a link in the log.** A sign-in link is a credential
+that needs no password, and `ADMIN_LINK=print` wrote one into the deploy log on
+every boot. Those logs are read from the host's dashboard, shipped off-box and
+pasted into tickets and chats, and a token that reaches any of those places has
+to be treated as spent. A scrypt hash in an environment variable is readable by
+exactly the same people and is worth nothing to them. Five wrong guesses per
+address in fifteen minutes is as fast as anyone can try, and a failure never
+says whether the address or the password was wrong — so the form can't be used
+to find out who is an admin.
+
+**Forgot the password?** Run `npm run admin:password` again and replace
+`ADMIN_PASSWORD_HASH`. Saving it redeploys and the new password works
+immediately; nothing in the database changes, and your session survives.
+
+**Locked out some other way?** `ADMIN_LINK=1` still works and overrides all of
+this: the next boot issues a fresh sign-in link for every `ADMIN_EMAILS`
+address, whatever the database thinks about their sessions, and emails it.
+Remove it once you're in.
+
+With `ADMIN_PASSWORD_HASH` set, the boot issues **no link at all** — there is
+nothing to deliver, so nothing is minted and nothing is logged. With it unset
+the old behaviour is intact: a link for any admin with no live session, emailed
+when `SMTP_*` is configured and otherwise issued and not delivered.
+`ADMIN_LINK=print` is still there as the last resort and is still the only thing
+that puts a token in a log.
+
+A link is only ever issued for an admin with **no live session**, so a redeploy
+doesn't retire one they may still be holding. The trap that produced
+`ADMIN_LINK` is that a session row lives for sixty idle days: an admin who
+cleared their cookies, changed browser or lost the laptop stayed locked out for
+two months while every redeploy reported *"has an active session; no link
 needed"*. The check can only ask whether a session row exists; only you know
 whether you can actually get in. `ADMIN_LINK=reset` also ends those sessions,
-for when the device is gone rather than merely forgotten.
+for when the device is gone rather than merely forgotten. A password makes all
+of this a fallback rather than the way in.
 
 **What "free" costs you.** Render free instances sleep after 15 minutes idle, so
 the first visit after a quiet spell takes 30–60 seconds to load. Subsequent
@@ -976,6 +1016,7 @@ runner refuses to start if an already-applied migration file has been edited.
 | --------------- | -------- | ------------------------------------------------------------------- |
 | `APP_URL`       | No       | Only for a custom domain; falls back to `RENDER_EXTERNAL_URL`        |
 | `ADMIN_EMAILS`  | Yes      | Comma-separated admins, granted access on boot                       |
+| `ADMIN_PASSWORD_HASH` | Yes\*\* | scrypt hash the `ADMIN_EMAILS` addresses sign in with; from `npm run admin:password` |
 | `SMTP_HOST`     | No       | Only needed if coaches request their own links                       |
 | `SMTP_PORT`     | –        | Defaults to 587                                                      |
 | `SMTP_USER`     | –        | SMTP username                                                        |
@@ -988,19 +1029,21 @@ runner refuses to start if an already-applied migration file has been edited.
 | `B_DIPLOMA_IMPORT_2026` | – | Set to `1` to load the 2026 B Diploma registers on the next boot; `force` re-runs |
 | `SUPPORT_IMPORT_2026` | –  | Set to `1` to load the post-course support register on the next boot; `force` re-runs |
 | `SUPPORT_DATA_FILE` | –    | Where that register's extract is, e.g. `/etc/secrets/post-course-support.json` |
-| `ADMIN_LINK`    | –        | Set to `1` to email a fresh admin sign-in link on the next boot; `reset` also ends their sessions; `print` writes the token to the deploy log instead |
+| `ADMIN_LINK`    | –        | Fallback only. `1` emails a fresh admin sign-in link on the next boot; `reset` also ends their sessions; `print` writes the token to the deploy log instead |
 | `DATA_DIR`      | –        | Only for local SQLite. Disk mount point, defaults to `/data`          |
 
 Set `APP_URL` correctly before inviting anyone. It's the base of every sign-in
 link that goes out, and a wrong value produces links that point elsewhere.
 
-SMTP is optional for coaches: without it the login form is hidden and you hand
-out sign-in links from the staff page — see [Signing in](#signing-in). The first
-admin is the exception. Their link is emailed when SMTP is configured, and
-otherwise issued but not delivered, because a sign-in link in a deploy log is a
-credential anybody reading that log can use. `ADMIN_LINK=print` puts it in the
-log when that is the only way in; a fresh link is issued whenever an admin has
-no active session, so a lost link is never a lockout.
+\*\* `ADMIN_PASSWORD_HASH` is not required to boot, but without it and without
+`SMTP_*` there is no way for an admin to sign in that doesn't involve putting a
+token in a log. Set it.
+
+SMTP is optional for coaches: without it the login form offers only the admin
+password, and you hand out sign-in links to staff from the Staff page — see
+[Signing in](#signing-in). Admins are the exception and don't need it: they sign
+in with `ADMIN_PASSWORD_HASH`, which is why no boot has to mint a link or write
+one to a log.
 
 ### Running the image locally
 
@@ -1045,7 +1088,8 @@ a hosted database.
 | `npm run cda:seed`   | The catalogue, plus demo clubs, assessors and assessments |
 | `npm run db:reset`   | Drop the database, re-migrate, and re-seed both products |
 | `npm run db:studio`  | Browse the database in Prisma Studio               |
-| `npm run bootstrap:admin` | Grant admin access to `ADMIN_EMAILS` and print a sign-in link |
+| `npm run bootstrap:admin` | Grant admin access to `ADMIN_EMAILS`; issue a link only if no password is set |
+| `npm run admin:password`  | Read a password from stdin and print the `ADMIN_PASSWORD_HASH` to set |
 | `npm run courses:import` | Load the B Diploma registers from `prisma/data/b-diploma-2026.json` |
 | `npm run support:import` | Load the post-course support register (see `SUPPORT_DATA_FILE`) |
 
@@ -1115,7 +1159,8 @@ src/
       access.ts        Club / assessor / CDU authorization
 scripts/
   migrate.ts           Applies pending migrations to SQLite or Turso
-  bootstrap-admin.ts   Ensures ADMIN_EMAILS can sign in; prints a link
+  bootstrap-admin.ts   Ensures ADMIN_EMAILS can sign in
+  admin-password.ts    Hashes a password into ADMIN_PASSWORD_HASH
   seed-cda.ts          Seeds the CDA catalogue, optionally with demo data
 ```
 

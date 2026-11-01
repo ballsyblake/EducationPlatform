@@ -4,7 +4,9 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { checkThrottle, clearFailures, recordFailure } from "@/lib/login-throttle";
 import { sendMail, isDevMailMode } from "@/lib/mailer";
+import { burnVerification, describeHashProblem, verifyPassword } from "@/lib/password";
 import type { Role, User } from "@prisma-client";
 
 const SESSION_COOKIE = "coach_lms_session";
@@ -232,6 +234,129 @@ export async function revokeOtherSessions(userId: string) {
   await prisma.session.deleteMany({
     where: { userId, ...(current ? { NOT: { tokenHash: hash(current) } } : {}) },
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* The admin password                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One password, for the people named in ADMIN_EMAILS.
+ *
+ * This exists because of what it replaces. There is no SMTP server configured
+ * and no shell on the plan this runs on, so the only way an admin could get
+ * back in was `ADMIN_LINK=print`, which writes a working sign-in token — a
+ * credential needing no password — into a deploy log that anybody with the
+ * host's dashboard can read and that gets pasted into tickets. A scrypt hash in
+ * an environment variable is readable by exactly the same people and is worth
+ * nothing to them.
+ *
+ * Scoped as narrowly as it can usefully be: ADMIN_EMAILS only, and only an
+ * account that is actually an ADMIN. It is the operator's way in, not a
+ * password system — nobody else gets one, and the magic-link route is unchanged
+ * for everybody.
+ *
+ * It is a *shared* secret when ADMIN_EMAILS holds more than one address: any of
+ * those people could sign in as any other. That is acceptable for a breakglass
+ * credential held by whoever administers the deploy, and unacceptable as a
+ * general scheme — if admins ever need passwords of their own, they belong on
+ * `User`, hashed per account, not here.
+ */
+function adminPasswordHash() {
+  // `||`, not `??`: a variable left blank in a host's dashboard arrives as an
+  // empty string, and an empty hash must read as "no password configured"
+  // rather than as a hash that nothing matches.
+  return (process.env.ADMIN_PASSWORD_HASH || "").trim() || null;
+}
+
+/** Addresses the password may be used with. Mirrors scripts/bootstrap-admin.ts. */
+function adminEmails() {
+  return (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => normalizeEmail(e))
+    .filter(Boolean);
+}
+
+/** Whether the login page should offer a password field at all. */
+export function passwordSignInAvailable() {
+  return adminPasswordHash() !== null && adminEmails().length > 0;
+}
+
+export type PasswordSignInResult =
+  | { ok: true; user: User }
+  | { ok: false; error: string };
+
+/**
+ * Signs an admin in with the shared password, or fails without saying why.
+ *
+ * Every failure returns the same sentence. Distinguishing "no such account"
+ * from "wrong password" would turn this form into a way to enumerate which
+ * addresses are admins, which is the thing `requestLoginLink` is careful not to
+ * do. The reason is logged instead, where only the operator can read it.
+ */
+export async function signInWithPassword(
+  rawEmail: string,
+  password: string,
+): Promise<PasswordSignInResult> {
+  const email = normalizeEmail(rawEmail);
+  const generic = { ok: false as const, error: "That email address and password don't match." };
+
+  if (!email || !password) {
+    return { ok: false, error: "Enter your email address and password." };
+  }
+
+  const stored = adminPasswordHash();
+  if (!stored) {
+    console.warn("[auth] Password sign-in attempted but ADMIN_PASSWORD_HASH is not set.");
+    return generic;
+  }
+
+  // Said out loud, because the alternative is an operator with the right
+  // password being told it is wrong and having nothing to go on.
+  const malformed = describeHashProblem(stored);
+  if (malformed) {
+    console.error(`[auth] ADMIN_PASSWORD_HASH cannot match any password: ${malformed}.`);
+    await burnVerification(password);
+    return generic;
+  }
+
+  // Keyed on the address, so one address under attack cannot lock out another.
+  // There is no IP here to key on: `request.url` and the forwarding headers both
+  // come through a proxy and neither is trustworthy enough to base a lockout on.
+  const throttle = checkThrottle(`password:${email}`);
+  if (throttle.blocked) {
+    console.warn(`[auth] Password sign-in for ${email} is throttled.`);
+    return {
+      ok: false,
+      error: `Too many attempts. Try again in ${throttle.retryAfterMinutes} minute${
+        throttle.retryAfterMinutes === 1 ? "" : "s"
+      }.`,
+    };
+  }
+
+  const user = adminEmails().includes(email)
+    ? await prisma.user.findUnique({ where: { email } })
+    : null;
+
+  // Both failing branches still pay for a hash, so a wrong address and a wrong
+  // password take the same time to come back. See `burnVerification`.
+  if (!user || user.role !== ("ADMIN" satisfies Role) || !canSignIn(user)) {
+    await burnVerification(password);
+    recordFailure(`password:${email}`);
+    console.warn(`[auth] Password sign-in refused for ${email}: not an eligible admin.`);
+    return generic;
+  }
+
+  if (!(await verifyPassword(password, stored))) {
+    recordFailure(`password:${email}`);
+    console.warn(`[auth] Password sign-in refused for ${email}: wrong password.`);
+    return generic;
+  }
+
+  clearFailures(`password:${email}`);
+  await startSession(user.id);
+  console.log(`[auth] ${email} signed in with the admin password.`);
+  return { ok: true, user };
 }
 
 /* -------------------------------------------------------------------------- */
