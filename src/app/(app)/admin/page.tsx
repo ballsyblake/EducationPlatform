@@ -80,6 +80,7 @@ export default async function AdminPage() {
           value={queue.total}
           tone={queue.total ? "warn" : "good"}
           hint={`${queue.submissions} submissions · ${queue.attempts} quizzes`}
+          href="/admin/grading"
         />
         <StatTile
           label="Published"
@@ -95,6 +96,7 @@ export default async function AdminPage() {
               ? `${supportQueue} deliver${supportQueue === 1 ? "y" : "ies"} to assess`
               : "Open post-course cases"
           }
+          href="/admin/support"
         />
       </div>
 
@@ -152,6 +154,21 @@ export default async function AdminPage() {
         {isAdmin(user) && (
           <aside>
             <h2 className="mb-3 text-lg font-semibold text-ink-900">New course</h2>
+            {/* The export route first: a cohort FQ has taken enrolments for
+                already exists in the Learning Centre, and typing it in here and
+                then importing its roster is the same work done twice. */}
+            <div className="card card-pad mb-3">
+              <p className="text-sm text-ink-700">
+                Taken the enrolments in the Learning Centre?{" "}
+                <Link
+                  href="/admin/courses/new-from-export"
+                  className="font-medium text-maroon-700 hover:underline"
+                >
+                  Create the cohort from its export
+                </Link>{" "}
+                and its roster comes with it.
+              </p>
+            </div>
             <div className="card card-pad">
               <CreateCourseForm />
             </div>

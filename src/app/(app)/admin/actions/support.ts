@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { assertCourseStaff } from "@/lib/access";
+import { assertCaseStaff, assertCourseStaff } from "@/lib/access";
 import { requireStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { courseResultsFor, deadlineInForce, isPastDeadline } from "@/lib/support";
@@ -23,28 +23,30 @@ import type { SupportActivityKind, SupportPathway } from "@prisma-client";
  * taken off the form, because a form field naming the course would be a form
  * field somebody could change.
  */
-async function courseOfCase(caseId: string) {
-  const row = await prisma.supportCase.findUnique({
-    where: { id: caseId },
-    select: { courseId: true },
-  });
-  return row?.courseId ?? null;
-}
 
-async function courseOfAttempt(attemptId: string) {
+/**
+ * The case an assessment belongs to.
+ *
+ * The guard on everything here is the case rather than its course: a case names
+ * who is running it, and that assignment is what lets an assessor act on a
+ * coach whose cohort they were never on the team for. `assertCaseStaff` still
+ * falls back to the course roster, so nobody lost a case they could act on
+ * before.
+ */
+async function caseOfAttempt(attemptId: string) {
   const row = await prisma.supportAttempt.findUnique({
     where: { id: attemptId },
-    select: { case: { select: { courseId: true } } },
+    select: { caseId: true },
   });
-  return row?.case.courseId ?? null;
+  return row?.caseId ?? null;
 }
 
-async function courseOfExtension(extensionId: string) {
+async function caseOfExtension(extensionId: string) {
   const row = await prisma.supportExtension.findUnique({
     where: { id: extensionId },
-    select: { case: { select: { courseId: true } } },
+    select: { caseId: true },
   });
-  return row?.case.courseId ?? null;
+  return row?.caseId ?? null;
 }
 
 export type SupportState = { status: "idle" | "ok" | "error"; message?: string };
@@ -194,8 +196,7 @@ export async function arrangeAttempt(
 ): Promise<SupportState> {
   const actor = await requireStaff();
   const caseId = text(formData, "caseId");
-  const scope = await courseOfCase(caseId);
-  if (scope) await assertCourseStaff(actor, scope);
+  await assertCaseStaff(actor, caseId);
 
   const supportCase = await prisma.supportCase.findUnique({
     where: { id: caseId },
@@ -243,8 +244,8 @@ export async function rearrangeAttempt(
 ): Promise<SupportState> {
   const actor = await requireStaff();
   const attemptId = text(formData, "attemptId");
-  const scope = await courseOfAttempt(attemptId);
-  if (scope) await assertCourseStaff(actor, scope);
+  const scope = await caseOfAttempt(attemptId);
+  if (scope) await assertCaseStaff(actor, scope);
 
   const attempt = await prisma.supportAttempt.findUnique({ where: { id: attemptId } });
   if (!attempt) return { status: "error", message: "Assessment not found." };
@@ -277,8 +278,8 @@ export async function rearrangeAttempt(
 export async function cancelAttempt(formData: FormData) {
   const actor = await requireStaff();
   const attemptId = text(formData, "attemptId");
-  const scope = await courseOfAttempt(attemptId);
-  if (scope) await assertCourseStaff(actor, scope);
+  const scope = await caseOfAttempt(attemptId);
+  if (scope) await assertCaseStaff(actor, scope);
 
   const attempt = await prisma.supportAttempt.findUnique({ where: { id: attemptId } });
   if (!attempt || attempt.status === "REVIEWED") return;
@@ -305,8 +306,8 @@ export async function recordVideoLink(
 ): Promise<SupportState> {
   const actor = await requireStaff();
   const attemptId = text(formData, "attemptId");
-  const scope = await courseOfAttempt(attemptId);
-  if (scope) await assertCourseStaff(actor, scope);
+  const scope = await caseOfAttempt(attemptId);
+  if (scope) await assertCaseStaff(actor, scope);
 
   const attempt = await prisma.supportAttempt.findUnique({
     where: { id: attemptId },
@@ -369,8 +370,7 @@ export async function recordVideoLink(
 export async function updateCase(_prev: SupportState, formData: FormData): Promise<SupportState> {
   const actor = await requireStaff();
   const caseId = text(formData, "caseId");
-  const scope = await courseOfCase(caseId);
-  if (scope) await assertCourseStaff(actor, scope);
+  await assertCaseStaff(actor, caseId);
 
   const supportCase = await prisma.supportCase.findUnique({
     where: { id: caseId },
@@ -425,9 +425,7 @@ export async function requestExtension(
 ): Promise<SupportState> {
   const actor = await requireStaff();
   const caseId = text(formData, "caseId");
-  const scope = await courseOfCase(caseId);
-  if (!scope) return { status: "error", message: "Case not found." };
-  await assertCourseStaff(actor, scope);
+  await assertCaseStaff(actor, caseId);
 
   const requestedUntil = parseDay(formData, "requestedUntil");
   if (!requestedUntil) {
@@ -460,9 +458,9 @@ export async function decideExtension(
 ): Promise<SupportState> {
   const actor = await requireStaff();
   const extensionId = text(formData, "extensionId");
-  const scope = await courseOfExtension(extensionId);
+  const scope = await caseOfExtension(extensionId);
   if (!scope) return { status: "error", message: "Extension not found." };
-  await assertCourseStaff(actor, scope);
+  await assertCaseStaff(actor, scope);
 
   const extension = await prisma.supportExtension.findUnique({
     where: { id: extensionId },
@@ -525,9 +523,7 @@ export async function logActivity(
 ): Promise<SupportState> {
   const actor = await requireStaff();
   const caseId = text(formData, "caseId");
-  const scope = await courseOfCase(caseId);
-  if (!scope) return { status: "error", message: "Case not found." };
-  await assertCourseStaff(actor, scope);
+  await assertCaseStaff(actor, caseId);
 
   const kind = text(formData, "kind") as SupportActivityKind;
   if (!ACTIVITY_KINDS.includes(kind)) {
@@ -571,8 +567,8 @@ export async function recordReview(
 ): Promise<SupportState> {
   const admin = await requireStaff();
   const attemptId = text(formData, "attemptId");
-  const scope = await courseOfAttempt(attemptId);
-  if (scope) await assertCourseStaff(admin, scope);
+  const scope = await caseOfAttempt(attemptId);
+  if (scope) await assertCaseStaff(admin, scope);
 
   const attempt = await prisma.supportAttempt.findUnique({
     where: { id: attemptId },
@@ -687,8 +683,7 @@ export async function recordReview(
 export async function closeCase(_prev: SupportState, formData: FormData): Promise<SupportState> {
   const actor = await requireStaff();
   const caseId = text(formData, "caseId");
-  const scope = await courseOfCase(caseId);
-  if (scope) await assertCourseStaff(actor, scope);
+  await assertCaseStaff(actor, caseId);
   const status = text(formData, "status");
 
   if (status !== "UNSUCCESSFUL" && status !== "WITHDRAWN" && status !== "LAPSED") {
@@ -749,8 +744,7 @@ export async function closeCase(_prev: SupportState, formData: FormData): Promis
 export async function reopenCase(formData: FormData) {
   const actor = await requireStaff();
   const caseId = text(formData, "caseId");
-  const scope = await courseOfCase(caseId);
-  if (scope) await assertCourseStaff(actor, scope);
+  await assertCaseStaff(actor, caseId);
 
   await prisma.supportCase.update({
     where: { id: caseId },

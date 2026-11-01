@@ -2,7 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import QRCode from "qrcode";
-import { createInviteLink, normalizeEmail, requestLoginLink, requireAdmin } from "@/lib/auth";
+import {
+  canSignIn,
+  coachPortalEnabled,
+  createInviteLink,
+  normalizeEmail,
+  requestLoginLink,
+  requireAdmin,
+} from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isDevMailMode } from "@/lib/mailer";
 
@@ -39,7 +46,9 @@ export async function addStaffMember(
   const email = normalizeEmail(String(formData.get("email") ?? ""));
   const name = String(formData.get("name") ?? "").trim() || null;
   const title = String(formData.get("title") ?? "").trim() || null;
-  const role = String(formData.get("role") ?? "COACH") === "ADMIN" ? "ADMIN" : "COACH";
+  const requested = String(formData.get("role") ?? "COACH");
+  const role =
+    requested === "ADMIN" ? "ADMIN" : requested === "EDUCATOR" ? "EDUCATOR" : "COACH";
   const sendEmail = formData.get("sendEmail") === "on";
 
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
@@ -67,6 +76,19 @@ export async function addStaffMember(
   }
 
   const user = await prisma.user.create({ data: { email, name, title, role } });
+
+  // A coach account while the portal is parked is a record on a register, not a
+  // login. Minting a link for one would hand over a URL that answers "that
+  // link has expired" — worse than saying so here.
+  if (!canSignIn(user)) {
+    revalidatePath("/admin/people");
+    return {
+      status: "ok",
+      message:
+        `${email} added. Coaches can't sign in at the moment, so there is no link to send — ` +
+        "the account is there to be enrolled, assessed and rated.",
+    };
+  }
 
   if (sendEmail && !isDevMailMode()) {
     await requestLoginLink(email);
@@ -104,6 +126,14 @@ export async function createSignInLink(
   }
   if (!user.active) {
     return { status: "error", message: "Reactivate this account before issuing a link." };
+  }
+  if (!coachPortalEnabled() && user.role === "COACH") {
+    return {
+      status: "error",
+      message:
+        "Coaches can't sign in at the moment, so this link wouldn't work. Make them an educator " +
+        "if they need to assess.",
+    };
   }
 
   const invite = await buildInvite(user.id, user.email);

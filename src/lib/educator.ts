@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/db";
+import { formatDate } from "@/lib/format";
 import { deadlineInForce, daysUntilDeadline, isPastDeadline } from "@/lib/support";
 import { openAttempt } from "@/lib/support-rubric";
 
@@ -29,6 +30,21 @@ import { openAttempt } from "@/lib/support-rubric";
 function within(scope: string[] | null) {
   return scope === null ? {} : { courseId: { in: scope } };
 }
+
+/**
+ * Who is asking, and what they can see.
+ *
+ * Two different attachments, and support needs both. `courses` is the roster —
+ * `staffCourseIds`, null for an admin — which is how a cohort's assessor gets
+ * the coaches on it. `userId` is the assessor themselves, because a support
+ * case names who is running it: an admin can hand one coach's reassessment to
+ * somebody who was never on that cohort's team, and that assignment has to
+ * reach their list or it does nothing at all.
+ */
+export type AssessorScope = {
+  courses: string[] | null;
+  userId: string;
+};
 
 /* ------------------------- On-course delivery ----------------------------- */
 
@@ -151,9 +167,17 @@ const SUPPORT_CASE_SELECT = {
 
 type SupportCaseRow = Awaited<ReturnType<typeof openCases>>[number];
 
-async function openCases(scope: string[] | null) {
+async function openCases(scope: AssessorScope) {
   return prisma.supportCase.findMany({
-    where: { status: "IN_PROGRESS", ...within(scope) },
+    where: {
+      status: "IN_PROGRESS",
+      // An admin has no filter at all. Everybody else gets their cohorts' cases
+      // *or* the ones assigned to them by name — the second is what makes a
+      // case given to an assessor off the roster reachable.
+      ...(scope.courses === null
+        ? {}
+        : { OR: [{ courseId: { in: scope.courses } }, { educatorId: scope.userId }] }),
+    },
     select: SUPPORT_CASE_SELECT,
     orderBy: { openedAt: "desc" },
   });
@@ -191,7 +215,7 @@ export type SupportItem = {
  * so this page and the desk quote the same day for the same case.
  */
 export async function getSupportWork(
-  scope: string[] | null,
+  scope: AssessorScope,
   now = new Date(),
 ): Promise<SupportItem[]> {
   const cases = await openCases(scope);
@@ -246,65 +270,165 @@ export function inBucket(items: SupportItem[], bucket: SupportBucket) {
   return items.filter((i) => i.bucket === bucket);
 }
 
-/* --------------------------- What is outstanding -------------------------- */
+/* --------------------------- The assessor's list -------------------------- */
 
-export type EducatorOutstanding = {
-  /** Coaches with no delivery written up at all. */
-  unassessed: number;
-  /** Coaches whose deliveries are in but who have no course rating. */
-  unrated: number;
-  /** Film in, and observations to write up. */
-  toReview: number;
-  /** Live assessments to put a date on, availability in hand. */
-  toSchedule: number;
-  /** Live assessments with no availability — a coach to reach out to. */
-  toBook: number;
-  /** Film asked for, the date gone, nothing submitted. */
-  toChase: number;
-  /** Open cases past the date in force. */
-  pastDeadline: number;
-  /** Coursework still unmarked on their courses, which lives on the old desk. */
-  ungraded: number;
-  /** Everything above that is somebody's to do, minus the overlap. */
-  total: number;
+/**
+ * One of the three jobs an assessor is given, and nothing else is one.
+ *
+ * `deliver` — go and watch a session, and write it up on FA's form.
+ * `rate` — the deliveries are in; set the course rating, which decides the
+ *   outcome the coach is given.
+ * `review` — a reassessment delivery is sitting with them: film an admin has
+ *   put on the case, or an observation that has been and gone.
+ */
+export type AssessorTaskKind = "deliver" | "rate" | "review";
+
+export type AssessorTask = {
+  kind: AssessorTaskKind;
+  /** Where the job gets done. */
+  href: string;
+  /** What has happened so far — the line under the coach's name. */
+  detail: string | null;
+  /** On a review, the date in force. Nothing else here has a clock. */
+  deadline: Date | null;
+  overdue: boolean;
+};
+
+export type AssessorRow = {
+  /** Coach and course together: the same coach can be on two of them. */
+  key: string;
+  coach: { id: string; name: string | null; email: string; photoId: string | null };
+  courseId: string;
+  courseTitle: string;
+  clubName: string | null;
+  catchUp: boolean;
+  tasks: AssessorTask[];
 };
 
 /**
- * The dashboard's one job: what is outstanding on the courses I am attached to.
+ * Every coach assigned to this assessor who still needs something, as one list.
  *
- * Built from the same two functions the pages below it draw, rather than its
- * own counts — the page that tells an educator they have four things to do and
- * the page that lists three of them is worse than either alone.
+ * This replaced a dashboard of counts, a grading queue and a support desk —
+ * three pages holding the same three jobs sorted three ways. An assessor is
+ * assigned coaches and told what each one needs, so that is what the page is,
+ * and a coach who needs two things is one row with two tags rather than a name
+ * appearing in two places.
+ *
+ * Built from the two queries the old pages used rather than its own, so the
+ * list cannot disagree with the write-up pages it links to. The support side is
+ * filtered to `to_review` deliberately: booking a visit, chasing film and
+ * taking somebody's availability are the program's jobs, they live on the desk
+ * at `/admin/support`, and with the coach portal parked the film arrives
+ * because an admin recorded it.
+ *
+ * "Assigned" is the course roster — `CourseStaff`, the seat `staffCourseIds`
+ * resolves — and deliberately not a second coach-to-assessor table. The
+ * register is what FQ keeps; a parallel attachment would be a second thing to
+ * maintain and a second thing to disagree with it.
  */
-export async function getEducatorOutstanding(
-  scope: string[] | null,
-  ungraded: number,
+export async function getAssessorQueue(
+  scope: AssessorScope,
   now = new Date(),
-): Promise<EducatorOutstanding> {
+): Promise<AssessorRow[]> {
   const [deliveries, support] = await Promise.all([
-    getDeliveryQueue(scope),
+    // Deliveries are the roster's: watching somebody deliver on a course is
+    // being on that course's team, and there is nothing per-coach to assign.
+    getDeliveryQueue(scope.courses),
     getSupportWork(scope, now),
   ]);
 
-  const unassessed = deliveries.filter((d) => d.need === "unassessed").length;
-  const unrated = deliveries.filter((d) => d.need === "unrated").length;
-  const toReview = inBucket(support, "to_review").length;
-  const toSchedule = inBucket(support, "to_schedule").length;
-  const toBook = inBucket(support, "to_book").length;
-  const toChase = inBucket(support, "to_chase").length;
+  const rows = new Map<string, AssessorRow>();
 
+  /** The row for one coach on one course, created the first time it is needed. */
+  function rowFor(
+    coach: AssessorRow["coach"],
+    courseId: string,
+    courseTitle: string,
+    extra: { clubName?: string | null; catchUp?: boolean } = {},
+  ) {
+    const key = `${coach.id}:${courseId}`;
+    const existing = rows.get(key);
+    if (existing) {
+      // A review-only row created first has no enrolment detail on it; the
+      // delivery queue carries the club and the catch-up track, so fill them
+      // in rather than letting whichever source arrived first decide.
+      existing.clubName ??= extra.clubName ?? null;
+      existing.catchUp ||= extra.catchUp ?? false;
+      return existing;
+    }
+    const row: AssessorRow = {
+      key,
+      coach,
+      courseId,
+      courseTitle,
+      clubName: extra.clubName ?? null,
+      catchUp: extra.catchUp ?? false,
+      tasks: [],
+    };
+    rows.set(key, row);
+    return row;
+  }
+
+  for (const d of deliveries) {
+    const row = rowFor(d.coach, d.courseId, d.courseTitle, {
+      clubName: d.clubName,
+      catchUp: d.catchUp,
+    });
+    row.tasks.push({
+      kind: d.need === "unassessed" ? "deliver" : "rate",
+      href: `/educator/grading/${d.enrollmentId}`,
+      detail:
+        d.need === "unassessed"
+          ? null
+          : `${d.deliveries} deliver${d.deliveries === 1 ? "y" : "ies"} written up` +
+            // The write-up date, which is what the queue carries: the day the
+            // session happened lives on the delivery itself.
+            (d.lastDeliveryAt ? `, last written up ${formatDate(d.lastDeliveryAt)}` : ""),
+      deadline: null,
+      overdue: false,
+    });
+  }
+
+  for (const item of inBucket(support, "to_review")) {
+    const row = rowFor(
+      item.case.user,
+      item.case.courseId,
+      item.case.course.title,
+    );
+    row.tasks.push({
+      kind: "review",
+      href: `/admin/support/${item.case.id}`,
+      detail:
+        item.attempt?.pathway === "VIDEO_REVIEW"
+          ? "Film is on the case"
+          : "Observation delivered, not written up",
+      deadline: item.deadline,
+      overdue: item.overdue,
+    });
+  }
+
+  return [...rows.values()].sort((a, b) => {
+    // A reassessment past its deadline is the one thing here with a date
+    // somebody else is counting, so it goes to the top. Everything else is
+    // alphabetical: ordering by how much is outstanding would move a coach up
+    // and down the list as the work is done, and an assessor looking for a name
+    // is looking for a name.
+    const aLate = a.tasks.some((t) => t.overdue);
+    const bLate = b.tasks.some((t) => t.overdue);
+    if (aLate !== bLate) return aLate ? -1 : 1;
+    const byName = (a.coach.name ?? a.coach.email).localeCompare(b.coach.name ?? b.coach.email);
+    return byName !== 0 ? byName : a.courseTitle.localeCompare(b.courseTitle);
+  });
+}
+
+/** How many coaches need each of the three jobs. One row can be in two. */
+export function countTasks(rows: AssessorRow[]) {
+  const has = (kind: AssessorTaskKind) =>
+    rows.filter((r) => r.tasks.some((t) => t.kind === kind)).length;
   return {
-    unassessed,
-    unrated,
-    toReview,
-    toSchedule,
-    toBook,
-    toChase,
-    // Counted but not added in: a case past its deadline is already in one of
-    // the piles above, and adding it again would inflate the figure the
-    // dashboard leads with.
-    pastDeadline: support.filter((i) => i.overdue).length,
-    ungraded,
-    total: unassessed + unrated + toReview + toSchedule + toBook + toChase + ungraded,
+    deliver: has("deliver"),
+    rate: has("rate"),
+    review: has("review"),
+    overdue: rows.filter((r) => r.tasks.some((t) => t.overdue)).length,
   };
 }

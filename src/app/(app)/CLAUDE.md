@@ -9,8 +9,8 @@ before changing anything about how a coach is rated.
 ## The shape of it
 
 ```
-dashboard/          Coach home; educators get `educator-dashboard.tsx` instead
-educator/           An educator's whole view: grading, and post-course support
+dashboard/          Coach home; an educator is redirected to their list
+educator/           An assessor's whole view: one list of their coaches
 courses/[id]/       What a coach sees: library, their own register row, results
 assignments/ quizzes/ grades/   Coursework and its feedback
 support/[id]/       A coach's own post-course support case
@@ -38,10 +38,13 @@ admin/
 | `lib/support.ts` | Support-case queries. `server-only`. |
 | `lib/coaches.ts` | The cross-course roster: one row per enrolment. `server-only`. |
 | `lib/coursework.ts` | Task aggregation and progress summaries. |
-| `lib/educator.ts` | The three questions an educator opens the app with. `server-only`. |
+| `lib/educator.ts` | The assessor's list: the three jobs, per coach. `server-only`. |
 | `lib/footage.ts` | Timecodes, and what a player can do with a film link. Pure, client-safe. |
 | `lib/grading.ts` | Auto-grading and score rollups. |
 | `lib/diploma-coursework.ts` | What a B or C Diploma requires, and putting it on the courses that owe it. |
+| `lib/participant-csv.ts` | FA's participant export, parsed. Column aliases, dates, ages. Pure. |
+| `lib/participants.ts` | Matching that export to accounts and enrolling it. `server-only`. |
+| `lib/course-from-export.ts` | What an export's file name says the cohort is. Suggestions only. Pure. |
 
 `attendance.ts` and `support-rubric.ts` are deliberately pure — the register,
 the desks and the coach's own page all total the same way rather than three
@@ -86,14 +89,40 @@ approximations of it. **Keep database access out of them.**
 - **Educators are scoped.** `staffCourseIds(user)` returns `null` for an admin —
   the absence of a filter — and a list of course ids for an educator. Every list
   page here filters by it, and every action calls `assertCourseStaff`.
-- **An educator's view is `/dashboard` and `/educator/*`, and that is all.** The
-  pages under `admin/` are the program's and are an admin's in the navigation:
-  an educator was given all six of them scoped, which is six pages of somebody
-  else's job to read past. They still work and are still scoped — an educator
-  who follows a link into one is not stopped — they are simply not offered.
-  "Attached" is the course roster rather than a coach-to-educator table: the
-  register is what FQ keeps, and a second attachment would be a second thing to
-  disagree with it.
+- **An educator's view is `/educator`, and that is all.** One list: every coach
+  assigned to them who still needs something, tagged with which of the three
+  jobs it is — watch them deliver, pass or fail them, review the reassessment
+  that came back. `getAssessorQueue` builds it from the same two queries the
+  grading queue and the support desk used, so the list cannot disagree with the
+  write-up pages it links to, and the support half is filtered to `to_review`:
+  booking a visit, chasing film and taking somebody's availability are the
+  program's jobs and live on `/admin/support`. The dashboard, `/educator/grading`
+  and `/educator/support` are redirects to it now.
+  The pages under `admin/` are the program's and are an admin's in the
+  navigation. They still work and are still scoped — an educator who follows a
+  link into one is not stopped — they are simply not offered, and the support
+  case page hides the program's own levers (arranging, rearranging, cancelling,
+  case settings, closing, granting an extension, recording the film) from
+  anybody who isn't an admin.
+- **Two attachments, and support needs both.** The roster — `CourseStaff`, what
+  `staffCourseIds` resolves — is how a cohort's assessor gets the coaches on it,
+  and it stays the only one for deliveries: watching somebody deliver on a
+  course is being on that course's team, and there is nothing per-coach to
+  assign. A support case is different: it names who is running it
+  (`SupportCase.educatorId`), which is an admin handing one coach to one
+  assessor, and that assessor is often not on that cohort's team at all. So
+  `openCases` matches the roster **or** the assignment, and `assertCaseStaff`
+  (not `assertCourseStaff`) guards the case page and every support action.
+  Before that, a case assigned to somebody off the roster was invisible on their
+  list and redirected them away when they opened it by URL — the assignment did
+  nothing.
+  `canAccessUpload` follows the same rule for a session plan attached to a
+  reassessment: a file the reviewer cannot open is a write-up they cannot do.
+- **A coach cannot sign in.** The portal is parked — see the root `CLAUDE.md`.
+  Every coach-facing page under here is still correct and still reachable by an
+  admin who is enrolled on something; nothing about a coach's *records* changed.
+  Don't rebuild a coach page's logic into a staff page on the assumption it is
+  dead.
 - **A course ends twice.** *Delivered* is derived — the last `CourseDay.date`
   has passed — and moves if the register does, because if a tenth day is added
   delivery finished later. *Closed* is `Course.closedAt`, somebody's judgement
@@ -155,6 +184,41 @@ approximations of it. **Keep database access out of them.**
   until the player has said something back the seek is done by remounting the
   iframe at the timecode. Don't take the remount out — it is the only branch
   that works on first click.
+
+- **An import matches on an address first and an FA number second.** The address
+  is what an account *is* here; the FA number is what survives somebody changing
+  it, and it lives on `Enrollment.externalRef` — as-at-a-course, like everything
+  else off the register — so an account is reached through any enrolment
+  carrying the number. Where the two point at different accounts the row is
+  skipped: one participant and two accounts is a merge, and a merge is a
+  decision. The import never changes an address, a role or whether an account is
+  active, never renumbers a register, and never takes somebody off one because
+  an export stopped mentioning them.
+
+## Importing a cohort from the FA learning system
+
+`/admin/courses/<id>/participants`, admin only. The export is read in the
+browser and held in state rather than left in the file input — React 19 resets
+an uncontrolled form once an action settles, and a file input cannot be
+refilled, so "preview then import" would otherwise mean choosing the file twice.
+Preview and commit run the same `planImport`, so what you read is what gets
+written. `Phone Number`, `Department`, `Suborganisation` and the prerequisite
+questions have nowhere to go in this schema; the page says so on the preview
+rather than letting somebody find out later. `Suborganisation` is a federation
+region and is deliberately not written to `clubName`.
+
+There are two ways in. `/admin/courses/<id>/participants` puts an export onto a
+cohort that exists. `/admin/courses/new-from-export` makes the cohort *from* the
+export: the `Courses` column gives the qualification and the file name gives the
+stream and the venue — `fq-50-50-c-diploma-metro-logan-lightning-fc` — which
+`course-from-export.ts` reads into the title convention the 2026 registers
+already use. **Everything it derives is a suggestion in an editable field**, and
+that is the only reason guessing from a file name is safe at all. The cohort is
+created unpublished with no days and no course team, because the export carries
+neither and nothing here invents a schedule; ages stay null until days exist,
+and re-importing the same file fills them in. `planNewCourseImport` is the same
+plan against a cohort described rather than stored, so both routes agree about
+what a file says.
 
 ## Loading real course data
 

@@ -114,7 +114,9 @@ export default async function DeliveryAssessmentPage({
   return (
     <>
       <PageHeader
-        breadcrumb={{ href: "/educator/grading", label: "Grading" }}
+        // Straight back to the list rather than through the old queue, which
+        // now only redirects to it.
+        breadcrumb={{ href: "/educator", label: "Your coaches" }}
         title={coach.name}
         subtitle={
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">

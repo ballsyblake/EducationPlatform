@@ -4,7 +4,9 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { checkThrottle, clearFailures, recordFailure } from "@/lib/login-throttle";
 import { sendMail, isDevMailMode } from "@/lib/mailer";
+import { burnVerification, describeHashProblem, verifyPassword } from "@/lib/password";
 import type { Role, User } from "@prisma-client";
 
 const SESSION_COOKIE = "coach_lms_session";
@@ -25,6 +27,41 @@ const INVITE_LINK_TTL_DAYS = Number(process.env.INVITE_LINK_TTL_DAYS ?? 7);
 
 /** Stops a repeated request from flooding a coach's inbox. */
 const RESEND_COOLDOWN_SECONDS = 60;
+
+/* -------------------------------------------------------------------------- */
+/* The coach portal, parked                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Whether coaches may use this app at all.
+ *
+ * Parked on purpose. Handing an account to several hundred external coaches was
+ * never viable for FQ, so all three jobs this app is actually asked for — watch
+ * a coach deliver, pass or fail them, review the film that comes back — belong
+ * to staff, and are done from the one list at `/educator`.
+ *
+ * Parked, not deleted. Every coach account, enrolment, mark, rating, support
+ * case and submission stays exactly where it is, and so do the pages that
+ * render them: what is switched off is signing in as a coach and the
+ * navigation only a coach would use. `COACH_PORTAL=on` brings it back, which is
+ * one variable rather than a revert.
+ */
+export function coachPortalEnabled() {
+  // `===`, not a truthiness test on the raw value: a variable left blank in a
+  // host's dashboard arrives as an empty string, and "off" would read as on.
+  return process.env.COACH_PORTAL === "on";
+}
+
+/**
+ * Whether this account may hold a session at all.
+ *
+ * Deactivation and the parked portal get the same answer, and it is asked of
+ * the cookie as well as the sign-in form: an account that can no longer sign in
+ * must not keep browsing on a session minted before the switch flipped.
+ */
+export function canSignIn(user: Pick<User, "role" | "active">) {
+  return user.active && (coachPortalEnabled() || user.role !== "COACH");
+}
 
 function hash(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -73,7 +110,10 @@ export async function requestLoginLink(rawEmail: string): Promise<LoginRequestRe
   }
 
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !user.active) {
+  // A parked coach is answered exactly like an unknown or deactivated address.
+  // The same silence that keeps the form from confirming who is on staff keeps
+  // it from telling a coach their account exists but has been switched off.
+  if (!user || !canSignIn(user)) {
     return { ok: true, delivered: false };
   }
 
@@ -174,7 +214,7 @@ export async function consumeLoginToken(token: string): Promise<User | null> {
     include: { user: true },
   });
 
-  if (!record || record.usedAt || record.expiresAt < new Date() || !record.user.active) {
+  if (!record || record.usedAt || record.expiresAt < new Date() || !canSignIn(record.user)) {
     return null;
   }
 
@@ -194,6 +234,129 @@ export async function revokeOtherSessions(userId: string) {
   await prisma.session.deleteMany({
     where: { userId, ...(current ? { NOT: { tokenHash: hash(current) } } : {}) },
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* The admin password                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One password, for the people named in ADMIN_EMAILS.
+ *
+ * This exists because of what it replaces. There is no SMTP server configured
+ * and no shell on the plan this runs on, so the only way an admin could get
+ * back in was `ADMIN_LINK=print`, which writes a working sign-in token — a
+ * credential needing no password — into a deploy log that anybody with the
+ * host's dashboard can read and that gets pasted into tickets. A scrypt hash in
+ * an environment variable is readable by exactly the same people and is worth
+ * nothing to them.
+ *
+ * Scoped as narrowly as it can usefully be: ADMIN_EMAILS only, and only an
+ * account that is actually an ADMIN. It is the operator's way in, not a
+ * password system — nobody else gets one, and the magic-link route is unchanged
+ * for everybody.
+ *
+ * It is a *shared* secret when ADMIN_EMAILS holds more than one address: any of
+ * those people could sign in as any other. That is acceptable for a breakglass
+ * credential held by whoever administers the deploy, and unacceptable as a
+ * general scheme — if admins ever need passwords of their own, they belong on
+ * `User`, hashed per account, not here.
+ */
+function adminPasswordHash() {
+  // `||`, not `??`: a variable left blank in a host's dashboard arrives as an
+  // empty string, and an empty hash must read as "no password configured"
+  // rather than as a hash that nothing matches.
+  return (process.env.ADMIN_PASSWORD_HASH || "").trim() || null;
+}
+
+/** Addresses the password may be used with. Mirrors scripts/bootstrap-admin.ts. */
+function adminEmails() {
+  return (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => normalizeEmail(e))
+    .filter(Boolean);
+}
+
+/** Whether the login page should offer a password field at all. */
+export function passwordSignInAvailable() {
+  return adminPasswordHash() !== null && adminEmails().length > 0;
+}
+
+export type PasswordSignInResult =
+  | { ok: true; user: User }
+  | { ok: false; error: string };
+
+/**
+ * Signs an admin in with the shared password, or fails without saying why.
+ *
+ * Every failure returns the same sentence. Distinguishing "no such account"
+ * from "wrong password" would turn this form into a way to enumerate which
+ * addresses are admins, which is the thing `requestLoginLink` is careful not to
+ * do. The reason is logged instead, where only the operator can read it.
+ */
+export async function signInWithPassword(
+  rawEmail: string,
+  password: string,
+): Promise<PasswordSignInResult> {
+  const email = normalizeEmail(rawEmail);
+  const generic = { ok: false as const, error: "That email address and password don't match." };
+
+  if (!email || !password) {
+    return { ok: false, error: "Enter your email address and password." };
+  }
+
+  const stored = adminPasswordHash();
+  if (!stored) {
+    console.warn("[auth] Password sign-in attempted but ADMIN_PASSWORD_HASH is not set.");
+    return generic;
+  }
+
+  // Said out loud, because the alternative is an operator with the right
+  // password being told it is wrong and having nothing to go on.
+  const malformed = describeHashProblem(stored);
+  if (malformed) {
+    console.error(`[auth] ADMIN_PASSWORD_HASH cannot match any password: ${malformed}.`);
+    await burnVerification(password);
+    return generic;
+  }
+
+  // Keyed on the address, so one address under attack cannot lock out another.
+  // There is no IP here to key on: `request.url` and the forwarding headers both
+  // come through a proxy and neither is trustworthy enough to base a lockout on.
+  const throttle = checkThrottle(`password:${email}`);
+  if (throttle.blocked) {
+    console.warn(`[auth] Password sign-in for ${email} is throttled.`);
+    return {
+      ok: false,
+      error: `Too many attempts. Try again in ${throttle.retryAfterMinutes} minute${
+        throttle.retryAfterMinutes === 1 ? "" : "s"
+      }.`,
+    };
+  }
+
+  const user = adminEmails().includes(email)
+    ? await prisma.user.findUnique({ where: { email } })
+    : null;
+
+  // Both failing branches still pay for a hash, so a wrong address and a wrong
+  // password take the same time to come back. See `burnVerification`.
+  if (!user || user.role !== ("ADMIN" satisfies Role) || !canSignIn(user)) {
+    await burnVerification(password);
+    recordFailure(`password:${email}`);
+    console.warn(`[auth] Password sign-in refused for ${email}: not an eligible admin.`);
+    return generic;
+  }
+
+  if (!(await verifyPassword(password, stored))) {
+    recordFailure(`password:${email}`);
+    console.warn(`[auth] Password sign-in refused for ${email}: wrong password.`);
+    return generic;
+  }
+
+  clearFailures(`password:${email}`);
+  await startSession(user.id);
+  console.log(`[auth] ${email} signed in with the admin password.`);
+  return { ok: true, user };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -244,7 +407,7 @@ export async function getCurrentUser(): Promise<User | null> {
     include: { user: true },
   });
 
-  if (!session || session.expiresAt < new Date() || !session.user.active) {
+  if (!session || session.expiresAt < new Date() || !canSignIn(session.user)) {
     return null;
   }
 
@@ -311,17 +474,27 @@ export function isCdu(user: Pick<User, "role" | "cdu"> | null | undefined) {
   return user?.role === "ADMIN" && user.cdu === true;
 }
 
+/** A club administrator or an FQ assessor: the other product's accounts. */
+export function isCdaRole(user: Pick<User, "role"> | null | undefined) {
+  return user?.role === "CLUB" || user?.role === "ASSESSOR";
+}
+
 /**
  * Where an account belongs after signing in.
  *
  * One instance serves two products. A club administrator and an FQ assessor
  * have no business in the coach-education app at all, so they go straight to
- * the CDA portal. Everyone else — coach, educator, admin — lands on the coach
- * dashboard, and an admin in the Club Development Unit gets a link across from
- * there.
+ * the CDA portal.
+ *
+ * An educator lands on their own list rather than on a dashboard: it carries
+ * every coach assigned to them and what each one still needs, which is the
+ * whole of the job, and a dashboard in front of it was a page of counts to
+ * click past. An admin keeps the dashboard — the program's own figures are on
+ * Manage, and an admin is as likely to be enrolled on something as not.
  */
 export function homePathFor(user: Pick<User, "role">) {
-  return user.role === "CLUB" || user.role === "ASSESSOR" ? "/cda" : "/dashboard";
+  if (isCdaRole(user)) return "/cda";
+  return isEducator(user) ? "/educator" : "/dashboard";
 }
 
 /** Constant-time compare, for anywhere a secret is checked outside the DB. */

@@ -8,10 +8,14 @@
  *
  *   ADMIN_EMAILS="head.coach@yourprogram.com" npm run bootstrap:admin
  *
- * Locked out? Set ADMIN_LINK=1 in the environment and redeploy. That issues a
+ * Normally this prints nothing but which admins it found. ADMIN_PASSWORD_HASH
+ * is how an admin gets in — see `HAS_PASSWORD` below — so there is no reason for
+ * a deploy to mint a link at all, let alone put one in a log.
+ *
+ * Locked out with no password set? Set ADMIN_LINK=1 and redeploy. That issues a
  * fresh sign-in link whatever the session state says, and emails it — see the
  * note on `liveSession` below for why the default is silence, and on
- * `PRINT_TOKEN` for why the link is no longer written to the log.
+ * `PRINT_TOKEN` for why the link is not written to the log.
  */
 import "dotenv/config";
 import { createHash, randomBytes } from "node:crypto";
@@ -52,6 +56,24 @@ const RESET_SESSIONS = LINK_ASKED === "reset";
  * treated as spent the moment the build finishes.
  */
 const PRINT_TOKEN = LINK_ASKED === "print";
+
+/**
+ * Whether an admin has a password to sign in with.
+ *
+ * When they do, this script has nothing to deliver. The reason it ever issued a
+ * link unprompted was that an admin who wasn't signed in had no other way in:
+ * no SMTP server to request one through, and no shell on this plan to run
+ * anything from. A password in the environment closes that hole, so the
+ * unprompted link — and the `ADMIN_LINK=print` that made it reachable by
+ * writing a live credential into the deploy log — is no longer the way back in.
+ *
+ * ADMIN_LINK still works and still overrides this. It is the fallback for a
+ * forgotten password, and `npm run admin:password` is how you set a new one.
+ *
+ * `||`, not `??`: a variable left blank in a host's dashboard arrives as an
+ * empty string, which is not a password.
+ */
+const HAS_PASSWORD = ((process.env.ADMIN_PASSWORD_HASH || "").trim()) !== "";
 
 /**
  * Mints a sign-in link the same way the app does. Duplicated rather than
@@ -107,8 +129,9 @@ async function deliverLink(email: string, link: string, intro: string) {
     // rather than leaked by default; the link is in the database, and the next
     // one issued retires it.
     console.log(`[bootstrap] No SMTP server is configured, so the link was not sent.`);
-    console.log("[bootstrap] Set SMTP_HOST (with SMTP_USER and SMTP_PASSWORD) to have it emailed,");
-    console.log("[bootstrap] or ADMIN_LINK=print to accept printing the token to this log.");
+    console.log("[bootstrap] Set ADMIN_PASSWORD_HASH (npm run admin:password) and sign in at /login,");
+    console.log("[bootstrap] or SMTP_HOST (with SMTP_USER and SMTP_PASSWORD) to have the link emailed.");
+    console.log("[bootstrap] ADMIN_LINK=print writes the token to this log; prefer either of the above.");
     return;
   }
 
@@ -167,8 +190,14 @@ export async function bootstrapAdmins(prisma: PrismaClient) {
       const user = await prisma.user.create({
         data: { email, role: "ADMIN", cdu: true, title: "Program Admin" },
       });
-      const link = await issueSignInLink(prisma, user.id);
       console.log(`[bootstrap] Created admin ${email}`);
+
+      if (HAS_PASSWORD && !FORCE_LINK) {
+        console.log(`[bootstrap] ADMIN_PASSWORD_HASH is set — sign in at /login as ${email}.`);
+        continue;
+      }
+
+      const link = await issueSignInLink(prisma, user.id);
       await deliverLink(email, link, "A sign-in link for the first admin was issued.");
       continue;
     }
@@ -212,6 +241,15 @@ export async function bootstrapAdmins(prisma: PrismaClient) {
     if (liveSession && !FORCE_LINK) {
       console.log(`[bootstrap] ${email} has an active session; no link needed.`);
       console.log("[bootstrap] Set ADMIN_LINK=1 and redeploy if you can't actually get in.");
+      continue;
+    }
+
+    // Not signed in, but they have a password, so there is nothing to issue.
+    // This is the line that used to be a sign-in link in the deploy log on
+    // every single boot.
+    if (HAS_PASSWORD && !FORCE_LINK) {
+      console.log(`[bootstrap] ${email} is not signed in; ADMIN_PASSWORD_HASH is set, so no`);
+      console.log("[bootstrap] link was issued — sign in at /login with the admin password.");
       continue;
     }
 

@@ -8,7 +8,14 @@ import { InviteCallout } from "./invite-callout";
 
 const initialState: PeopleFormState = { status: "idle" };
 
-export function AddStaffForm({ emailEnabled }: { emailEnabled: boolean }) {
+export function AddStaffForm({
+  emailEnabled,
+  coachPortalEnabled,
+}: {
+  emailEnabled: boolean;
+  /** Whether a coach account can sign in, which decides what adding one means. */
+  coachPortalEnabled: boolean;
+}) {
   const [state, formAction] = useActionState(addStaffMember, initialState);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -57,10 +64,16 @@ export function AddStaffForm({ emailEnabled }: { emailEnabled: boolean }) {
         <label className="label" htmlFor="staff-role">
           Permissions
         </label>
-        <select id="staff-role" name="role" className="input">
-          <option value="COACH">Coach — completes assigned work</option>
-          <option value="ADMIN">Admin — creates courses and grades</option>
+        <select id="staff-role" name="role" className="input" defaultValue="EDUCATOR">
+          <option value="EDUCATOR">Educator — assesses the coaches assigned to them</option>
+          <option value="ADMIN">Admin — runs the program and the accounts</option>
+          <option value="COACH">Coach — enrolled, assessed and rated</option>
         </select>
+        <p className="hint">
+          {coachPortalEnabled
+            ? "A coach signs in to see their own courses and results."
+            : "Coaches can\u2019t sign in at the moment, so a coach account is a record on a register. An educator gets the list of coaches assigned to them."}
+        </p>
       </div>
 
       {emailEnabled && (

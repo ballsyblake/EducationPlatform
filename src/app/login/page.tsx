@@ -1,6 +1,11 @@
 import { redirect } from "next/navigation";
 import { BrandLogoLarge, hasBrandLogo } from "@/components/brand";
-import { canRevealMagicLink, getCurrentUser, magicLinkAvailable } from "@/lib/auth";
+import {
+  canRevealMagicLink,
+  getCurrentUser,
+  magicLinkAvailable,
+  passwordSignInAvailable,
+} from "@/lib/auth";
 import { LoginForm } from "./login-form";
 
 export const metadata = { title: "Sign in" };
@@ -25,7 +30,10 @@ export default async function LoginPage() {
         </div>
 
         <div className="card card-pad">
-          <LoginForm emailEnabled={magicLinkAvailable()} />
+          <LoginForm
+            emailEnabled={magicLinkAvailable()}
+            passwordEnabled={passwordSignInAvailable()}
+          />
         </div>
 
         {canRevealMagicLink() && (
