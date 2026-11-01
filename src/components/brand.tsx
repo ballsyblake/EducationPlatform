@@ -28,16 +28,33 @@ export function BrandLogo({
   variant = "colour",
   className = "",
   name = "Coach Education",
+  height: requested,
 }: {
   variant?: "colour" | "light";
   className?: string;
+  /**
+   * How tall to set the mark, in pixels.
+   *
+   * The navigation's 28px is right for chrome and too small for a letterhead:
+   * the assessment sheet is a document somebody prints and hands over, and FQ
+   * set the mark about twice that on their own. Clamped to the guidelines'
+   * 23px minimum either way (2.A).
+   */
+  height?: number;
   /**
    * The product name shown when no official artwork is supplied. One instance
    * serves two products, and the header has to say which one you're in.
    */
   name?: string;
 }) {
-  const src = variant === "light" ? (LIGHT_LOGO ?? COLOUR_LOGO) : COLOUR_LOGO;
+  // No falling back to the colour mark on the light variant. The guidelines
+  // permit the master logo on white or on an image only, and the mono white
+  // version exists for exactly this case (2.A) — so with only the colour
+  // artwork supplied, the Deep Maroon header gets the product name in brand
+  // type, which is what it had before any artwork existed. The fallback that
+  // was here put a maroon mark on a maroon bar the day the file arrived, and
+  // it could not be read at all.
+  const src = variant === "light" ? LIGHT_LOGO : COLOUR_LOGO;
 
   if (!src) {
     // No artwork supplied — the product name, deliberately not logo-like.
@@ -52,14 +69,23 @@ export function BrandLogo({
     );
   }
 
+  const height = Math.max(MIN_HEIGHT_PX, requested ?? 28);
+
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={src}
       alt="Football Queensland"
-      // Clear space for horizontal logos is 40% of the logo height (2.A).
       className={`w-auto ${className}`}
-      style={{ height: `${Math.max(MIN_HEIGHT_PX, 28)}px`, padding: "0 40%" }}
+      style={{
+        height: `${height}px`,
+        // Clear space for horizontal logos is 40% of the logo height (2.A).
+        // As *margin*, not padding: Tailwind's preflight makes every box
+        // border-box, so horizontal padding on an element with a fixed height
+        // eats the mark rather than holding space around it — the artwork came
+        // out about a third of its width, centred in its own gap.
+        marginInline: `${Math.round(height * 0.4)}px`,
+      }}
     />
   );
 }

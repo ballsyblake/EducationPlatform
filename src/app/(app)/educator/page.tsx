@@ -98,7 +98,21 @@ export default async function AssessorPage() {
                 <div className="flex min-w-0 items-center gap-3">
                   <Avatar user={row.coach} size="sm" />
                   <div className="min-w-0">
-                    <p className="font-semibold text-ink-900">{displayName(row.coach)}</p>
+                    {/* The name opens the coach's record — their deliveries,
+                        hours and standing, laid out as the assessment document.
+                        The links below are the jobs; this is the reading. */}
+                    <p className="font-semibold text-ink-900">
+                      {row.enrollmentId ? (
+                        <Link
+                          href={`/admin/coaches/${row.enrollmentId}`}
+                          className="hover:text-maroon-700 hover:underline"
+                        >
+                          {displayName(row.coach)}
+                        </Link>
+                      ) : (
+                        displayName(row.coach)
+                      )}
+                    </p>
                     <p className="mt-0.5 text-xs text-ink-500">
                       {[row.courseTitle, row.catchUp ? "Catching up" : row.clubName]
                         .filter(Boolean)

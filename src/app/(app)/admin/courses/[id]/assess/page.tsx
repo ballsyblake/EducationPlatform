@@ -170,11 +170,24 @@ export default async function AssessCoursePage({ params }: { params: Promise<{ i
         // the hours ledger, the result block. An educator was being offered a
         // page of somebody else's job, so it is an admin's link now.
         action={
-          isAdmin(user) ? (
-            <Link href={`/admin/courses/${course.id}/register`} className="btn-secondary btn-sm">
-              Full register →
+          <div className="flex flex-wrap gap-2">
+            {/* Every coach's assessment document in one file, which is the
+                shape FQ already circulates theirs in. An educator's as much as
+                an admin's: it is the write-ups on this page, laid out for
+                paper. */}
+            <Link
+              href={`/outcome/course/${course.id}`}
+              target="_blank"
+              className="btn-secondary btn-sm"
+            >
+              Assessment documents →
             </Link>
-          ) : null
+            {isAdmin(user) && (
+              <Link href={`/admin/courses/${course.id}/register`} className="btn-secondary btn-sm">
+                Full register →
+              </Link>
+            )}
+          </div>
         }
       />
 

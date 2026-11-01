@@ -298,6 +298,16 @@ export type AssessorRow = {
   /** Coach and course together: the same coach can be on two of them. */
   key: string;
   coach: { id: string; name: string | null; email: string; photoId: string | null };
+  /**
+   * Their enrolment, so the name can open the record at
+   * `/admin/coaches/<id>`.
+   *
+   * Null on a row the delivery queue never produced — a reassessment is built
+   * from the support case, which carries the coach and the course but not
+   * which enrolment on it. The name is then plain text rather than a link to a
+   * page this cannot name.
+   */
+  enrollmentId: string | null;
   courseId: string;
   courseTitle: string;
   clubName: string | null;
@@ -344,21 +354,24 @@ export async function getAssessorQueue(
     coach: AssessorRow["coach"],
     courseId: string,
     courseTitle: string,
-    extra: { clubName?: string | null; catchUp?: boolean } = {},
+    extra: { clubName?: string | null; catchUp?: boolean; enrollmentId?: string } = {},
   ) {
     const key = `${coach.id}:${courseId}`;
     const existing = rows.get(key);
     if (existing) {
       // A review-only row created first has no enrolment detail on it; the
-      // delivery queue carries the club and the catch-up track, so fill them
-      // in rather than letting whichever source arrived first decide.
+      // delivery queue carries the club, the catch-up track and the enrolment,
+      // so fill them in rather than letting whichever source arrived first
+      // decide.
       existing.clubName ??= extra.clubName ?? null;
       existing.catchUp ||= extra.catchUp ?? false;
+      existing.enrollmentId ??= extra.enrollmentId ?? null;
       return existing;
     }
     const row: AssessorRow = {
       key,
       coach,
+      enrollmentId: extra.enrollmentId ?? null,
       courseId,
       courseTitle,
       clubName: extra.clubName ?? null,
@@ -373,6 +386,7 @@ export async function getAssessorQueue(
     const row = rowFor(d.coach, d.courseId, d.courseTitle, {
       clubName: d.clubName,
       catchUp: d.catchUp,
+      enrollmentId: d.enrollmentId,
     });
     row.tasks.push({
       kind: d.need === "unassessed" ? "deliver" : "rate",
