@@ -189,21 +189,50 @@ function tickTable() {
  */
 const SIGN_COLS = [2410, 5126, 2387, 4678];
 
-function outcomeRow() {
-  const box = (label: string, fill: string, color: string, span: number, width: number) =>
+function outcomeRow(tick: RegisterCoach["verdict"]) {
+  const box = (
+    label: string,
+    fill: string,
+    color: string,
+    span: number,
+    width: number,
+    checked: boolean,
+  ) =>
     tc(
       [
         new Paragraph({
           spacing: { before: 0, after: 0 },
-          children: [text(`${label}    `, { bold: true, size: BODY, color }), new CheckBox({})],
+          children: [
+            text(`${label}    `, { bold: true, size: BODY, color }),
+            new CheckBox({ checked }),
+          ],
         }),
       ],
       { fill, span, width, middle: true },
     );
+  // Ticked from the register's own verdict rather than from which of the two
+  // documents this is, because the third bundle — the coaches nobody has
+  // judged yet — is built off the action plan layout too, and a tick there
+  // would be the app taking a decision that is the CETs'. Theirs comes out
+  // with both boxes empty, which is what a blank form is for.
   return new TableRow({
     children: [
-      box("COMPETENT", "FFFFFF", OUTCOME_MAROON, 2, SIGN_COLS[0] + SIGN_COLS[1]),
-      box("NOT COMPETENT YET", OUTCOME_MAROON, "FFFFFF", 2, SIGN_COLS[2] + SIGN_COLS[3]),
+      box(
+        "COMPETENT",
+        "FFFFFF",
+        OUTCOME_MAROON,
+        2,
+        SIGN_COLS[0] + SIGN_COLS[1],
+        tick === "passed",
+      ),
+      box(
+        "NOT COMPETENT YET",
+        OUTCOME_MAROON,
+        "FFFFFF",
+        2,
+        SIGN_COLS[2] + SIGN_COLS[3],
+        tick === "action_plan",
+      ),
     ],
   });
 }
@@ -441,8 +470,14 @@ const B_NARRATIVE = {
     `${name}, Congratulations on attending the Football Australia/AFC ${qualification} — this marks an important milestone in your coaching journey.`,
   framing:
     "Your formative assessment represents a valuable opportunity to build on what you have learned throughout the course. The CETs have identified both key strengths and areas where further development is needed. Continue to excel in your strengths - keep thriving in these areas. For the performance gap, we are looking for you to narrow the gap and show improvement in the upcoming months.",
+  // Split so that "not yet" can carry the bold FQ's own copy puts on it. It is
+  // the whole point of the sentence and the first thing the coach reads.
   notYetCompetent: (qualification: string) =>
-    `At this stage, the CETs for the ${qualification} have determined that your practical performance is not yet at the level required to be deemed competent in the course. We are sharing this information now to ensure you have ample time to focus on the areas identified and to work closely with your mentor to address the performance gaps outlined above.`,
+    [
+      `At this stage, the CETs for the ${qualification} have determined that your practical performance is `,
+      "not yet",
+      " at the level required to be deemed competent in the course. We are sharing this information now to ensure you have ample time to focus on the areas identified and to work closely with your mentor to address the performance gaps outlined above.",
+    ] as const,
   feedbackOpening: (qualification: string) =>
     `Congratulations on attending the Football Australia/AFC ${qualification} — this marks an important milestone in your coaching journey.`,
   feedbackFraming:
@@ -478,12 +513,12 @@ function actionPlanNarrative(coach: RegisterCoach, qualification: string) {
               bullet(""),
               // Highlighted on FQ's own copy, with the pen rather than a fill,
               // because it is the sentence the coach is meant to read first.
-              para(B_NARRATIVE.notYetCompetent(qualification), {
-                size: BODY,
-                before: 5,
-                after: 2,
-                highlight: "yellow",
-              }),
+              para(
+                B_NARRATIVE.notYetCompetent(qualification).map((run, i) =>
+                  text(run, { size: BODY, bold: i === 1, highlight: "yellow" }),
+                ),
+                { before: 5, after: 2 },
+              ),
             ],
             { width: TEXT_WIDTH },
           ),
@@ -505,7 +540,7 @@ export function bActionPlanBlocks(coach: RegisterCoach, register: ParsedRegister
     // which is the shading on the register's own write-up cell. That is where
     // FQ's copy gets it: Beau's fourth delivery is yellow where his first
     // three are salmon.
-    ...deliveryTable(coach, TEXT_WIDTH, { byLevel: "fill" }),
+    ...deliveryTable(coach, TEXT_WIDTH, { byLevel: "fill", rating: false }),
     para("", { size: 5 }),
     // The band again above the tick table. FQ's copy repeats it, and it earns
     // the repeat: the deliveries can run to a second page, and a CET ticking
@@ -516,7 +551,7 @@ export function bActionPlanBlocks(coach: RegisterCoach, register: ParsedRegister
     para("", { size: 5 }),
     actionPlanNarrative(coach, qualification),
     para("", { size: 5 }),
-    signOff(coach, register, { columns: SIGN_COLS, before: [outcomeRow()] }),
+    signOff(coach, register, { columns: SIGN_COLS, before: [outcomeRow(coach.verdict)] }),
     new Paragraph({ children: [new PageBreak()] }),
     ...rubricAppendix(),
     ...developmentPlan(coach),
@@ -566,7 +601,7 @@ export function bFeedbackBlocks(coach: RegisterCoach, register: ParsedRegister) 
     // The write-ups themselves are coloured here rather than the headings,
     // which is how FQ's letter does it — the text keeps the colour of the
     // register cell it was pasted out of.
-    ...deliveryTable(coach, TEXT_WIDTH, { byLevel: "text" }),
+    ...deliveryTable(coach, TEXT_WIDTH, { byLevel: "text", rating: false }),
     para("", { size: 3 }),
     new Table({
       width: FULL_WIDTH,
@@ -587,7 +622,11 @@ export function bFeedbackBlocks(coach: RegisterCoach, register: ParsedRegister) 
       ],
     }),
     para("", { size: 3 }),
-    signOff(coach, register, { columns: SIGN_COLS, before: [outcomeRow()], signature: false }),
+    signOff(coach, register, {
+      columns: SIGN_COLS,
+      before: [outcomeRow(coach.verdict)],
+      signature: false,
+    }),
     new Paragraph({ children: [new PageBreak()] }),
     ...rubricAppendix(),
   ];

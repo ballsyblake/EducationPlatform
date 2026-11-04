@@ -201,6 +201,7 @@ export function deliveryCell(
   delivery: RegisterDelivery,
   width: number,
   color?: string,
+  rating = true,
 ) {
   const line = (label: string, value: string | null) =>
     value
@@ -235,7 +236,7 @@ export function deliveryCell(
     });
   }
 
-  if (delivery.rating !== null) {
+  if (rating && delivery.rating !== null) {
     blocks.push(
       para(
         [
@@ -281,6 +282,14 @@ export function deliveryTable(
      * being guessed at from the 1-5 session rating.
      */
     byLevel?: "fill" | "text";
+    /**
+     * Print the free-text `Session Rating: n` off the register under each
+     * write-up. The C form does; neither B document does, on FQ's own copies
+     * or on Blake's — the B is assessed NYC / C / HC and the 1-5 number is a
+     * different instrument, so putting it on a page that also ticks a level
+     * invites the conversion between them that nobody has published.
+     */
+    rating?: boolean;
   } = {},
 ): (Paragraph | Table)[] {
   if (!coach.deliveries.length) {
@@ -322,6 +331,7 @@ export function deliveryTable(
               d,
               each,
               o.byLevel === "text" && d.level ? LEVEL_TEXT[d.level] : undefined,
+              o.rating ?? true,
             ),
           ),
         }),
