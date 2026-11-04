@@ -533,9 +533,31 @@ export async function assessmentPlanDocx(
   return Packer.toBuffer(doc);
 }
 
-/** What a coach's file is called inside the bundle. */
-export function planFilename(coach: RegisterCoach, kind: "action plan" | "feedback") {
-  return docxFilename(coach.name, kind);
+/**
+ * What a coach's file is called inside the bundle.
+ *
+ * `Billy Ho-Fung Wong - B Diploma Assessment - Action Plan.docx`, which is the
+ * convention Blake circulates these under and the one FQ's own template file
+ * is named for (`C Diploma Assessment - Action Plan / Feedback`). The
+ * qualification is in the name because a coach can sit both diplomas and the
+ * two files would otherwise collide in whatever folder they end up in.
+ *
+ * Not the document's own title, which is longer and differs between the B's
+ * two documents (`Formative Assessment` against `Post-course Feedback`): the
+ * file name is for finding the file, and a column of names that agree down to
+ * the last three words is harder to scan, not easier.
+ */
+export function planFilename(
+  coach: RegisterCoach,
+  kind: "action plan" | "feedback",
+  register: ParsedRegister,
+) {
+  const what = kind === "feedback" ? "Feedback" : "Action Plan";
+  return docxFilename(
+    coach.name,
+    `${register.qualification ?? "Diploma"} Assessment`,
+    what,
+  );
 }
 
 export { docxFilename };
