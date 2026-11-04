@@ -84,6 +84,17 @@ import type { ParsedRegister, RegisterCoach } from "@/lib/register-file";
 const OUTCOME_MAROON = "990033";
 
 /**
+ * The three colours FQ name the levels in, in the feedback letter's own
+ * sentence explaining the colour coding.
+ *
+ * Brighter than `LEVEL_TEXT`, which is the Excel font colour the write-ups
+ * themselves carry. Their copy uses both, one for the legend and one for the
+ * prose, so this does too rather than picking one and making the sentence
+ * disagree with what it is describing.
+ */
+const LEGEND = { NYC: "F91E00", C: "E4B900", HC: "44A921" };
+
+/**
  * The B form's grading band: the three levels, no point ranges.
  *
  * The C form prints `(0–11)`, `(12–14)`, `(15–18)` because it totals a score.
@@ -442,7 +453,11 @@ export function bActionPlanBlocks(coach: RegisterCoach, register: ParsedRegister
     para("", { size: 5 }),
     gradingBand(),
     para("", { size: 3 }),
-    ...deliveryTable(coach, TEXT_WIDTH),
+    // The headings take their colour from the level the CET gave that session,
+    // which is the shading on the register's own write-up cell. That is where
+    // FQ's copy gets it: Beau's fourth delivery is yellow where his first
+    // three are salmon.
+    ...deliveryTable(coach, TEXT_WIDTH, { byLevel: "fill" }),
     para("", { size: 5 }),
     // The band again above the tick table. FQ's copy repeats it, and it earns
     // the repeat: the deliveries can run to a second page, and a CET ticking
@@ -476,7 +491,22 @@ export function bFeedbackBlocks(coach: RegisterCoach, register: ParsedRegister) 
               [
                 para("PRACTICAL COMMENTS", { bold: true, size: BODY, after: 6 }),
                 para(B_NARRATIVE.feedbackOpening(qualification), { size: BODY, after: 5 }),
-                para(B_NARRATIVE.feedbackFraming, { size: BODY, after: 2 }),
+                para(
+                  [
+                    text(`${B_NARRATIVE.feedbackFraming} `, { size: BODY }),
+                    text("The feedback is colour coded to reflect ", { size: BODY }),
+                    text("not yet competent", { size: BODY, color: LEGEND.NYC }),
+                    text(", ", { size: BODY }),
+                    text("competent", { size: BODY, color: LEGEND.C }),
+                    text(" or ", { size: BODY }),
+                    text("highly competent", { size: BODY, color: LEGEND.HC }),
+                    text(
+                      ", as per the assessment rubric at the bottom of the document.",
+                      { size: BODY },
+                    ),
+                  ],
+                  { after: 2 },
+                ),
               ],
               { width: TEXT_WIDTH },
             ),
@@ -485,7 +515,10 @@ export function bFeedbackBlocks(coach: RegisterCoach, register: ParsedRegister) 
       ],
     }),
     para("", { size: 3 }),
-    ...deliveryTable(coach, TEXT_WIDTH),
+    // The write-ups themselves are coloured here rather than the headings,
+    // which is how FQ's letter does it — the text keeps the colour of the
+    // register cell it was pasted out of.
+    ...deliveryTable(coach, TEXT_WIDTH, { byLevel: "text" }),
     para("", { size: 3 }),
     new Table({
       width: FULL_WIDTH,

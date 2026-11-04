@@ -25,7 +25,7 @@
  */
 
 import { DEFAULT_RATING_THRESHOLD } from "@/lib/support-rubric";
-import { readWorkbook, type SheetRows, XlsxError } from "@/lib/xlsx";
+import { readWorkbook, type SheetFills, type SheetRows, XlsxError } from "@/lib/xlsx";
 
 export { XlsxError };
 
@@ -46,7 +46,21 @@ export type RegisterDelivery = {
   actions: string[];
   /** The session's own 1-5 mark, where the assessor wrote one. */
   rating: number | null;
+  /**
+   * What the CET made of the session, read off the cell's own colour.
+   *
+   * The Assessment sheet is colour-coded: the write-up cell is shaded with
+   * Excel's Bad, Neutral or Good cell style, which is the per-delivery
+   * judgement FQ's own documents print in red, amber and green. It is the only
+   * place on the register that judgement exists — there is no column for it —
+   * and it is what the generated documents colour their delivery columns from.
+   * Null where the assessor left the cell unshaded.
+   */
+  level: DeliveryLevel | null;
 };
+
+/** Not Yet Competent, Competent, Highly Competent — the three-level scale. */
+export type DeliveryLevel = "NYC" | "C" | "HC";
 
 /** What the register decided about a coach, and what this makes of it. */
 export type RegisterVerdict =
@@ -207,7 +221,42 @@ const BARE_NUMBER = /^\s*\d+[.)]?\s*$/;
 /** The template's unfilled dropdown text, which is not a value. */
 const PLACEHOLDERS = new Set(["block ?", "block", "play/practice"]);
 
-function parseDelivery(raw: string, deliveryNo: number): RegisterDelivery | null {
+/**
+ * A shaded assessment cell, read as a level.
+ *
+ * Both 2026 registers shade the write-ups with Excel's own Bad / Neutral /
+ * Good styles — `FFC7CE` pink, `FFEB9C` amber, `C6EFCE` green — but not only
+ * those: assessors have reached for the colour picker too, and the sheets also
+ * carry `FFE699`, `FFC000` and `FFFF00`. Matching the three by hex would read
+ * most of a register and silently drop the rest, so this goes by hue instead,
+ * which is what somebody looking at the sheet is going by.
+ *
+ * Green before pink, because `C6EFCE` is pale enough that its blue is high
+ * too. Then pink, which is the one family whose blue runs at or above its
+ * green. What is left with more green than blue is the yellows and ambers.
+ *
+ * A cell whose three channels are within a few points of each other is grey,
+ * not a judgement: the sheets shade their own headers and label columns, and
+ * reading those as Competent would put a level on every coach.
+ */
+const GREY = 12;
+
+function levelFromFill(fill: string | null): DeliveryLevel | null {
+  if (!fill || !/^[0-9A-F]{6}$/.test(fill)) return null;
+  const r = parseInt(fill.slice(0, 2), 16);
+  const g = parseInt(fill.slice(2, 4), 16);
+  const b = parseInt(fill.slice(4, 6), 16);
+  if (Math.max(r, g, b) - Math.min(r, g, b) <= GREY) return null;
+  if (g > r) return "HC";
+  if (b >= g) return "NYC";
+  return "C";
+}
+
+function parseDelivery(
+  raw: string,
+  deliveryNo: number,
+  fill: string | null,
+): RegisterDelivery | null {
   if (!raw.trim()) return null;
 
   const found = new Map<string, string[]>();
@@ -244,6 +293,7 @@ function parseDelivery(raw: string, deliveryNo: number): RegisterDelivery | null
           .filter(Boolean)
       : [],
     rating: value("session rating") === null ? null : num(value("session rating") as string),
+    level: levelFromFill(fill),
   };
 
   // An untouched template has nothing in it but the labels. Thirty of those
@@ -273,7 +323,7 @@ type AssessmentColumn = {
  * sets out at length. One register indents the whole grid by a column, so the
  * column holding the row labels is found rather than assumed.
  */
-function readAssessments(rows: SheetRows) {
+function readAssessments(rows: SheetRows, fills: SheetFills) {
   const out = new Map<string, AssessmentColumn>();
   let labelCol = -1;
   let nameRow = -1;
@@ -301,9 +351,11 @@ function readAssessments(rows: SheetRows) {
     if (col <= labelCol || blank(name)) return;
     const deliveries: RegisterDelivery[] = [];
     for (const deliveryNo of numbers) {
+      const row = deliveryRows.get(deliveryNo) as number;
       const parsed = parseDelivery(
-        cell(rows, deliveryRows.get(deliveryNo) as number, col),
+        cell(rows, row, col),
         deliveryNo,
+        fills[row]?.[col] ?? null,
       );
       if (parsed) deliveries.push(parsed);
     }
@@ -617,7 +669,7 @@ export function readRegister(
     );
   }
   const assessments = book.has("Assessment")
-    ? readAssessments(book.sheet("Assessment"))
+    ? readAssessments(book.sheet("Assessment"), book.fills("Assessment"))
     : new Map<string, AssessmentColumn>();
 
   const coaches: RegisterCoach[] = [...roster, ...catchUps].map((person) => {

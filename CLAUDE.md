@@ -150,6 +150,17 @@ so the generated document's rubric table and its total out of eighteen come out
 blank for the CETs to tick. Don't "fix" that by deriving one from the other; see
 the note at the head of `delivery-rubric.ts`.
 
+**The register does carry a per-delivery level, as a cell colour.** The
+Assessment sheet shades each write-up with Excel's Bad / Neutral / Good style,
+which is NYC / C / HC, and that is the only place that judgement exists — there
+is no column for it. `xlsx.ts` reads cell fills for this, `levelFromFill` in
+`register-file.ts` turns one into a level *by hue* rather than by matching hex
+(assessors reach for the colour picker, so there are six fills in use across
+two registers, not three), and `RegisterDelivery.level` carries it. The B
+Diploma documents colour their delivery columns from it. An unshaded cell is
+null and comes out plain — it is not inferred from the 1-5 rating, which would
+be the same invented conversion as above.
+
 **The two diplomas have different paperwork, and so does the export.** FQ run
 the B and the C off different forms, so there are three generated documents,
 not one:

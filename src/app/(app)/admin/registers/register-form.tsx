@@ -7,6 +7,7 @@ import {
   awaitingJudgement,
   countVerdicts,
   VERDICT_LABEL,
+  type DeliveryLevel,
   type RegisterCoach,
   type RegisterVerdict,
 } from "@/lib/register-file";
@@ -29,6 +30,43 @@ const VERDICT_TONE: Record<RegisterVerdict, Tone> = {
   unrated: "muted",
 };
 
+/**
+ * The level the CET gave each delivery, which is read off the colour of the
+ * register's own write-up cell and is otherwise invisible on this page.
+ *
+ * Shown because it is the one thing the parser infers from formatting rather
+ * than text: if a register is shaded in some colour this does not recognise,
+ * or not shaded at all, the dashes here say so before thirty documents come
+ * out plain.
+ */
+// The app's palette has no red — anything urgent speaks in maroon, as the
+// note on `Badge` says — so NYC does too here rather than importing a colour
+// for one table. The document itself keeps FQ's salmon, which is theirs.
+const LEVEL_CLASS: Record<DeliveryLevel, string> = {
+  NYC: "bg-maroon-100 text-maroon-800",
+  C: "bg-status-orange-bg text-status-orange-fg",
+  HC: "bg-status-green-bg text-status-green-fg",
+};
+
+function Levels({ coach }: { coach: RegisterCoach }) {
+  if (!coach.deliveries.length) return <span className="text-ink-400">—</span>;
+  return (
+    <span className="inline-flex gap-1">
+      {coach.deliveries.map((delivery) => (
+        <span
+          key={delivery.deliveryNo}
+          title={`Practical Delivery ${delivery.deliveryNo}`}
+          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+            delivery.level ? LEVEL_CLASS[delivery.level] : "bg-ink-100 text-ink-400"
+          }`}
+        >
+          {delivery.level ?? "—"}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function Row({ coach }: { coach: RegisterCoach }) {
   return (
     <tr>
@@ -41,7 +79,9 @@ function Row({ coach }: { coach: RegisterCoach }) {
       </td>
       <td className="px-3 py-2 tabular-nums">{coach.rating ?? "—"}</td>
       <td className="px-3 py-2 text-ink-600">{coach.outcome ?? "—"}</td>
-      <td className="px-3 py-2 text-center tabular-nums">{coach.deliveries.length}</td>
+      <td className="px-3 py-2 text-center">
+        <Levels coach={coach} />
+      </td>
       <td className="px-3 py-2">
         <Badge tone={VERDICT_TONE[coach.verdict]}>{VERDICT_LABEL[coach.verdict]}</Badge>
       </td>
