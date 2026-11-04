@@ -163,6 +163,11 @@ const NARRATIVE = {
     `Congratulations on attending the Football Australia/AFC ${qualification} — this marks an important milestone in your coaching journey.`,
   framing:
     "Your formative assessment represents a valuable opportunity to build on what you have learned throughout the course. The CETs have identified both key strengths and areas where further development is needed. Continue to excel in your strengths - keep thriving in these areas. For the performance gap, we are looking for you to narrow the gap and show improvement in the upcoming months.",
+  // The same opening sentence without the three that follow it. Those three
+  // point at the strengths and gaps lists, and the feedback letter no longer
+  // has them: a coach who passed is told so, not handed a form to fill in.
+  framingCompetent:
+    "Your formative assessment represents a valuable opportunity to build on what you have learned throughout the course.",
   notYetCompetent: (qualification: string) =>
     `At this stage, the CETs for the ${qualification} have determined that your practical performance is not yet at the level required to be deemed competent in the course. We are sharing this information now to ensure you have ample time to focus on the areas identified and to work closely with your mentor to address the performance gaps outlined above. It is recommended that you reach out to a mentor/'critical friend' in your environment to continually seek feedback and self-evaluate. Next steps in working towards being competent will involve completing a video assessment in the next 3 to 6 months, with appropriate elevation and audio.`,
   competent: (qualification: string) =>
@@ -265,65 +270,66 @@ function deliveryCell(delivery: RegisterDelivery, width: number) {
  * point of the block is the arc across the deliveries, and a coach whose first
  * session was prompted throughout and whose third was not has a story that a
  * vertical list hides.
+ *
+ * Two blocks, not one. The deliveries used to sit *inside* the ruled box with
+ * the heading, and a table nested in a cell is laid out in that cell's content
+ * area, which left it inset by the cell's padding on the left and, because Word
+ * will not let a cell end on a table, a band of white along the bottom. Both
+ * were worked around and both kept coming back on documents with longer
+ * write-ups, where the deliveries split across a page and the padding was
+ * re-applied to the continuation. A sibling table has neither problem: it runs
+ * the full text width and ends where its last row ends.
  */
-function practicalComments(coach: RegisterCoach, width: number) {
-  const inner: (Paragraph | Table)[] = [
+function practicalComments(coach: RegisterCoach, width: number): (Paragraph | Table)[] {
+  const intro: Paragraph[] = [
     para("PRACTICAL COMMENTS", { bold: true, size: BODY, after: 5 }),
-    para(NARRATIVE.practicalComments, { size: BODY, after: 6 }),
+    para(NARRATIVE.practicalComments, { size: BODY, after: 0 }),
   ];
 
-  if (coach.deliveries.length) {
-    // Inside the outer box, not the page: a nested table is laid out in its
-    // parent cell's *content* area, so building it at the full text width
-    // overhangs by the cell's own side padding and the box ends up with a
-    // visible step down its left edge.
-    const content = width - CELL_PAD.left - CELL_PAD.right;
-    const each = Math.floor(content / coach.deliveries.length);
-    inner.push(
-      new Table({
-        width: { size: each * coach.deliveries.length, type: WidthType.DXA },
-        columnWidths: coach.deliveries.map(() => each),
-        rows: [
-          new TableRow({
-            tableHeader: true,
-            children: coach.deliveries.map((d) =>
-              tc(
-                [
-                  para(`Practical Delivery ${d.deliveryNo}`, {
-                    bold: true,
-                    size: BODY,
-                    align: AlignmentType.CENTER,
-                  }),
-                ],
-                { width: each, fill: NYC_FILL },
-              ),
-            ),
-          }),
-          new TableRow({ children: coach.deliveries.map((d) => deliveryCell(d, each)) }),
-        ],
-      }),
-    );
-  } else {
-    inner.push(
+  if (!coach.deliveries.length) {
+    intro.push(
       para("No practical delivery write-ups for this coach on the register's Assessment sheet.", {
         size: BODY,
+        before: 4,
       }),
     );
   }
 
-  // A cell may not end on a table: Word requires a paragraph after one, and
-  // where there isn't one it supplies its own at the document's 11pt with the
-  // default spacing under it, which leaves a band of white between the
-  // deliveries and the bottom of the box. This is that paragraph, made as
-  // short as a paragraph gets.
-  if (coach.deliveries.length) inner.push(para("", { size: 1, after: 0 }));
-
-  // The template wraps the whole block in one ruled box, heading and all.
-  return new Table({
+  const box = new Table({
     width: FULL_WIDTH,
     columnWidths: [width],
-    rows: [new TableRow({ children: [tc(inner as Paragraph[], { width })] })],
+    rows: [new TableRow({ children: [tc(intro, { width })] })],
   });
+
+  if (!coach.deliveries.length) return [box];
+
+  const each = Math.floor(width / coach.deliveries.length);
+  return [
+    box,
+    para("", { size: 3 }),
+    new Table({
+      width: FULL_WIDTH,
+      columnWidths: coach.deliveries.map(() => each),
+      rows: [
+        new TableRow({
+          tableHeader: true,
+          children: coach.deliveries.map((d) =>
+            tc(
+              [
+                para(`Practical Delivery ${d.deliveryNo}`, {
+                  bold: true,
+                  size: BODY,
+                  align: AlignmentType.CENTER,
+                }),
+              ],
+              { width: each, fill: NYC_FILL },
+            ),
+          ),
+        }),
+        new TableRow({ children: coach.deliveries.map((d) => deliveryCell(d, each)) }),
+      ],
+    }),
+  ];
 }
 
 /**
@@ -502,13 +508,13 @@ function bullet(content: TextRun[] | string) {
 }
 
 /**
- * The narrative block: the covering letter, the gaps, the course judgement and
- * the sign-off, all inside the template's single ruled box.
+ * The covering letter, inside the template's single ruled box.
  *
- * The performance gaps are the action steps the assessors already wrote on the
- * register, collated and labelled with the delivery each came from. That is the
- * one part of this document the register can genuinely fill, and it is the part
- * the coach acts on.
+ * Two documents come out of here and they are not the same letter. The action
+ * plan is working paperwork: it carries the blank strengths and gaps lists the
+ * CET fills in with the coach. The feedback letter is the end of the matter, so
+ * it is the congratulation, the framing and the competency finding, and nothing
+ * to fill in.
  */
 function narrativeBlock(coach: RegisterCoach, register: ParsedRegister, width: number) {
   const competent = coach.verdict === "passed";
@@ -521,28 +527,27 @@ function narrativeBlock(coach: RegisterCoach, register: ParsedRegister, width: n
       after: 6,
     }),
     para(NARRATIVE.opening(qualification), { size: BODY, after: 5 }),
-    para(NARRATIVE.framing, { size: BODY, after: 5 }),
-    para("Area of Strength:", { size: BODY, after: 3 }),
-    // Not filled in: nothing on a register is marked as a strength, and three
-    // bullets of invented praise on a coach's own paperwork is worse than a
-    // blank the CET fills.
-    bullet(""),
-    bullet(""),
-    bullet(""),
-    para(competent ? "Areas to continue working on:" : "Performance Gaps:", {
-      size: BODY,
-      before: 4,
-      after: 3,
-    }),
-    // Blank here too, for the same reason and one more: the register's action
-    // steps were being collated into this list, but they are already written
-    // out in full against the delivery each came from on the first page, so
-    // this was the same text twice and the CET had nowhere to write the
-    // course-level judgement the section is actually asking for.
-    bullet(""),
-    bullet(""),
-    bullet(""),
+    para(competent ? NARRATIVE.framingCompetent : NARRATIVE.framing, { size: BODY, after: 5 }),
   ];
+
+  // The two bullet lists are on the action plan only. They are blank for the
+  // CET to fill in — nothing on a register is marked as a strength, and the
+  // gaps are already written out against the delivery each came from on the
+  // first page — so on a coach who passed they were an empty form stapled to a
+  // letter saying the assessment is finished. The action plan is the document
+  // that is still being worked on, and it keeps them.
+  if (!competent) {
+    inner.push(
+      para("Area of Strength:", { size: BODY, after: 3 }),
+      bullet(""),
+      bullet(""),
+      bullet(""),
+      para("Performance Gaps:", { size: BODY, before: 4, after: 3 }),
+      bullet(""),
+      bullet(""),
+      bullet(""),
+    );
+  }
 
   if (coach.assessmentComment) {
     inner.push(
@@ -703,7 +708,7 @@ function coachBlocks(coach: RegisterCoach, register: ParsedRegister, first: bool
     ...(first ? [] : [new Paragraph({ children: [new PageBreak()] })]),
     candidateBlock(coach, register),
     para("", { size: 5 }),
-    practicalComments(coach, TEXT_WIDTH),
+    ...practicalComments(coach, TEXT_WIDTH),
     para("", { size: 5 }),
     ...rubricTable(thresholds),
     narrativeBlock(coach, register, TEXT_WIDTH),
