@@ -61,6 +61,20 @@ export const NO_BORDERS = {
 
 export const FULL_WIDTH = { size: 100, type: WidthType.PERCENTAGE };
 
+/**
+ * `NO_BORDERS` for a *table*, which needs two more sides than a cell does.
+ *
+ * A table's `insideHorizontal` and `insideVertical` are separate properties and
+ * are drawn when they are left unset, so a layout table given only the four
+ * outer sides still rules a line between its columns. That is the stray
+ * vertical mark that appeared down the middle of the header and the footer.
+ */
+export const NO_TABLE_BORDERS = {
+  ...NO_BORDERS,
+  insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
+  insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
+};
+
 export type TextOpts = {
   bold?: boolean;
   size?: number;
@@ -300,7 +314,7 @@ export async function assessmentHeader(title: string) {
     children: [
       new Table({
         width: FULL_WIDTH,
-        borders: NO_BORDERS,
+        borders: NO_TABLE_BORDERS,
         rows: [
           new TableRow({
             children: [
@@ -351,7 +365,7 @@ export function assessmentFooter(title: string) {
     children: [
       new Table({
         width: FULL_WIDTH,
-        borders: NO_BORDERS,
+        borders: NO_TABLE_BORDERS,
         rows: [
           new TableRow({
             children: [

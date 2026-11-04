@@ -118,6 +118,15 @@ type CellOpts = {
   borders?: boolean;
 };
 
+/**
+ * The template's own cell margins: 57 twips top and bottom, the default sides.
+ *
+ * Named because the sides are arithmetic elsewhere — a table nested inside one
+ * of these cells has to be built to the cell's content width, not the page's,
+ * or it overhangs by exactly this much.
+ */
+const CELL_PAD = { top: 57, bottom: 57, left: 108, right: 108 } as const;
+
 function tc(children: Paragraph[], o: CellOpts = {}) {
   return new TableCell({
     children,
@@ -126,9 +135,7 @@ function tc(children: Paragraph[], o: CellOpts = {}) {
     width: o.width ? { size: o.width, type: WidthType.DXA } : undefined,
     verticalAlign: o.middle ? VerticalAlign.CENTER : undefined,
     borders: o.borders === false ? { top: NONE, bottom: NONE, left: NONE, right: NONE } : BORDERS,
-    // The template's own cell margins: 57 twips top and bottom, and the
-    // default sides.
-    margins: { top: 57, bottom: 57, left: 108, right: 108 },
+    margins: { ...CELL_PAD },
   });
 }
 
@@ -267,10 +274,15 @@ function practicalComments(coach: RegisterCoach, width: number) {
   ];
 
   if (coach.deliveries.length) {
-    const each = Math.floor(width / coach.deliveries.length);
+    // Inside the outer box, not the page: a nested table is laid out in its
+    // parent cell's *content* area, so building it at the full text width
+    // overhangs by the cell's own side padding and the box ends up with a
+    // visible step down its left edge.
+    const content = width - CELL_PAD.left - CELL_PAD.right;
+    const each = Math.floor(content / coach.deliveries.length);
     inner.push(
       new Table({
-        width: { size: width, type: WidthType.DXA },
+        width: { size: each * coach.deliveries.length, type: WidthType.DXA },
         columnWidths: coach.deliveries.map(() => each),
         rows: [
           new TableRow({
@@ -299,6 +311,13 @@ function practicalComments(coach: RegisterCoach, width: number) {
       }),
     );
   }
+
+  // A cell may not end on a table: Word requires a paragraph after one, and
+  // where there isn't one it supplies its own at the document's 11pt with the
+  // default spacing under it, which leaves a band of white between the
+  // deliveries and the bottom of the box. This is that paragraph, made as
+  // short as a paragraph gets.
+  if (coach.deliveries.length) inner.push(para("", { size: 1, after: 0 }));
 
   // The template wraps the whole block in one ruled box, heading and all.
   return new Table({
