@@ -119,7 +119,7 @@ open the others.**
 Courses, coursework, grading, the attendance register, hours and make-ups,
 post-course support, session footage and its feedback notes, the coaches list.
 Libraries: `src/lib/{coursework,grading,support,support-rubric,attendance,coaches,footage}.ts`
-Register exports: `src/lib/{zip,xlsx,register-file,register-schema,assessment-plan-docx,fa-rubric-appendix}.ts`
+Register exports: `src/lib/{zip,xlsx,register-file,register-schema,assessment-plan-parts,assessment-plan-docx,b-diploma-docx,b-diploma-rubric,fa-rubric-appendix}.ts`
 Data: `scripts/{extract-b-diploma-2026.py,import-b-diploma.ts,import-courses.ts}`
 See `src/app/(app)/CLAUDE.md`.
 
@@ -150,17 +150,45 @@ so the generated document's rubric table and its total out of eighteen come out
 blank for the CETs to tick. Don't "fix" that by deriving one from the other; see
 the note at the head of `delivery-rubric.ts`.
 
+**The two diplomas have different paperwork, and so does the export.** FQ run
+the B and the C off different forms, so there are three generated documents,
+not one:
+
+```
+assessment-plan-parts.ts   What all three share: the candidate block, the
+                           delivery write-ups, the palette, the cell helpers,
+                           the sign-off
+assessment-plan-docx.ts    The C Diploma form, and the dispatch
+b-diploma-docx.ts          The B Diploma's two: the formative assessment /
+                           action plan, and the post-course feedback letter
+```
+
+The C form scores six areas 0-3 and totals them out of eighteen. The B form
+ticks NYC / C / HC per area and **totals nothing**, carries its own rubric
+(`b-diploma-rubric.ts`, three levels, not FA's four with a column removed), and
+the action plan ends on a Coach Development Plan page the C form has no
+equivalent of. The two B documents even have different titles from each other.
+Don't collapse them: `isBDiploma(register)` picks the layout, `kind` picks which
+of the B pair, and a change to one form is a change to one form.
+
 The Word furniture — the logo, the maroon, the typeface, the cell padding — is
-in `src/lib/fq-docx.ts`, shared by the outcome sheet and the action plan. Brand
-changes go there once. It holds **two** header/footer pairs, which is
+in `src/lib/fq-docx.ts`, shared by the outcome sheet and the assessment forms.
+Brand changes go there once. It holds **two** header/footer pairs, which is
 deliberate: FQ's two assessment documents look different, the outcome sheet
-maroon-banded with the mark on the left and the action plan plain with the
-document's name on the left. The action plan is laid out to match FQ's own
-`'C' Diploma Practical Coaching Assessment` closely — its palette, its column
-widths in twips and its 11pt body are all transcribed from the file, because
-the first version was built in the app's visual language and read as a
-different document, which on paperwork a coach signs is a difference that
-matters. Keep it matching that file rather than the rest of the app.
+maroon-banded with the mark on the left and the assessment forms plain with the
+document's name on the left. Each form is laid out to match FQ's own file
+closely — the palette, the column widths in twips and the 11pt body are all
+transcribed from them, because the first version was built in the app's visual
+language and read as a different document, which on paperwork a coach signs is
+a difference that matters. Keep them matching those files rather than the rest
+of the app.
+
+Two Word layout facts cost a round each here, so: a table's `insideHorizontal`
+and `insideVertical` borders are **drawn when left unset** — use
+`NO_TABLE_BORDERS` for a table and `NO_BORDERS` only for a cell — and **never
+nest a table inside a cell for layout**, because it is laid out in the cell's
+content area (inset by the padding) and Word appends its own paragraph
+underneath, since a cell may not end on a table.
 
 There was briefly a third, `scripts/export-assessment-docx.py`, which built the
 Word file from the extractors' JSON so it ran on a register nobody had

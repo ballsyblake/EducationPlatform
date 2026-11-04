@@ -81,7 +81,7 @@ async function docxFor(
 ): Promise<ZipFile> {
   return {
     name: `${folder}/${planFilename(coach, kind)}`,
-    data: await assessmentPlanDocx([coach], register),
+    data: await assessmentPlanDocx([coach], register, kind),
   };
 }
 

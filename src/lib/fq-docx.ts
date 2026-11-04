@@ -75,6 +75,9 @@ export const NO_TABLE_BORDERS = {
   insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
 };
 
+/** Word's fifteen highlighter-pen names, taken from docx's own run options. */
+type Highlight = Exclude<ConstructorParameters<typeof TextRun>[0], string>["highlight"];
+
 export type TextOpts = {
   bold?: boolean;
   size?: number;
@@ -83,6 +86,13 @@ export type TextOpts = {
   before?: number;
   after?: number;
   align?: (typeof AlignmentType)[keyof typeof AlignmentType];
+  /**
+   * A Word highlighter pen, by name — "yellow" and the rest of the fifteen
+   * Word offers. Not a fill: FQ highlight the competency finding on the B
+   * Diploma form with the pen, and a shaded paragraph would colour the whole
+   * width of the cell rather than the words.
+   */
+  highlight?: Highlight;
 };
 
 export function text(content: string, o: TextOpts = {}) {
@@ -91,6 +101,7 @@ export function text(content: string, o: TextOpts = {}) {
     bold: o.bold,
     size: pt(o.size ?? 9),
     color: o.color ?? INK,
+    highlight: o.highlight,
     font: FONT,
   });
 }
