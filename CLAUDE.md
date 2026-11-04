@@ -150,9 +150,17 @@ so the generated document's rubric table and its total out of eighteen come out
 blank for the CETs to tick. Don't "fix" that by deriving one from the other; see
 the note at the head of `delivery-rubric.ts`.
 
-The Word furniture — the letterhead, the maroon, the typeface, the cell padding
-— is in `src/lib/fq-docx.ts`, shared by the outcome sheet and the action plan.
-Brand changes go there once.
+The Word furniture — the logo, the maroon, the typeface, the cell padding — is
+in `src/lib/fq-docx.ts`, shared by the outcome sheet and the action plan. Brand
+changes go there once. It holds **two** header/footer pairs, which is
+deliberate: FQ's two assessment documents look different, the outcome sheet
+maroon-banded with the mark on the left and the action plan plain with the
+document's name on the left. The action plan is laid out to match FQ's own
+`'C' Diploma Practical Coaching Assessment` closely — its palette, its column
+widths in twips and its 11pt body are all transcribed from the file, because
+the first version was built in the app's visual language and read as a
+different document, which on paperwork a coach signs is a difference that
+matters. Keep it matching that file rather than the rest of the app.
 
 There was briefly a third, `scripts/export-assessment-docx.py`, which built the
 Word file from the extractors' JSON so it ran on a register nobody had

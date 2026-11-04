@@ -280,3 +280,115 @@ export function docxFilename(...parts: (string | null | undefined)[]) {
   if (stem.length > MAX_STEM) stem = `${stem.slice(0, MAX_STEM).trimEnd()}…`;
   return `${stem || "coach-assessment"}.docx`;
 }
+
+/* --------------------- FQ's assessment-form chrome ----------------------- */
+
+/**
+ * The header and footer of FQ's `'C' Diploma Practical Coaching Assessment`.
+ *
+ * A second pair, not a replacement. FQ's two assessment documents genuinely
+ * look different: the coach assessment outcome sheet (Karl Dodd's C Licence
+ * file) is maroon-banded with the mark on the left, and the action plan form
+ * is plain — the document's name in black on the left, the mark on the right,
+ * no rule under either, and the name again small in the footer beside a bare
+ * page number. Matching one to the other would mean one of the two no longer
+ * matching the paperwork it was copied from.
+ */
+export async function assessmentHeader(title: string) {
+  const logo = await fqLogo();
+  return new Header({
+    children: [
+      new Table({
+        width: FULL_WIDTH,
+        borders: NO_BORDERS,
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({
+                borders: NO_BORDERS,
+                width: { size: 70, type: WidthType.PERCENTAGE },
+                verticalAlign: VerticalAlign.CENTER,
+                margins: { top: 0, bottom: 0, left: 0, right: 0 },
+                children: [para(title, { bold: true, size: 11, caps: true })],
+              }),
+              new TableCell({
+                borders: NO_BORDERS,
+                width: { size: 30, type: WidthType.PERCENTAGE },
+                verticalAlign: VerticalAlign.CENTER,
+                margins: { top: 0, bottom: 0, left: 0, right: 0 },
+                children: [
+                  new Paragraph({
+                    alignment: AlignmentType.RIGHT,
+                    spacing: { before: 0, after: 0 },
+                    children: logo
+                      ? [
+                          new ImageRun({
+                            data: new Uint8Array(logo),
+                            transformation: LOGO,
+                            type: "png",
+                            altText: {
+                              title: "Football Queensland",
+                              description: "Football Queensland",
+                              name: "Football Queensland",
+                            },
+                          }),
+                        ]
+                      : [text("Football Queensland", { bold: true, size: 11, color: MAROON })],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
+/** The same document's footer: its name on the left, the page number alone. */
+export function assessmentFooter(title: string) {
+  return new Footer({
+    children: [
+      new Table({
+        width: FULL_WIDTH,
+        borders: NO_BORDERS,
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({
+                borders: NO_BORDERS,
+                width: { size: 80, type: WidthType.PERCENTAGE },
+                margins: { top: 0, bottom: 0, left: 0, right: 0 },
+                children: [para(title, { size: 10 })],
+              }),
+              new TableCell({
+                borders: NO_BORDERS,
+                width: { size: 20, type: WidthType.PERCENTAGE },
+                margins: { top: 0, bottom: 0, left: 0, right: 0 },
+                children: [
+                  new Paragraph({
+                    alignment: AlignmentType.RIGHT,
+                    spacing: { before: 0, after: 0 },
+                    // The page number on its own, as the form foots it. No
+                    // "of n": FQ's own file doesn't carry one, and on a bundle
+                    // of one-coach documents a total would be the only thing
+                    // on the page that counted something other than this
+                    // coach.
+                    children: [
+                      new TextRun({
+                        children: [PageNumber.CURRENT],
+                        size: pt(10),
+                        color: INK,
+                        font: FONT,
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+}
