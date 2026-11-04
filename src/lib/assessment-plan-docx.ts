@@ -2,13 +2,18 @@ import "server-only";
 
 import {
   AlignmentType,
+  BorderStyle,
   CheckBox,
   Document,
   PageBreak,
   Packer,
   Paragraph,
   Table,
+  TableCell,
   TableRow,
+  TextRun,
+  VerticalAlign,
+  WidthType,
 } from "docx";
 import {
   DELIVERY_AREAS,
@@ -17,31 +22,36 @@ import {
 } from "@/lib/delivery-rubric";
 import { APPENDIX_LEVELS, FA_RUBRIC_APPENDIX } from "@/lib/fa-rubric-appendix";
 import {
-  cell,
+  assessmentFooter,
+  assessmentHeader,
   docxFilename,
   FONT,
-  footer,
   FULL_WIDTH,
-  heading,
   INK,
-  letterhead,
-  MUTED,
   para,
   pt,
   text,
 } from "@/lib/fq-docx";
 import type { ParsedRegister, RegisterCoach, RegisterDelivery } from "@/lib/register-file";
-import { bandFor } from "@/lib/support-rubric";
 
 /**
  * FQ's `Assessment — Action Plan / Feedback` document, filled in from a
  * register.
  *
- * One page per coach, laid out off the copy returned for Leesa Faunt's October
- * 2026 C Diploma assessment: the candidate block, the practical write-ups
- * side by side, the grading scale, the six-area rubric, the narrative with its
- * strengths and performance gaps, the CET signatures, and FA's rubric as an
- * appendix.
+ * Laid out off the copy returned for Leesa Faunt's October 2026 C Diploma
+ * assessment, and **laid out off it closely**: the same landscape page, the
+ * same four-cell candidate block, the same salmon delivery headings, the same
+ * grading band in grey, salmon, yellow and green, the same tick table with the
+ * area centred and the descriptors beside it, the same red-amber-green rubric
+ * appendix. A coach receiving one of these next to one typed by hand should not
+ * be able to tell which was which.
+ *
+ * That is why this file carries a palette and column widths rather than
+ * percentages and the house maroon. The first version of it was built in the
+ * app's own visual language — maroon section bands, small grey labels — and
+ * read as a different document, which on paperwork a coach signs is a
+ * difference that matters. The brand furniture it does share lives in
+ * `fq-docx.ts`.
  *
  * **Two documents out of one layout.** The template's covering paragraph is
  * pre-written for a coach who has not been deemed competent, while the form
@@ -50,8 +60,8 @@ import { bandFor } from "@/lib/support-rubric";
  * `/mnt/project-files/action-plan-doc/c-diploma-action-plan-structure.md`
  * flagged it. So the narrative is conditional: a coach the register has signed
  * off as passed gets the feedback wording, and a coach who needs an action plan
- * gets the referral wording. Everything else on the page is identical, because
- * it is the same assessment either way.
+ * gets the referral wording. Everything else is identical, because it is the
+ * same assessment either way.
  *
  * **What this fills in, and what it leaves blank.** Everything the register
  * holds is filled: the course facts, every practical delivery's assessor,
@@ -61,12 +71,80 @@ import { bandFor } from "@/lib/support-rubric";
  * because no 2026 register carries a rubric score — see the note at the head of
  * `register-file.ts`. Deriving eighteen points from a 1-5 rating would be
  * inventing a conversion nobody has published. Areas of strength are left blank
- * for the same reason: the register records gaps, in the action steps, and
+ * for the same reason: the register records gaps, in its action steps, and
  * nothing in it is marked as a strength.
- *
- * Layout lives here and nowhere else, but the brand does not — see
- * `fq-docx.ts`, which this shares with the outcome sheet.
  */
+
+/* -------------------------------- Palette -------------------------------- */
+
+// Lifted from the template's own fills, by hex, rather than approximated from
+// the app's palette. These are the colours a CET sees on the form they already
+// use; a near miss reads as a different document.
+const SHADE = "F2F2F2"; // Label cells and the total-score cell.
+const NYC_FILL = "FFC0B8"; // Not Yet Competent, and the delivery headings.
+const COMPETENT_FILL = "FFEFAD";
+const HIGHLY_FILL = "BFEFAE";
+
+/** The appendix's four level headings, which are a traffic light. */
+const LEVEL_FILLS = ["A6A6A6", "EE0000", "FFC000", "00B050"];
+
+/** The template's rule: one hairline, mid grey, on every edge. */
+const RULE = { style: BorderStyle.SINGLE, size: 4, color: "929292" } as const;
+const BORDERS = { top: RULE, bottom: RULE, left: RULE, right: RULE };
+const NONE = { style: BorderStyle.NONE, size: 0, color: "auto" } as const;
+
+/**
+ * Body text is 11pt here, not the 9pt the outcome sheet uses.
+ *
+ * The template is set at 11, and size is most of why the first version read as
+ * a different document however closely the structure matched: the same page at
+ * 9pt looks like a dense internal report rather than something handed to a
+ * coach. The delivery cells and the rubric descriptors drop to 9.5, which is
+ * what the template drops them to.
+ */
+const BODY = 11;
+const SMALL = 9.5;
+
+/* ------------------------------ Cell helpers ------------------------------ */
+
+type CellOpts = {
+  fill?: string;
+  span?: number;
+  /** Twips. The template fixes every table's columns, so this does too. */
+  width?: number;
+  align?: (typeof AlignmentType)[keyof typeof AlignmentType];
+  middle?: boolean;
+  borders?: boolean;
+};
+
+/**
+ * The template's own cell margins: 57 twips top and bottom, the default sides.
+ *
+ * Named because the sides are arithmetic elsewhere — a table nested inside one
+ * of these cells has to be built to the cell's content width, not the page's,
+ * or it overhangs by exactly this much.
+ */
+const CELL_PAD = { top: 57, bottom: 57, left: 108, right: 108 } as const;
+
+function tc(children: Paragraph[], o: CellOpts = {}) {
+  return new TableCell({
+    children,
+    columnSpan: o.span,
+    shading: o.fill ? { fill: o.fill } : undefined,
+    width: o.width ? { size: o.width, type: WidthType.DXA } : undefined,
+    verticalAlign: o.middle ? VerticalAlign.CENTER : undefined,
+    borders: o.borders === false ? { top: NONE, bottom: NONE, left: NONE, right: NONE } : BORDERS,
+    margins: { ...CELL_PAD },
+  });
+}
+
+/** A label cell and its value, which is how the candidate block is built. */
+function labelled(label: string, value: string | null, widths: [number, number]) {
+  return [
+    tc([para(label, { bold: true, size: BODY })], { fill: SHADE, width: widths[0] }),
+    tc([para(value || "", { size: BODY })], { width: widths[1] }),
+  ];
+}
 
 /* ------------------------------- Narrative -------------------------------- */
 
@@ -93,31 +171,37 @@ const NARRATIVE = {
     "The CETs observed and provided feedback after each practical component you delivered throughout the course. This includes general comments on each session, as well as key areas to continue working on to develop to the next level. This feedback is intended to support your ongoing development and should be read alongside the assessment and action plan below.",
 };
 
+/**
+ * The diploma as the template writes it: `'C' Diploma`, curly quotes and all.
+ *
+ * Off the register's own `B Diploma` / `C Diploma`, because the whole document
+ * is headed with it and FQ's wording quotes the letter.
+ */
+function quotedDiploma(qualification: string | null) {
+  const letter = qualification?.trim().match(/^([abc])\b/i)?.[1]?.toUpperCase();
+  return letter ? `‘${letter}’ Diploma` : (qualification?.trim() || "course");
+}
+
 /* ------------------------------ Page blocks ------------------------------- */
 
-/** FQ's four-field candidate block, which is what somebody files the page by. */
+/** The template's four-cell candidate block, in its own column widths. */
 function candidateBlock(coach: RegisterCoach, register: ParsedRegister) {
-  const field = (label: string, value: string | null) =>
-    cell(
-      [
-        para(label, { bold: true, size: 8, color: MUTED, caps: true }),
-        para(value || "", { size: 10 }),
-      ],
-      { width: 25 },
-    );
+  const widths: [number, number] = [3666, 4129];
+  const right: [number, number] = [3404, 3372];
   return new Table({
     width: FULL_WIDTH,
+    columnWidths: [3666, 4129, 3404, 3372],
     rows: [
       new TableRow({
         children: [
-          field("Candidate name", coach.name),
-          field("Accreditation level", register.qualification),
+          ...labelled("Candidate Name", coach.name, widths),
+          ...labelled("Accreditation Level", quotedDiploma(register.qualification), right),
         ],
       }),
       new TableRow({
         children: [
-          field("Course date", register.courseDates),
-          field("Course location", register.location),
+          ...labelled("Course Date (MM/YY)", register.courseDates, widths),
+          ...labelled("Course Location", register.location, right),
         ],
       }),
     ],
@@ -130,8 +214,8 @@ function deliveryCell(delivery: RegisterDelivery, width: number) {
     value
       ? [
           para([
-            text(`${label}: `, { bold: true, size: 8, color: MUTED }),
-            text(value, { size: 8 }),
+            text(`${label}: `, { bold: true, size: SMALL }),
+            text(value, { size: SMALL }),
           ]),
         ]
       : [];
@@ -144,18 +228,18 @@ function deliveryCell(delivery: RegisterDelivery, width: number) {
   ];
 
   if (delivery.comment) {
-    blocks.push(para("Comment", { bold: true, size: 8, color: MUTED, before: 4 }));
+    blocks.push(para("Comment:", { bold: true, size: SMALL, before: 5 }));
     // The write-ups are paragraphed by the assessor and reflow badly as one
     // run, so the line breaks they typed are kept.
     for (const line of delivery.comment.split(/\r?\n/).filter(Boolean)) {
-      blocks.push(para(line, { size: 8 }));
+      blocks.push(para(line, { size: SMALL }));
     }
   }
 
   if (delivery.actions.length) {
-    blocks.push(para("Action plan", { bold: true, size: 8, color: MUTED, before: 4 }));
+    blocks.push(para("Action plan:", { bold: true, size: SMALL, before: 5 }));
     delivery.actions.forEach((step, i) => {
-      blocks.push(para(`${i + 1}. ${step}`, { size: 8 }));
+      blocks.push(para(`${i + 1}. ${step}`, { size: SMALL }));
     });
   }
 
@@ -163,79 +247,128 @@ function deliveryCell(delivery: RegisterDelivery, width: number) {
     blocks.push(
       para(
         [
-          text("Session rating (1-5): ", { bold: true, size: 8, color: MUTED }),
-          text(String(delivery.rating), { size: 8 }),
+          text("Session rating (1-5): ", { bold: true, size: SMALL }),
+          text(String(delivery.rating), { size: SMALL }),
         ],
-        { before: 4 },
+        { before: 5 },
       ),
     );
   }
 
-  return cell(blocks.length ? blocks : [para("—", { size: 8, color: MUTED })], { width });
+  return tc(blocks.length ? blocks : [para("—", { size: SMALL })], { width });
 }
 
 /**
  * The practical write-ups, one column each, as the template sets them out.
  *
  * Side by side rather than stacked because that is how a CET reads them: the
- * point of the block is the arc across the three deliveries, and a coach whose
- * first session was prompted throughout and whose third was not has a story
- * that a vertical list hides.
+ * point of the block is the arc across the deliveries, and a coach whose first
+ * session was prompted throughout and whose third was not has a story that a
+ * vertical list hides.
  */
-function practicalComments(coach: RegisterCoach) {
-  if (!coach.deliveries.length) {
-    return [
-      heading("Practical comments"),
-      para(
-        "No practical delivery write-ups for this coach on the register's Assessment sheet.",
-        { size: 9, color: MUTED, after: 6 },
-      ),
-    ];
+function practicalComments(coach: RegisterCoach, width: number) {
+  const inner: (Paragraph | Table)[] = [
+    para("PRACTICAL COMMENTS", { bold: true, size: BODY, after: 5 }),
+    para(NARRATIVE.practicalComments, { size: BODY, after: 6 }),
+  ];
+
+  if (coach.deliveries.length) {
+    // Inside the outer box, not the page: a nested table is laid out in its
+    // parent cell's *content* area, so building it at the full text width
+    // overhangs by the cell's own side padding and the box ends up with a
+    // visible step down its left edge.
+    const content = width - CELL_PAD.left - CELL_PAD.right;
+    const each = Math.floor(content / coach.deliveries.length);
+    inner.push(
+      new Table({
+        width: { size: each * coach.deliveries.length, type: WidthType.DXA },
+        columnWidths: coach.deliveries.map(() => each),
+        rows: [
+          new TableRow({
+            tableHeader: true,
+            children: coach.deliveries.map((d) =>
+              tc(
+                [
+                  para(`Practical Delivery ${d.deliveryNo}`, {
+                    bold: true,
+                    size: BODY,
+                    align: AlignmentType.CENTER,
+                  }),
+                ],
+                { width: each, fill: NYC_FILL },
+              ),
+            ),
+          }),
+          new TableRow({ children: coach.deliveries.map((d) => deliveryCell(d, each)) }),
+        ],
+      }),
+    );
+  } else {
+    inner.push(
+      para("No practical delivery write-ups for this coach on the register's Assessment sheet.", {
+        size: BODY,
+      }),
+    );
   }
 
-  const width = Math.floor(100 / coach.deliveries.length);
-  return [
-    heading("Practical comments"),
-    para(NARRATIVE.practicalComments, { size: 8, color: MUTED, after: 4 }),
-    new Table({
-      width: FULL_WIDTH,
-      rows: [
-        new TableRow({
-          tableHeader: true,
-          children: coach.deliveries.map((d) =>
-            cell([para(`Practical Delivery ${d.deliveryNo}`, { bold: true, size: 9 })], {
-              width,
-              shaded: true,
-            }),
-          ),
-        }),
-        new TableRow({
-          children: coach.deliveries.map((d) => deliveryCell(d, width)),
-        }),
-      ],
-    }),
-  ];
-}
+  // A cell may not end on a table: Word requires a paragraph after one, and
+  // where there isn't one it supplies its own at the document's 11pt with the
+  // default spacing under it, which leaves a band of white between the
+  // deliveries and the bottom of the box. This is that paragraph, made as
+  // short as a paragraph gets.
+  if (coach.deliveries.length) inner.push(para("", { size: 1, after: 0 }));
 
-/** The grading scale as one ruled row, which is how the template states it. */
-function gradingBand(thresholds: ReturnType<typeof thresholdsFor>) {
-  const band = (label: string, range: string) =>
-    cell(
-      [para(label, { bold: true, size: 8 }), para(range, { size: 8, color: MUTED })],
-      { width: 30 },
-    );
+  // The template wraps the whole block in one ruled box, heading and all.
   return new Table({
     width: FULL_WIDTH,
+    columnWidths: [width],
+    rows: [new TableRow({ children: [tc(inner as Paragraph[], { width })] })],
+  });
+}
+
+/**
+ * The grading band's columns, shared with the total row under the tick table.
+ *
+ * The template's own figures. The two rows have to agree: the band says what
+ * each outcome means and the total row is where one of them is ticked, and a
+ * reader lines them up by eye.
+ */
+const BAND_COLS = [3686, 4111, 3402, 3402];
+
+/** The grading scale as the template's four coloured cells. */
+function gradingBand(thresholds: ReturnType<typeof thresholdsFor>) {
+  const band = (label: string, fill: string, width: number) =>
+    tc([para(label, { size: BODY, align: AlignmentType.CENTER })], {
+      fill,
+      width,
+      middle: true,
+    });
+  return new Table({
+    width: FULL_WIDTH,
+    columnWidths: BAND_COLS,
     rows: [
       new TableRow({
         children: [
-          cell([para("Grading", { bold: true, size: 8, caps: true })], {
-            width: 10,
-            shaded: true,
+          tc([para("Grading", { size: BODY, align: AlignmentType.CENTER })], {
+            fill: SHADE,
+            width: BAND_COLS[0],
+            middle: true,
           }),
-          band("NYC — Not Yet Competent", `0–${thresholds.competent - 1}`),
-          band("C — Competent", `${thresholds.competent}–${thresholds.highlyCompetent - 1}`),
-          band("HC — Highly Competent", `${thresholds.highlyCompetent}–${MAX_DELIVERY_POINTS}`),
+          band(
+            `NYC – Not Yet Competent (0–${thresholds.competent - 1})`,
+            NYC_FILL,
+            BAND_COLS[1],
+          ),
+          band(
+            `C - Competent (${thresholds.competent}–${thresholds.highlyCompetent - 1})`,
+            COMPETENT_FILL,
+            BAND_COLS[2],
+          ),
+          band(
+            `HC – Highly Competent (${thresholds.highlyCompetent}–${MAX_DELIVERY_POINTS})`,
+            HIGHLY_FILL,
+            BAND_COLS[3],
+          ),
         ],
       }),
     ],
@@ -243,254 +376,193 @@ function gradingBand(thresholds: ReturnType<typeof thresholdsFor>) {
 }
 
 /** A digit over a tickable box, which is one cell of the rubric's tick table. */
-function scoreBox(score: number) {
-  return cell(
+function scoreBox(score: number, width: number) {
+  return tc(
     [
-      para(String(score), { size: 9, align: AlignmentType.CENTER }),
+      para(String(score), { size: BODY, align: AlignmentType.CENTER }),
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { before: 0, after: 0 },
         children: [new CheckBox({})],
       }),
     ],
+    { width, middle: true },
   );
 }
 
 /**
- * The six-area tick table, blank.
+ * The six-area tick table, blank, and the total under it.
  *
- * Real Word checkboxes rather than drawn ones: this document is sent out to be
- * completed and signed, and a box somebody can click is the difference between
- * filling the form in Word and printing it to tick by hand.
+ * Real Word checkboxes rather than drawn ones, as on the template: this
+ * document is sent out to be completed and signed, and a box somebody can click
+ * is the difference between filling the form in Word and printing it to tick by
+ * hand.
  *
  * Left blank, with a line saying why. A register carries no rubric score, so
  * there is nothing to tick from — and a table pre-filled from the 1-5 rating
  * would be the platform quietly asserting a conversion between two instruments
  * that FA have never published one for.
+ *
+ * The sixth area is headed `Environment`, which is what the template's own
+ * appendix calls it and what `DeliveryScore.code` stores. The template's tick
+ * table says `MOTIVATIONAL CLIMATE` on the same page as an appendix that says
+ * Environment; following that would be copying a contradiction.
  */
 function rubricTable(thresholds: ReturnType<typeof thresholdsFor>) {
+  const COLS = [3686, 1028, 1028, 1028, 1027, 6804];
+
   const rows = DELIVERY_AREAS.map((area) => {
     const appendix = FA_RUBRIC_APPENDIX.find((r) => r.code === area.code);
+    const sub = appendix?.heading.slice(1) ?? [];
     return new TableRow({
       cantSplit: true,
       children: [
-        cell(
+        tc(
           [
-            para(area.title, { bold: true, size: 9, caps: true }),
-            ...(appendix?.heading.slice(1).length
-              ? [para(appendix.heading.slice(1).join(" · "), { size: 7, color: MUTED })]
+            para(area.title, { size: BODY, caps: true, align: AlignmentType.CENTER }),
+            ...(sub.length
+              ? [para(sub.join(" – "), { size: SMALL, align: AlignmentType.CENTER })]
               : []),
           ],
+          { width: COLS[0], middle: true },
         ),
-        scoreBox(0),
-        scoreBox(1),
-        scoreBox(2),
-        scoreBox(3),
-        cell([para("", { size: 9 })],
-          // The evidence column. Wide on purpose: it is the only part of this
-          // table anybody writes in.
-          {}),
+        scoreBox(0, COLS[1]),
+        scoreBox(1, COLS[2]),
+        scoreBox(2, COLS[3]),
+        scoreBox(3, COLS[4]),
+        // The evidence column, blank: the CET's reasoning for the score beside
+        // it, which is where the template carries its longest writing.
+        tc([para("", { size: SMALL })], { width: COLS[5] }),
       ],
     });
   });
 
-  const outcomeBox = (label: string) =>
-    cell(
+  const outcomeBox = (label: string, fill: string, width: number) =>
+    tc(
       [
         new Paragraph({
+          alignment: AlignmentType.CENTER,
           spacing: { before: 0, after: 0 },
-          children: [new CheckBox({}), text(`  ${label}`, { size: 8 })],
+          children: [text(`${label}    `, { size: BODY }), new CheckBox({})],
         }),
       ],
+      { fill, width, middle: true },
     );
 
-  // The total and the outcome in a table of their own, rather than as a last
-  // row of the grid above. The grid is six narrow score columns and a wide
-  // comment column; three outcome boxes laid across those columns come out in
-  // the wrong places however the spans are arranged.
-  const totals = new Table({
+  // The total row sits under the grid but on the *grading band's* columns, not
+  // the grid's, which is what the template does and the only way the three
+  // outcomes line up with the three bands that define them. Spanning the grid
+  // instead squeezes "NYC – Not Yet Competent" into the width of two
+  // checkboxes, so it is a table of its own.
+  const total = new Table({
     width: FULL_WIDTH,
-    // Fixed widths, in twips across the landscape text column. Percentages
-    // alone let Word re-fit a table around its contents, and a ticked row of
-    // empty boxes has no contents to fit around.
-    columnWidths: [3600, 3946, 3946, 3946],
+    columnWidths: BAND_COLS,
     rows: [
       new TableRow({
         children: [
-          cell(
+          tc(
             [
-              para([
-                text("Total score ", { bold: true, size: 9, caps: true }),
-                text(`____ / ${MAX_DELIVERY_POINTS}`, { size: 9 }),
-              ]),
+              para(`Total Score ____ / ${MAX_DELIVERY_POINTS}`, {
+                size: BODY,
+                align: AlignmentType.CENTER,
+              }),
             ],
-            { shaded: true },
+            { fill: SHADE, width: BAND_COLS[0], middle: true },
           ),
-          outcomeBox("NYC — Not Yet Competent"),
-          outcomeBox("C — Competent"),
-          outcomeBox("HC — Highly Competent"),
+          outcomeBox("NYC – Not Yet Competent", NYC_FILL, BAND_COLS[1]),
+          outcomeBox("C – Competent", COMPETENT_FILL, BAND_COLS[2]),
+          outcomeBox("HC – Highly Competent", HIGHLY_FILL, BAND_COLS[3]),
         ],
       }),
     ],
   });
 
   return [
-    heading("Assessment"),
     gradingBand(thresholds),
-    para(
-      `The register carries no score on Football Australia's six-area rubric, so this table is blank for the CETs to complete. The outcome follows from the total: ${thresholds.competent} points is the minimum for competency on this diploma and ${thresholds.highlyCompetent} is Highly Competent.` +
-        (thresholds.inferred
-          ? " The Highly Competent line at this level is inferred from the C Diploma's three-point step, not quoted from FA."
-          : ""),
-      { size: 7, color: MUTED, before: 2, after: 2 },
-    ),
-    new Table({ width: FULL_WIDTH, columnWidths: [3000, 760, 760, 760, 760, 9398], rows }),
-    totals,
-    para("Comment column: the CET's evidence for the score in that row.", {
-      size: 7,
-      color: MUTED,
-      after: 6,
-    }),
+    para("", { size: 4 }),
+    new Table({ width: FULL_WIDTH, columnWidths: COLS, rows }),
+    total,
+    // No note under the table explaining that it comes out blank. The band
+    // across the top already names the three outcomes and their point ranges,
+    // and FQ's own form carries no such paragraph — it was the app explaining
+    // itself on a document a coach signs, which is not the place for it. Why
+    // the table is empty is in `CLAUDE.md` and in the page the export comes
+    // from, for the people who need to know.
+    para("", { size: 4 }),
   ];
 }
 
+/** A bulleted line, as the template lists strengths and gaps. */
+function bullet(content: TextRun[] | string) {
+  return new Paragraph({
+    children: typeof content === "string" ? [text(content, { size: BODY })] : content,
+    bullet: { level: 0 },
+    spacing: { before: 0, after: pt(2) },
+  });
+}
+
 /**
- * The narrative block: the covering letter, the gaps, and the course judgement.
+ * The narrative block: the covering letter, the gaps, the course judgement and
+ * the sign-off, all inside the template's single ruled box.
  *
  * The performance gaps are the action steps the assessors already wrote on the
  * register, collated and labelled with the delivery each came from. That is the
  * one part of this document the register can genuinely fill, and it is the part
  * the coach acts on.
  */
-function narrativeBlock(coach: RegisterCoach, register: ParsedRegister) {
+function narrativeBlock(coach: RegisterCoach, register: ParsedRegister, width: number) {
   const competent = coach.verdict === "passed";
-  const qualification = register.qualification
-    ? `'${register.qualification.replace(/\s*diploma\s*$/i, "")}' Diploma`
-    : "course";
+  const qualification = quotedDiploma(register.qualification);
 
-  const blocks: (Paragraph | Table)[] = [
-    heading(competent ? "Feedback / further comments" : "Action plan / further comments"),
-    para(NARRATIVE.opening(qualification), { size: 9, after: 3 }),
-    para(NARRATIVE.framing, { size: 9, after: 5 }),
-    para("Areas of strength", { bold: true, size: 9, caps: true, after: 2 }),
+  const inner: Paragraph[] = [
+    para(competent ? "FEEDBACK / FURTHER COMMENTS" : "ACTION PLAN / FURTHER COMMENTS", {
+      bold: true,
+      size: BODY,
+      after: 6,
+    }),
+    para(NARRATIVE.opening(qualification), { size: BODY, after: 5 }),
+    para(NARRATIVE.framing, { size: BODY, after: 5 }),
+    para("Area of Strength:", { size: BODY, after: 3 }),
     // Not filled in: nothing on a register is marked as a strength, and three
     // bullets of invented praise on a coach's own paperwork is worse than a
     // blank the CET fills.
-    para("1.", { size: 9 }),
-    para("2.", { size: 9 }),
-    para("3.", { size: 9, after: 5 }),
-    para(competent ? "Areas to continue working on" : "Performance gaps", {
-      bold: true,
-      size: 9,
-      caps: true,
-      after: 2,
+    bullet(""),
+    bullet(""),
+    bullet(""),
+    para(competent ? "Areas to continue working on:" : "Performance Gaps:", {
+      size: BODY,
+      before: 4,
+      after: 3,
     }),
+    // Blank here too, for the same reason and one more: the register's action
+    // steps were being collated into this list, but they are already written
+    // out in full against the delivery each came from on the first page, so
+    // this was the same text twice and the CET had nowhere to write the
+    // course-level judgement the section is actually asking for.
+    bullet(""),
+    bullet(""),
+    bullet(""),
   ];
 
-  const steps = coach.deliveries.flatMap((d) =>
-    d.actions.map((step) => ({ deliveryNo: d.deliveryNo, step })),
-  );
-  if (steps.length) {
-    steps.forEach(({ deliveryNo, step }, i) => {
-      blocks.push(
-        para([
-          text(`${i + 1}. `, { size: 9, bold: true }),
-          text(step, { size: 9 }),
-          text(`  (Practical Delivery ${deliveryNo})`, { size: 7, color: MUTED }),
-        ]),
-      );
-    });
-  } else {
-    blocks.push(
-      para("No action steps were recorded against this coach's deliveries.", {
-        size: 9,
-        color: MUTED,
-      }),
-    );
-  }
-
   if (coach.assessmentComment) {
-    blocks.push(
-      para("Course comment", { bold: true, size: 9, caps: true, before: 5, after: 2 }),
-      para(coach.assessmentComment, { size: 9 }),
+    inner.push(
+      para("Course comment:", { size: BODY, before: 4, after: 3 }),
+      para(coach.assessmentComment, { size: BODY }),
     );
   }
 
-  blocks.push(
+  inner.push(
     para(
-      competent
-        ? NARRATIVE.competent(qualification)
-        : NARRATIVE.notYetCompetent(qualification),
-      { size: 9, before: 5, after: 5 },
+      competent ? NARRATIVE.competent(qualification) : NARRATIVE.notYetCompetent(qualification),
+      { size: BODY, before: 5, after: 2 },
     ),
   );
 
-  // The 1-5 course rating, which is a person's judgement across everything the
-  // coach delivered and not an average of anything. Printed because it is the
-  // figure that decides post-course support, and leaving it off the coach's own
-  // paperwork would hide it from them.
-  const band = bandFor(coach.rating);
-  blocks.push(
-    new Table({
-      width: FULL_WIDTH,
-      rows: [
-        new TableRow({
-          children: [
-            cell(
-              [
-                para("Course rating (1-5)", { bold: true, size: 8, color: MUTED, caps: true }),
-                para(
-                  coach.rating === null
-                    ? "Not rated"
-                    : `${coach.rating}${band ? ` — ${band.faRating}` : ""}`,
-                  { size: 9 },
-                ),
-              ],
-              { width: 25 },
-            ),
-            cell(
-              [
-                para("Readiness for next licence", {
-                  bold: true,
-                  size: 8,
-                  color: MUTED,
-                  caps: true,
-                }),
-                para(coach.readiness || "", { size: 9 }),
-              ],
-              { width: 25 },
-            ),
-            cell(
-              [
-                para("Register outcome", { bold: true, size: 8, color: MUTED, caps: true }),
-                para(coach.outcome || "", { size: 9 }),
-              ],
-              { width: 25 },
-            ),
-            cell(
-              [
-                para("Attendance / journal", {
-                  bold: true,
-                  size: 8,
-                  color: MUTED,
-                  caps: true,
-                }),
-                para(
-                  [coach.attendanceMet, coach.journal]
-                    .map((v) => (v === null ? "—" : v ? "Yes" : "No"))
-                    .join(" / "),
-                  { size: 9 },
-                ),
-              ],
-              { width: 25 },
-            ),
-          ],
-        }),
-      ],
-    }),
-  );
-
-  return blocks;
+  return new Table({
+    width: FULL_WIDTH,
+    columnWidths: [width],
+    rows: [new TableRow({ children: [tc(inner, { width })] })],
+  });
 }
 
 /**
@@ -517,41 +589,55 @@ function signOff(coach: RegisterCoach, register: ParsedRegister) {
       .filter(Boolean),
   );
   const theirs = cets.filter((s) => assessors.has(s.name.split(/\s+/)[0].toLowerCase()));
+  const signing = theirs.length
+    ? theirs
+    : cets.length
+      ? cets
+      : [
+          { role: "CET 1", name: "" },
+          { role: "CET 2", name: "" },
+        ];
 
-  const rows = (
-    theirs.length
-      ? theirs
-      : cets.length
-        ? cets
-        : [
-            { role: "CET 1", name: "" },
-            { role: "CET 2", name: "" },
-          ]
-  ).map(
-    (staff) =>
-      new TableRow({
-        children: [
-          cell([para(staff.role.toUpperCase(), { bold: true, size: 8, color: MUTED })], {
-            width: 15,
-          }),
-          cell([para(staff.name, { size: 9 })], { width: 35 }),
-          cell([para("Signature", { bold: true, size: 8, color: MUTED })], { width: 15 }),
-          cell([para("", { size: 9 })], { width: 35 }),
-        ],
-      }),
-  );
-  return [heading("Sign-off"), new Table({ width: FULL_WIDTH, rows })];
+  const COLS = [2505, 5292, 2693, 4081];
+  return new Table({
+    width: FULL_WIDTH,
+    columnWidths: COLS,
+    rows: signing.map(
+      (staff, i) =>
+        new TableRow({
+          children: [
+            // "CET 1", "CET 2" — renumbered for the document rather than
+            // carried over as CET3/CET4, which are positions on the course.
+            tc([para(`CET ${i + 1}`, { size: BODY })], { fill: SHADE, width: COLS[0] }),
+            tc([para(staff.name, { size: BODY })], { width: COLS[1] }),
+            tc([para("Signature", { size: BODY })], { fill: SHADE, width: COLS[2] }),
+            tc([para("", { size: BODY })], { width: COLS[3] }),
+          ],
+        }),
+    ),
+  });
 }
 
 /** FA's descriptor grid, which is the reference the ticks are made against. */
 function appendix() {
+  const COLS = [2245, 3603, 3461, 3461, 3602];
   const rows = [
     new TableRow({
       tableHeader: true,
       children: [
-        cell([para("Assessment area", { bold: true, size: 8 })], { width: 16, shaded: true }),
-        ...APPENDIX_LEVELS.map((level) =>
-          cell([para(level, { bold: true, size: 8 })], { width: 21, shaded: true }),
+        tc([para("Assessment Area", { bold: true, size: BODY })], { width: COLS[0] }),
+        ...APPENDIX_LEVELS.map((level, i) =>
+          tc(
+            [
+              para(level, {
+                bold: true,
+                size: BODY,
+                color: "FFFFFF",
+                align: AlignmentType.CENTER,
+              }),
+            ],
+            { fill: LEVEL_FILLS[i], width: COLS[i + 1] },
+          ),
         ),
       ],
     }),
@@ -560,17 +646,23 @@ function appendix() {
         new TableRow({
           cantSplit: true,
           children: [
-            cell(
+            tc(
               [
-                para(area.heading[0], { bold: true, size: 8 }),
-                ...area.heading.slice(1).map((sub) => para(sub, { size: 7, color: MUTED })),
+                para(area.heading[0], {
+                  bold: true,
+                  size: BODY,
+                  align: AlignmentType.CENTER,
+                }),
+                ...area.heading.slice(1).map((sub) => bullet(sub)),
               ],
-              { width: 16 },
+              { width: COLS[0], middle: true },
             ),
-            ...area.levels.map((descriptor) =>
-              cell(
-                descriptor.split("\n").map((line) => para(line, { size: 7 })),
-                { width: 21 },
+            ...area.levels.map((descriptor, i) =>
+              tc(
+                descriptor
+                  .split("\n")
+                  .map((line) => para(line, { size: SMALL, align: AlignmentType.CENTER })),
+                { width: COLS[i + 1], middle: true },
               ),
             ),
           ],
@@ -580,15 +672,27 @@ function appendix() {
 
   return [
     new Paragraph({ children: [new PageBreak()] }),
-    heading("Football Australia coach education assessment rubric"),
-    // One narrow column for the area and four equal ones for the descriptors,
-    // which are long: left to fit itself, Word gives the area name a third of
-    // the page and squeezes the text nobody can read without it.
-    new Table({ width: FULL_WIDTH, columnWidths: [2400, 3260, 3260, 3260, 3258], rows }),
+    para("Football Australia Coach Education Assessment Rubric", {
+      size: BODY,
+      align: AlignmentType.CENTER,
+      after: 6,
+    }),
+    new Table({ width: FULL_WIDTH, columnWidths: COLS, rows }),
   ];
 }
 
 /* -------------------------------- Packing --------------------------------- */
+
+/**
+ * The text column, in twips.
+ *
+ * A4 landscape is 16840 wide and the template's margins are 1134 a side, which
+ * leaves this. Every table on the page is built to it, because the template
+ * fixes its columns and a table left to fit itself gets re-laid out by Word
+ * around whatever happens to be in it — which, on a form whose cells are
+ * deliberately empty, is nothing at all.
+ */
+const TEXT_WIDTH = 16840 - 1134 * 2;
 
 function coachBlocks(coach: RegisterCoach, register: ParsedRegister, first: boolean) {
   const thresholds = thresholdsFor({
@@ -598,49 +702,56 @@ function coachBlocks(coach: RegisterCoach, register: ParsedRegister, first: bool
   return [
     ...(first ? [] : [new Paragraph({ children: [new PageBreak()] })]),
     candidateBlock(coach, register),
-    ...practicalComments(coach),
+    para("", { size: 5 }),
+    practicalComments(coach, TEXT_WIDTH),
+    para("", { size: 5 }),
     ...rubricTable(thresholds),
-    ...narrativeBlock(coach, register),
-    ...signOff(coach, register),
+    narrativeBlock(coach, register, TEXT_WIDTH),
+    para("", { size: 5 }),
+    // No course-judgement table between the narrative and the sign-off. It was
+    // ours, not FQ's — a row restating the register's rating, readiness,
+    // outcome and attendance — and on a document whose whole point is that the
+    // CETs make the judgement, printing the register's answer underneath their
+    // blank rubric read as the decision already being taken.
+    signOff(coach, register),
     ...appendix(),
   ];
 }
 
-/** What the letterhead and the footer say, which is also what the file is. */
-function documentTitle(register: ParsedRegister, kind: "action plan" | "feedback") {
-  const level = register.qualification ?? "Coach education";
-  return `${level} assessment — ${kind}`;
+/** What the letterhead and the footer say, which is the template's own line. */
+function documentTitle(register: ParsedRegister) {
+  return `${quotedDiploma(register.qualification)} Practical Coaching Assessment`;
 }
 
 /**
  * One coach's document.
  *
- * Landscape, which is the template's own orientation and the only way three
- * practical write-ups fit side by side.
+ * Landscape at the template's own page and margins, which is the only way the
+ * practical write-ups fit side by side and the rubric's descriptors stay
+ * readable.
  */
 export async function assessmentPlanDocx(coaches: RegisterCoach[], register: ParsedRegister) {
-  const kind = coaches.every((c) => c.verdict === "passed") ? "feedback" : "action plan";
-  const title = documentTitle(register, kind);
+  const title = documentTitle(register);
 
   const doc = new Document({
-    styles: { default: { document: { run: { font: FONT, size: pt(9), color: INK } } } },
+    styles: { default: { document: { run: { font: FONT, size: pt(BODY), color: INK } } } },
     sections: [
       {
         properties: {
           page: {
             size: { orientation: "landscape" },
             margin: {
-              top: 1400,
-              bottom: 900,
-              left: 700,
-              right: 700,
-              header: 480,
-              footer: 480,
+              top: 1134,
+              bottom: 1134,
+              left: 1134,
+              right: 1134,
+              header: 578,
+              footer: 641,
             },
           },
         },
-        headers: { default: await letterhead(title) },
-        footers: { default: footer(title) },
+        headers: { default: await assessmentHeader(title) },
+        footers: { default: assessmentFooter(title) },
         children: coaches.flatMap((coach, i) => coachBlocks(coach, register, i === 0)),
       },
     ],
