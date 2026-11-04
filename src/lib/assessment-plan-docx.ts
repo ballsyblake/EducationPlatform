@@ -33,7 +33,6 @@ import {
   text,
 } from "@/lib/fq-docx";
 import type { ParsedRegister, RegisterCoach, RegisterDelivery } from "@/lib/register-file";
-import { bandFor } from "@/lib/support-rubric";
 
 /**
  * FQ's `Assessment — Action Plan / Feedback` document, filled in from a
@@ -483,13 +482,13 @@ function rubricTable(thresholds: ReturnType<typeof thresholdsFor>) {
     para("", { size: 4 }),
     new Table({ width: FULL_WIDTH, columnWidths: COLS, rows }),
     total,
-    para(
-      `The register carries no score on Football Australia's six-area rubric, so this table is for the CETs to complete. The outcome follows from the total: ${thresholds.competent} points is the minimum for competency on this diploma and ${thresholds.highlyCompetent} is Highly Competent.` +
-        (thresholds.inferred
-          ? " The Highly Competent line at this level is inferred from the C Diploma's three-point step, not quoted from FA."
-          : ""),
-      { size: SMALL, before: 3, after: 6 },
-    ),
+    // No note under the table explaining that it comes out blank. The band
+    // across the top already names the three outcomes and their point ranges,
+    // and FQ's own form carries no such paragraph — it was the app explaining
+    // itself on a document a coach signs, which is not the place for it. Why
+    // the table is empty is in `CLAUDE.md` and in the page the export comes
+    // from, for the people who need to know.
+    para("", { size: 4 }),
   ];
 }
 
@@ -529,28 +528,21 @@ function narrativeBlock(coach: RegisterCoach, register: ParsedRegister, width: n
     // blank the CET fills.
     bullet(""),
     bullet(""),
+    bullet(""),
     para(competent ? "Areas to continue working on:" : "Performance Gaps:", {
       size: BODY,
       before: 4,
       after: 3,
     }),
+    // Blank here too, for the same reason and one more: the register's action
+    // steps were being collated into this list, but they are already written
+    // out in full against the delivery each came from on the first page, so
+    // this was the same text twice and the CET had nowhere to write the
+    // course-level judgement the section is actually asking for.
+    bullet(""),
+    bullet(""),
+    bullet(""),
   ];
-
-  const steps = coach.deliveries.flatMap((d) =>
-    d.actions.map((step) => ({ deliveryNo: d.deliveryNo, step })),
-  );
-  if (steps.length) {
-    for (const { deliveryNo, step } of steps) {
-      inner.push(
-        bullet([
-          text(step, { size: BODY }),
-          text(`  (Practical Delivery ${deliveryNo})`, { size: SMALL }),
-        ]),
-      );
-    }
-  } else {
-    inner.push(bullet("No action steps were recorded against this coach's deliveries."));
-  }
 
   if (coach.assessmentComment) {
     inner.push(
@@ -570,53 +562,6 @@ function narrativeBlock(coach: RegisterCoach, register: ParsedRegister, width: n
     width: FULL_WIDTH,
     columnWidths: [width],
     rows: [new TableRow({ children: [tc(inner, { width })] })],
-  });
-}
-
-/**
- * The course judgement, which the template has no box for and this needs one
- * for.
- *
- * FQ's form is a per-session instrument carrying a per-course decision, so the
- * 1-5 rating that actually decides post-course support is nowhere on it — the
- * structure note calls that out as the point of a per-course document. It goes
- * in the template's own plain-table language rather than a band of its own, and
- * below the narrative, so the page still reads as their form with one more row.
- */
-function judgementBlock(coach: RegisterCoach, width: number) {
-  const band = bandFor(coach.rating);
-  const quarter = Math.floor(width / 4);
-  const field = (label: string, value: string) =>
-    tc(
-      [
-        para(label, { bold: true, size: SMALL }),
-        para(value, { size: BODY }),
-      ],
-      { width: quarter },
-    );
-  return new Table({
-    width: FULL_WIDTH,
-    columnWidths: [quarter, quarter, quarter, quarter],
-    rows: [
-      new TableRow({
-        children: [
-          field(
-            "Course rating (1-5)",
-            coach.rating === null
-              ? "Not rated"
-              : `${coach.rating}${band ? ` — ${band.faRating}` : ""}`,
-          ),
-          field("Readiness for next licence", coach.readiness || ""),
-          field("Register outcome", coach.outcome || ""),
-          field(
-            "Attendance / journal",
-            [coach.attendanceMet, coach.journal]
-              .map((v) => (v === null ? "—" : v ? "Yes" : "No"))
-              .join(" / "),
-          ),
-        ],
-      }),
-    ],
   });
 }
 
@@ -763,8 +708,11 @@ function coachBlocks(coach: RegisterCoach, register: ParsedRegister, first: bool
     ...rubricTable(thresholds),
     narrativeBlock(coach, register, TEXT_WIDTH),
     para("", { size: 5 }),
-    judgementBlock(coach, TEXT_WIDTH),
-    para("", { size: 5 }),
+    // No course-judgement table between the narrative and the sign-off. It was
+    // ours, not FQ's — a row restating the register's rating, readiness,
+    // outcome and attendance — and on a document whose whole point is that the
+    // CETs make the judgement, printing the register's answer underneath their
+    // blank rubric read as the decision already being taken.
     signOff(coach, register),
     ...appendix(),
   ];
