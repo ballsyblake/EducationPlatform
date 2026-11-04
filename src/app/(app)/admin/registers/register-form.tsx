@@ -200,9 +200,11 @@ export function RegisterForm() {
             )}
           </form>
           <p className="text-xs text-ink-500">
-            A zip of Word files, one per coach, plus a summary of the table above. The six-area
-            rubric and the total out of 18 come out blank for the CETs to tick: no 2026 register
-            carries a rubric score, and nothing here converts the 1&ndash;5 rating into one.
+            A zip of Word files, one per coach, plus a summary of the table above, laid out off
+            FQ&rsquo;s own {register.qualification?.trim().toUpperCase().startsWith("B") ? "B" : "C"}{" "}
+            Diploma paperwork. The six-area assessment comes out blank for the CETs to tick: no 2026
+            register carries a per-area score, and nothing here converts the 1&ndash;5 session
+            rating into one.
           </p>
         </div>
       )}
