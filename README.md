@@ -441,6 +441,52 @@ step by hand. Every delivery imported from a 2026 register carries its 1-5
 figure and no scoresheet, which is the truth about it: nobody scored those on
 this rubric.
 
+### Action plans and feedback letters, from the register
+
+At the end of a course FQ send every coach a document: an **action plan** if
+they are going to post-course support, a **feedback letter** if they passed.
+Both are the same FQ form — candidate block, the practical write-ups side by
+side, the six-area rubric, the narrative, the CET signatures, and Football
+Australia's rubric as an appendix — with a different covering paragraph at the
+foot.
+
+Everything on that form is already in the register, so `/admin/registers` takes
+one. Upload it, and the page says what it found:
+
+| What the register says                                  | What the coach gets |
+| ------------------------------------------------------- | ------------------- |
+| Outcome **Passed**                                       | Feedback letter     |
+| Outcome **Not Yet Competent**, or a rating below the pass mark | Action plan   |
+| A comment recording an action plan that isn't marked completed | Action plan   |
+| At the pass mark but attendance or journal outstanding    | Neither, and why    |
+| No rating and no outcome                                  | Neither, and why    |
+
+Every row carries the sentence that explains it, so a classification can be
+argued with rather than taken on trust — and a coach the register has signed off
+as *Passed* while also carrying an open action plan is flagged as such rather
+than quietly filed under one of the two. The download is a zip of Word files,
+one per coach, plus a `summary.csv` of that table.
+
+**What comes out filled in**, from the register: the course facts, every
+delivery's assessor, block, component, topic and write-up, the action steps the
+assessors typed, the 1-5 session and course ratings, and the signature lines of
+the CETs who actually watched that coach.
+
+**What comes out blank**: the six-area rubric and the total out of eighteen. No
+2026 register carries a rubric score — the only number per delivery is a
+free-text `Session Rating` on the 1-5 scale — and the two instruments do not
+convert, so the table is left for the CETs to tick rather than filled from a
+figure that does not mean the same thing. Areas of strength are blank for the
+same reason: a register records gaps, in its action steps, and marks nothing as
+a strength.
+
+Mid-course, where nobody has been rated yet, the two buttons come out at zero
+and a third offers the documents for everyone who has been written up but not
+yet judged — which is what the CETs make the judgement on.
+
+Nothing is written to the database. Reading a register for export and importing
+one are different acts; see *Loading a real intake* for the second.
+
 ## Post-course support
 
 Rated below the mark, and the rubric's own name for what happens next is

@@ -1,27 +1,39 @@
 import "server-only";
 
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import {
   AlignmentType,
-  BorderStyle,
   Document,
-  Footer,
-  Header,
-  ImageRun,
   PageBreak,
-  PageNumber,
   Packer,
   Paragraph,
   Table,
   TableCell,
   TableRow,
   TextRun,
-  VerticalAlign,
   WidthType,
 } from "docx";
 import { DELIVERY_LEVELS, MAX_DELIVERY_POINTS } from "@/lib/delivery-rubric";
+import {
+  CELL_BORDERS,
+  cell,
+  docxFilename,
+  FONT,
+  footer,
+  FULL_WIDTH,
+  heading,
+  INK,
+  letterhead,
+  MAROON,
+  MUTED,
+  para,
+  pt,
+  text,
+} from "@/lib/fq-docx";
 import type { OutcomeDelivery, OutcomeSheet } from "@/lib/outcome";
+
+// Re-exported because the two print routes already import it from here, and a
+// filename is part of what an export hands back.
+export { docxFilename };
 
 /**
  * The coach assessment outcome sheets as a Word file.
@@ -42,97 +54,6 @@ import type { OutcomeDelivery, OutcomeSheet } from "@/lib/outcome";
  * Nothing is decided here. An outcome prints where the rubric has one and the
  * boxes come back empty where it does not, exactly as on the page.
  */
-
-/* ------------------------------- Brand ----------------------------------- */
-
-// Football Queensland's Deep Maroon, matching `--color-maroon-800` in
-// globals.css. docx wants bare hex, no leading hash.
-const MAROON = "621333";
-const INK = "3D3D3D";
-const MUTED = "6B6B6B";
-const RULE = "D4D4D4";
-
-// Gibson is the brand typeface and is licensed, so it is not bundled; the
-// guidelines name Arial as the substitute, which is what `--font-brand` falls
-// back to on the page.
-const FONT = "Arial";
-
-/** Half-points, which is what docx sizes are in. */
-const pt = (n: number) => n * 2;
-
-const THIN = { style: BorderStyle.SINGLE, size: 4, color: RULE };
-const CELL_BORDERS = { top: THIN, bottom: THIN, left: THIN, right: THIN };
-const NO_BORDERS = {
-  top: { style: BorderStyle.NONE, size: 0, color: "auto" },
-  bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
-  left: { style: BorderStyle.NONE, size: 0, color: "auto" },
-  right: { style: BorderStyle.NONE, size: 0, color: "auto" },
-};
-
-const FULL_WIDTH = { size: 100, type: WidthType.PERCENTAGE };
-
-type TextOpts = {
-  bold?: boolean;
-  size?: number;
-  color?: string;
-  caps?: boolean;
-  before?: number;
-  after?: number;
-  align?: (typeof AlignmentType)[keyof typeof AlignmentType];
-};
-
-function text(content: string, o: TextOpts = {}) {
-  return new TextRun({
-    text: o.caps ? content.toUpperCase() : content,
-    bold: o.bold,
-    size: pt(o.size ?? 9),
-    color: o.color ?? INK,
-    font: FONT,
-  });
-}
-
-function para(content: string | TextRun[], o: TextOpts = {}) {
-  return new Paragraph({
-    children: typeof content === "string" ? [text(content, o)] : content,
-    alignment: o.align,
-    spacing: { before: pt(o.before ?? 0), after: pt(o.after ?? 2) },
-  });
-}
-
-/** A cell, since every one of them wants the same borders and padding. */
-function cell(
-  children: Paragraph[],
-  o: { width?: number; shaded?: boolean } = {},
-) {
-  return new TableCell({
-    children,
-    borders: CELL_BORDERS,
-    shading: o.shaded ? { fill: "F7F7F7" } : undefined,
-    width: o.width ? { size: o.width, type: WidthType.PERCENTAGE } : undefined,
-    margins: { top: 40, bottom: 40, left: 80, right: 80 },
-  });
-}
-
-/** The maroon section band FQ's form rules each block off with. */
-function heading(label: string) {
-  return new Table({
-    width: FULL_WIDTH,
-    rows: [
-      new TableRow({
-        children: [
-          new TableCell({
-            children: [
-              para(label, { bold: true, size: 8, color: "FFFFFF", caps: true }),
-            ],
-            shading: { fill: MAROON },
-            borders: CELL_BORDERS,
-            margins: { top: 40, bottom: 40, left: 80, right: 80 },
-          }),
-        ],
-      }),
-    ],
-  });
-}
 
 /* ------------------------------ The sheet -------------------------------- */
 
@@ -536,140 +457,6 @@ function coverBlocks(sheets: OutcomeSheet[], courseTitle: string) {
   return out;
 }
 
-/* ------------------------------- Chrome ---------------------------------- */
-
-/**
- * Football Queensland's master logo, for the page header.
- *
- * The same file the app serves at `/brand/fq-logo-horizontal.png`, read off
- * disk rather than fetched: this runs on the server that would be answering
- * the request, and a document that silently loses its letterhead because the
- * app could not reach itself is worse than one that throws while being built.
- *
- * Read once. It is 80KB and every sheet in a thirty-five coach export would
- * otherwise read it again.
- */
-let logoCache: Buffer | null | undefined;
-
-async function fqLogo() {
-  if (logoCache !== undefined) return logoCache;
-  try {
-    logoCache = await readFile(
-      path.join(process.cwd(), "public", "brand", "fq-logo-horizontal.png"),
-    );
-  } catch {
-    // The guidelines are explicit that nothing may stand in for the mark, so a
-    // missing file means a header with no logo rather than a drawn one.
-    logoCache = null;
-  }
-  return logoCache;
-}
-
-/** The logo's own proportions, 2640x1021, at a sensible height on the page. */
-const LOGO = { width: 132, height: 51 };
-
-/**
- * The letterhead, repeated on every page.
- *
- * Laid out as FQ's own `'C' DIPLOMA PRACTICAL COACHING ASSESSMENT` template
- * does it: the mark on the left, the document's own name on the right, and a
- * maroon rule under both.
- */
-async function letterhead(title: string) {
-  const logo = await fqLogo();
-  return new Header({
-    children: [
-      new Table({
-        width: FULL_WIDTH,
-        borders: {
-          ...NO_BORDERS,
-          bottom: { style: BorderStyle.SINGLE, size: 12, color: MAROON },
-          insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
-          insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
-        },
-        rows: [
-          new TableRow({
-            children: [
-              new TableCell({
-                borders: NO_BORDERS,
-                width: { size: 40, type: WidthType.PERCENTAGE },
-                margins: { top: 0, bottom: 80, left: 0, right: 0 },
-                children: [
-                  new Paragraph({
-                    children: logo
-                      ? [
-                          new ImageRun({
-                            data: new Uint8Array(logo),
-                            transformation: LOGO,
-                            type: "png",
-                            altText: {
-                              title: "Football Queensland",
-                              description: "Football Queensland",
-                              name: "Football Queensland",
-                            },
-                          }),
-                        ]
-                      : [
-                          text("Football Queensland", {
-                            bold: true,
-                            size: 11,
-                            color: MAROON,
-                          }),
-                        ],
-                    spacing: { before: 0, after: 0 },
-                  }),
-                ],
-              }),
-              new TableCell({
-                borders: NO_BORDERS,
-                width: { size: 60, type: WidthType.PERCENTAGE },
-                verticalAlign: VerticalAlign.BOTTOM,
-                margins: { top: 0, bottom: 80, left: 0, right: 0 },
-                children: [
-                  para(title, {
-                    bold: true,
-                    size: 12,
-                    color: MAROON,
-                    caps: true,
-                    align: AlignmentType.RIGHT,
-                  }),
-                ],
-              }),
-            ],
-          }),
-        ],
-      }),
-    ],
-  });
-}
-
-/** The document's name and the page number, as FQ's template foots a page. */
-function footer(title: string) {
-  return new Footer({
-    children: [
-      new Paragraph({
-        alignment: AlignmentType.RIGHT,
-        border: { top: { style: BorderStyle.SINGLE, size: 4, color: RULE } },
-        spacing: { before: pt(4), after: 0 },
-        children: [
-          text(`${title}    `, { size: 7, color: MUTED }),
-          new TextRun({
-            children: [
-              "Page ",
-              PageNumber.CURRENT,
-              " of ",
-              PageNumber.TOTAL_PAGES,
-            ],
-            size: pt(7),
-            color: MUTED,
-            font: FONT,
-          }),
-        ],
-      }),
-    ],
-  });
-}
-
 /**
  * The candidate block FQ's template opens with.
  *
@@ -809,25 +596,3 @@ export async function outcomeDocx(
   return Packer.toBuffer(doc);
 }
 
-/**
- * A filename somebody can find again on their desktop.
- *
- * Anything a filesystem argues with becomes a hyphen — Word on Windows refuses
- * a name with a colon in it, and FQ's course titles carry them — and the whole
- * thing is kept short. A cohort's full title plus a suffix ran past a hundred
- * characters once percent-encoded, and Chromium gave up on the header and
- * saved the file as "download"; callers pass a shortened title for the same
- * reason.
- */
-const MAX_STEM = 60;
-
-export function docxFilename(...parts: (string | null | undefined)[]) {
-  let stem = parts
-    .filter(Boolean)
-    .join(" - ")
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (stem.length > MAX_STEM) stem = `${stem.slice(0, MAX_STEM).trimEnd()}…`;
-  return `${stem || "coach-assessment"}.docx`;
-}
