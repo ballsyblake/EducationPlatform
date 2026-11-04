@@ -62,6 +62,11 @@ export type RegisterDelivery = {
 /** Not Yet Competent, Competent, Highly Competent — the three-level scale. */
 export type DeliveryLevel = "NYC" | "C" | "HC";
 
+/** A coach's headshot off the Assessment sheet, re-encoded small enough to
+ * travel. Filled in by `attachCoachPhotos`, not by the parser — see the note
+ * at the head of `register-photos.ts`. */
+export type CoachPhoto = { base64: string; width: number; height: number };
+
 /** What the register decided about a coach, and what this makes of it. */
 export type RegisterVerdict =
   /** Outcome says Passed. Gets a feedback document. */
@@ -94,6 +99,12 @@ export type RegisterCoach = {
   verdict: RegisterVerdict;
   /** Why, in the words the summary table shows. */
   reason: string;
+  /**
+   * The coach's photograph, where the register has one. Null until
+   * `attachCoachPhotos` has run, and null for a coach with no column or no
+   * picture — the documents simply leave the box empty.
+   */
+  photo: CoachPhoto | null;
 };
 
 export type ParsedRegister = {
@@ -380,7 +391,10 @@ const RESULT_KEYS = [
   "comments",
 ] as const;
 
-type RosterRow = Omit<RegisterCoach, "deliveries" | "assessmentComment" | "verdict" | "reason">;
+type RosterRow = Omit<
+  RegisterCoach,
+  "deliveries" | "assessmentComment" | "verdict" | "reason" | "photo"
+>;
 
 function readRosterBlock(
   rows: SheetRows,
@@ -683,6 +697,9 @@ export function readRegister(
       ...withRating,
       deliveries: found?.deliveries ?? [],
       assessmentComment: found?.comment ?? null,
+      // Filled in afterwards by `attachCoachPhotos`, which is async and is the
+      // one thing here that is.
+      photo: null,
       ...classify(withRating, passMark),
     };
   });

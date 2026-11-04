@@ -8,6 +8,7 @@ import {
   XlsxError,
   type ParsedRegister,
 } from "@/lib/register-file";
+import { attachCoachPhotos } from "@/lib/register-photos";
 
 /**
  * Reading a course register for export.
@@ -18,6 +19,10 @@ import {
  * of FQ's B Diploma registers is 52 MB, almost all of it embedded photographs,
  * and uploading it again to press Download would be a minute of somebody's
  * afternoon for no new information.
+ *
+ * The coaches' photographs are the exception to that, and the reason it still
+ * holds: they are re-encoded small enough to ride back in the same field — see
+ * `register-photos.ts` — rather than being kept anywhere on the server.
  *
  * Nothing is written. No coach is created, no enrolment touched, no rating
  * stored. Loading real people's records into the platform is the import
@@ -62,7 +67,11 @@ export async function reviewRegister(
 
   let register: ParsedRegister;
   try {
-    register = readRegister(Buffer.from(await file.arrayBuffer()), file.name);
+    const buf = Buffer.from(await file.arrayBuffer());
+    register = readRegister(buf, file.name);
+    // After the parse, because it is the one asynchronous step and because a
+    // register that fails to parse has no coaches to hang a photograph on.
+    await attachCoachPhotos(register, buf);
   } catch (error) {
     if (error instanceof RegisterError || error instanceof XlsxError) {
       return { status: "error", message: error.message };

@@ -37,12 +37,17 @@ export type SheetRows = string[][];
  */
 export type SheetFills = (string | null)[][];
 
+/** A picture sitting in a cell, as bytes and the extension it was stored under. */
+export type SheetImage = { data: Buffer; ext: string };
+
 export type Workbook = {
   /** Sheet names in the order the workbook tabs them. */
   names: string[];
   sheet(name: string): SheetRows;
   /** The same sheet's cell fills, laid out to match `sheet(name)`. */
   fills(name: string): SheetFills;
+  /** Pictures placed *in* cells on that sheet, by `[row][col]` as `sheet` is. */
+  images(name: string): (SheetImage | null)[][];
   has(name: string): boolean;
 };
 
@@ -131,14 +136,16 @@ function parseSheet(
   xml: string,
   shared: string[],
   styles: (string | null)[],
-): { rows: SheetRows; fills: SheetFills } {
+): { rows: SheetRows; fills: SheetFills; vms: number[][] } {
   const rows: SheetRows = [];
   const fills: SheetFills = [];
+  const vms: number[][] = [];
 
   for (const rowMatch of xml.matchAll(/<row(?:\s[^>]*)?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
     const body = rowMatch[1] ?? "";
     const cells = new Map<number, string>();
     const shades = new Map<number, string>();
+    const pictures = new Map<number, number>();
     let widest = -1;
 
     for (const cellMatch of body.matchAll(
@@ -179,14 +186,24 @@ function parseSheet(
       const style = Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? NaN);
       const shade = Number.isInteger(style) ? styles[style] : null;
       if (shade) shades.set(col, shade);
+
+      // An in-cell picture: the cell's text is `#VALUE!` and the picture is
+      // behind this index. It does not widen the row either, for the same
+      // reason the fill does not.
+      const vm = Number(/\bvm="(\d+)"/.exec(attrs)?.[1] ?? NaN);
+      if (Number.isInteger(vm) && vm > 0) pictures.set(col, vm);
     }
 
+    const widestCell = Math.max(widest, ...pictures.keys(), -1);
     const row: string[] = [];
     const shadeRow: (string | null)[] = [];
-    for (let i = 0; i <= widest; i++) {
-      row.push(cells.get(i) ?? "");
+    const vmRow: number[] = [];
+    for (let i = 0; i <= widestCell; i++) {
+      row.push(i <= widest ? (cells.get(i) ?? "") : "");
       shadeRow.push(shades.get(i) ?? null);
+      vmRow.push(pictures.get(i) ?? 0);
     }
+    row.length = widest + 1;
     // Rows carry an `r` attribute, and a sheet may skip empty ones entirely.
     // Pushed into position so a row index means the same thing it does in
     // Excel's own numbering minus one.
@@ -195,16 +212,86 @@ function parseSheet(
       while (rows.length < at - 1) {
         rows.push([]);
         fills.push([]);
+        vms.push([]);
       }
       rows[at - 1] = row;
       fills[at - 1] = shadeRow;
+      vms[at - 1] = vmRow;
     } else {
       rows.push(row);
       fills.push(shadeRow);
+      vms.push(vmRow);
     }
   }
 
-  return { rows, fills };
+  return { rows, fills, vms };
+}
+
+/**
+ * Pictures placed inside cells, which is not the same thing as pictures *on* a
+ * sheet and is why this is four files of indirection rather than one.
+ *
+ * A floating picture is a drawing anchored to a cell range, and that is what
+ * `xl/drawings` holds — on these registers, the rubric screenshot and nothing
+ * else. A coach's photograph is an **in-cell image**, Excel's newer "Place in
+ * Cell", and it is stored as a *rich value*: the cell itself holds `#VALUE!`
+ * and a `vm` attribute, and the bytes are four hops away.
+ *
+ * `vm="n"` → `metadata.xml`'s n-th value-metadata block → its `rc v=` → the
+ * same index into `rdrichvalue.xml` → that record's first `<v>` → the same
+ * index into `richValueRel.xml` → a relationship id → the file in `xl/media`.
+ *
+ * Every hop is one-based or zero-based in its own way, which is the only
+ * reason this is fiddly rather than hard. The alternative was telling FQ the
+ * photographs in their register are unreadable, which they plainly are not:
+ * Excel shows them.
+ */
+function richValueImages(zip: ZipArchive): (() => SheetImage | null)[] {
+  const text = (path: string) => zip.read(path)?.toString("utf8") ?? "";
+
+  // metadata.xml: the value-metadata blocks, in order. Each names a rich-value
+  // index. There is also a *cell*-metadata section, which is not this one.
+  const metadata = text("xl/metadata.xml");
+  const valueBlock = /<valueMetadata[\s\S]*?<\/valueMetadata>/.exec(metadata)?.[0] ?? "";
+  const valueToRich = [...valueBlock.matchAll(/<bk>([\s\S]*?)<\/bk>/g)].map((m) => {
+    const v = /<rc\s[^>]*?\bv="(\d+)"/.exec(m[1])?.[1];
+    return v === undefined ? -1 : Number(v);
+  });
+
+  // rdrichvalue.xml: each record's first <v> is its index into the relation
+  // list. The rest of the record is the picture's alt text and sizing, which
+  // nothing here wants.
+  const richToRel = [
+    ...text("xl/richData/rdrichvalue.xml").matchAll(/<rv\s[^>]*?>([\s\S]*?)<\/rv>/g),
+  ].map((m) => {
+    const v = /<v>(\d+)<\/v>/.exec(m[1])?.[1];
+    return v === undefined ? -1 : Number(v);
+  });
+
+  const relIds = [
+    ...text("xl/richData/richValueRel.xml").matchAll(/<rel\s[^>]*?r:id="([^"]+)"/g),
+  ].map((m) => m[1]);
+
+  const targets = new Map<string, string>();
+  for (const m of text("xl/richData/_rels/richValueRel.xml.rels").matchAll(
+    /<Relationship\s([^>]*?)\/?>/g,
+  )) {
+    const id = /\bId="([^"]+)"/.exec(m[1])?.[1];
+    const target = /\bTarget="([^"]+)"/.exec(m[1])?.[1];
+    if (id && target) targets.set(id, target);
+  }
+
+  // Indexed by `vm` minus one, and resolved lazily: a register holds thirty-odd
+  // of these at a megabyte and a half each, and a caller usually wants one.
+  return valueToRich.map((rich) => () => {
+    const rel = richToRel[rich];
+    const target = rel === undefined ? undefined : targets.get(relIds[rel]);
+    if (!target) return null;
+    const path = `xl/${target.replace(/^(\.\.\/)+/, "")}`;
+    const data = zip.read(path);
+    if (!data) return null;
+    return { data, ext: path.split(".").pop()?.toLowerCase() ?? "" };
+  });
 }
 
 /**
@@ -246,14 +333,15 @@ export function readWorkbook(buf: Buffer): Workbook {
 
   const shared = sharedStrings(zip);
   const styles = cellFills(zip);
-  const cache = new Map<string, { rows: SheetRows; fills: SheetFills }>();
+  const cache = new Map<string, { rows: SheetRows; fills: SheetFills; vms: number[][] }>();
+  let richImages: (() => SheetImage | null)[] | null = null;
 
   const read = (name: string) => {
     const cached = cache.get(name);
     if (cached) return cached;
     const path = sheets.get(name);
     const xml = path ? zip.read(path)?.toString("utf8") : undefined;
-    const parsed = xml ? parseSheet(xml, shared, styles) : { rows: [], fills: [] };
+    const parsed = xml ? parseSheet(xml, shared, styles) : { rows: [], fills: [], vms: [] };
     cache.set(name, parsed);
     return parsed;
   };
@@ -263,5 +351,12 @@ export function readWorkbook(buf: Buffer): Workbook {
     has: (name) => sheets.has(name),
     sheet: (name) => read(name).rows,
     fills: (name) => read(name).fills,
+    images(name) {
+      const { vms } = read(name);
+      if (!vms.some((row) => row.some((vm) => vm > 0))) return [];
+      richImages ??= richValueImages(zip);
+      const lookup = richImages;
+      return vms.map((row) => row.map((vm) => (vm > 0 ? (lookup[vm - 1]?.() ?? null) : null)));
+    },
   };
 }

@@ -4,6 +4,7 @@ import {
   AlignmentType,
   CheckBox,
   HeightRule,
+  ImageRun,
   PageBreak,
   Paragraph,
   Table,
@@ -274,19 +275,62 @@ function rubricAppendix() {
  */
 const PLAN_MAROON = MAROON;
 
-function developmentPlan() {
+/**
+ * The coach's own headshot, scaled into the box FQ leave for it.
+ *
+ * Fitted rather than stretched. Every one of these is a portrait phone
+ * photograph and the box is roughly square, so forcing it to the box's
+ * proportions would flatten somebody's face on their own assessment.
+ */
+const PHOTO_BOX = { width: 118, height: 104 };
+
+function coachPhoto(coach: RegisterCoach) {
+  if (!coach.photo) return null;
+  const scale = Math.min(
+    PHOTO_BOX.width / coach.photo.width,
+    PHOTO_BOX.height / coach.photo.height,
+  );
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 0, after: 0 },
+    children: [
+      new ImageRun({
+        data: coach.photo.base64,
+        type: "jpg",
+        transformation: {
+          width: Math.round(coach.photo.width * scale),
+          height: Math.round(coach.photo.height * scale),
+        },
+        altText: {
+          title: coach.name,
+          description: `${coach.name}, from the course register`,
+          name: coach.name,
+        },
+      }),
+    ],
+  });
+}
+
+function developmentPlan(coach: RegisterCoach) {
   const COLS = [3000, 5800, 5800];
-  const TALL = { value: 1700, rule: HeightRule.ATLEAST };
+  // The whole plan has to land on one page — it is a canvas somebody writes
+  // on, and a canvas split across a page break is two half-canvases. These
+  // heights are what is left of a landscape A4 once the title and the two
+  // competency panels have taken theirs.
+  const TALL = { value: 1300, rule: HeightRule.ATLEAST };
+  const TALLER = { value: 1800, rule: HeightRule.ATLEAST };
 
   const heading = (label: string) =>
     para(label, { bold: true, size: 14, color: "FF9E0C" });
 
-  const field = (label: string) =>
-    tc([para(label, { bold: true, size: BODY, align: AlignmentType.CENTER })], {
-      width: COLS[0],
-      middle: true,
-      color: PLAN_MAROON,
-    });
+  const field = (label: string, value?: string) =>
+    tc(
+      [
+        para(label, { bold: true, size: BODY, align: AlignmentType.CENTER }),
+        ...(value ? [para(value, { size: BODY, align: AlignmentType.CENTER })] : []),
+      ],
+      { width: COLS[0], middle: true, color: PLAN_MAROON },
+    );
 
   /** One of the two competency panels, which are the only filled cells. */
   const panel = (title: string, items: string[]) =>
@@ -322,11 +366,13 @@ function developmentPlan() {
         new TableRow({
           height: TALL,
           children: [
-            tc([para("Insert Picture of Coach", { size: BODY, align: AlignmentType.CENTER })], {
-              width: COLS[0],
-              middle: true,
-              color: PLAN_MAROON,
-            }),
+            tc(
+              [
+                coachPhoto(coach) ??
+                  para("Insert Picture of Coach", { size: BODY, align: AlignmentType.CENTER }),
+              ],
+              { width: COLS[0], middle: true, color: PLAN_MAROON },
+            ),
             tc(
               [
                 para("COACH DEVELOPMENT PLAN – B DIPLOMA", {
@@ -342,7 +388,9 @@ function developmentPlan() {
         new TableRow({
           height: TALL,
           children: [
-            field("Name:"),
+            // Filled in where the register knows it. The rest of the column
+            // is the coach's own to complete, which is what the page is for.
+            field("Name:", coach.name),
             // Strengths runs beside all three competency rows, as on their
             // page, which is why it is a rowSpan rather than three cells.
             tc([heading("STRENGTHS")], { width: COLS[1], rowSpan: 3, color: PLAN_MAROON }),
@@ -360,7 +408,7 @@ function developmentPlan() {
           children: [field("Years Coaching:"), panel("ON FIELD", FA_COMPETENCIES.onField)],
         }),
         new TableRow({
-          height: TALL,
+          height: TALLER,
           children: [
             field("Qualifications:"),
             tc([heading("PERFORMANCE GAP")], {
@@ -371,7 +419,7 @@ function developmentPlan() {
             tc([heading("GOALS/PLAN")], { width: COLS[2], rowSpan: 2, color: PLAN_MAROON }),
           ],
         }),
-        new TableRow({ height: TALL, children: [field("Mentor:")] }),
+        new TableRow({ height: TALLER, children: [field("Mentor:")] }),
       ],
     }),
   ];
@@ -471,7 +519,7 @@ export function bActionPlanBlocks(coach: RegisterCoach, register: ParsedRegister
     signOff(coach, register, { columns: SIGN_COLS, before: [outcomeRow()] }),
     new Paragraph({ children: [new PageBreak()] }),
     ...rubricAppendix(),
-    ...developmentPlan(),
+    ...developmentPlan(coach),
   ];
 }
 

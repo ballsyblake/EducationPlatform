@@ -119,7 +119,7 @@ open the others.**
 Courses, coursework, grading, the attendance register, hours and make-ups,
 post-course support, session footage and its feedback notes, the coaches list.
 Libraries: `src/lib/{coursework,grading,support,support-rubric,attendance,coaches,footage}.ts`
-Register exports: `src/lib/{zip,xlsx,register-file,register-schema,assessment-plan-parts,assessment-plan-docx,b-diploma-docx,b-diploma-rubric,fa-rubric-appendix}.ts`
+Register exports: `src/lib/{zip,xlsx,register-file,register-photos,register-schema,assessment-plan-parts,assessment-plan-docx,b-diploma-docx,b-diploma-rubric,fa-rubric-appendix}.ts`
 Data: `scripts/{extract-b-diploma-2026.py,import-b-diploma.ts,import-courses.ts}`
 See `src/app/(app)/CLAUDE.md`.
 
@@ -160,6 +160,19 @@ two registers, not three), and `RegisterDelivery.level` carries it. The B
 Diploma documents colour their delivery columns from it. An unshaded cell is
 null and comes out plain — it is not inferred from the 1-5 rating, which would
 be the same invented conversion as above.
+
+**The coaches' photographs are on the register too, and they are why it is
+52MB.** FQ put a headshot above each coach's column on the Assessment sheet,
+and they are *in-cell* images, not floating drawings: the cell carries a `vm`
+attribute pointing into `metadata.xml` → `rdrichvalue.xml` → `richValueRel.xml`
+→ `_rels` → `xl/media`, which `xlsx.ts` walks in `richValueImages`. They go in
+the B Diploma action plan's Coach Development Plan box. `register-photos.ts`
+re-encodes each one with `sharp` to about 16KB — a 2MB phone photograph at
+2646x3528 becomes 360x480 — because the parsed register travels back to the
+download route as JSON in a form field, and thirty-four originals would be
+fifty megabytes of base64 in a hidden input. `sharp` is loaded at arm's length
+and the photographs are **skipped, not embedded at full size**, if it ever goes
+missing.
 
 **The two diplomas have different paperwork, and so does the export.** FQ run
 the B and the C off different forms, so there are three generated documents,
