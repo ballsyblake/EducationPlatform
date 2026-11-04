@@ -143,6 +143,16 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           <p className="text-sm text-ink-600">
             Print this page to produce the PDF that goes to the club. One slide per page.
           </p>
+          <p className="mt-3">
+            <a href={`/cda/cdu/assessments/${id}/report/export`} className="btn-secondary btn-sm">
+              Download workbook
+            </a>
+          </p>
+          <p className="mt-1 text-xs text-ink-500">
+            The same figures as this document, in FQ&apos;s rubric layout — for the Word merge and
+            for anyone who works the numbers in Excel. Values, not formulas: the portal scores,
+            the sheet presents. Re-download to refresh.
+          </p>
         </div>
 
         <div className={`card card-pad max-w-xl ${blockers.length ? "border-maroon-300" : ""}`}>
