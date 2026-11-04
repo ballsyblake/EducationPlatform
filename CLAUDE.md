@@ -119,6 +119,7 @@ open the others.**
 Courses, coursework, grading, the attendance register, hours and make-ups,
 post-course support, session footage and its feedback notes, the coaches list.
 Libraries: `src/lib/{coursework,grading,support,support-rubric,attendance,coaches,footage}.ts`
+Register exports: `src/lib/{zip,xlsx,register-file,register-schema,assessment-plan-docx,fa-rubric-appendix}.ts`
 Data: `scripts/{extract-b-diploma-2026.py,import-b-diploma.ts,import-courses.ts}`
 See `src/app/(app)/CLAUDE.md`.
 
@@ -130,6 +131,28 @@ Export to Word button, because FQ circulates .docx that other people edit and
 sign. Both read the same `OutcomeSheet` from `src/lib/outcome.ts`, so they
 cannot disagree about *what* is on a record — but each owns its own layout, and
 those **will** drift. When a field moves, move it in both.
+
+**A register is read in the app, and never imported by it.** `/admin/registers`
+takes an `.xlsx` register, parses it (`src/lib/register-file.ts`, on a zip and
+xlsx reader written here rather than a dependency), says who needs an action
+plan and who passed, and hands back a zip of Word files. It writes **nothing**
+to the database — loading real coaches' records is still `npm run courses:import`
+and still a decision somebody takes on purpose.
+
+Two things to know before changing it. The register is uploaded once and travels
+back to the download route as the JSON it parsed to, because one of these files
+is 52MB of embedded photographs; the route re-validates it against
+`register-schema.ts`, and that schema is tied to `ParsedRegister` by a pair of
+assignments at the foot of the file, so adding a field to one and not the other
+stops compiling. And **no 2026 register carries a six-area rubric score** — the
+only number per delivery is a free-text `Session Rating: n` on the 1-5 scale —
+so the generated document's rubric table and its total out of eighteen come out
+blank for the CETs to tick. Don't "fix" that by deriving one from the other; see
+the note at the head of `delivery-rubric.ts`.
+
+The Word furniture — the letterhead, the maroon, the typeface, the cell padding
+— is in `src/lib/fq-docx.ts`, shared by the outcome sheet and the action plan.
+Brand changes go there once.
 
 There was briefly a third, `scripts/export-assessment-docx.py`, which built the
 Word file from the extractors' JSON so it ran on a register nobody had

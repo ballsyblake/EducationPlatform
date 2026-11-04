@@ -51,6 +51,10 @@ const COURSE_LINKS: NavLink[] = [
   { href: "/admin/support", label: "Support" },
   { href: "/admin/make-ups", label: "Make-ups" },
   { href: "/admin/cohorts", label: "Cohorts" },
+  // The register-driven exports. Admin-only even by URL, unlike the five above:
+  // a register is a whole cohort's assessments plus the coach education team's
+  // working notes in its Comments column.
+  { href: "/admin/registers", label: "Action plans" },
 ];
 
 /**
