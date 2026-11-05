@@ -168,10 +168,14 @@ which is NYC / C / HC, and that is the only place that judgement exists — ther
 is no column for it. `xlsx.ts` reads cell fills for this, `levelFromFill` in
 `register-file.ts` turns one into a level *by hue* rather than by matching hex
 (assessors reach for the colour picker, so there are six fills in use across
-two registers, not three), and `RegisterDelivery.level` carries it. The B
-Diploma documents colour their delivery columns from it. An unshaded cell is
-null and comes out plain — it is not inferred from the 1-5 rating, which would
-be the same invented conversion as above.
+two registers, not three), and `RegisterDelivery.level` carries it. **All
+three documents colour their delivery columns from it, and none of them print
+the 1-5 rating** — the colour and the number say the same thing about a
+session and the colour is the one the CET set, so the number is dropped and
+the shading kept. An unshaded cell is null and the heading falls back to the
+neutral grey, never to the template's salmon, which means Not Yet Competent on
+the same page. The level is still not inferred from the rating, which would be
+the same invented conversion as above.
 
 **The coaches' photographs are on the register too, and they are why it is
 52MB.** FQ put a headshot above each coach's column on the Assessment sheet,

@@ -148,7 +148,16 @@ function practicalComments(coach: RegisterCoach, width: number): (Paragraph | Ta
     ],
   });
   if (!coach.deliveries.length) return [box, para("", { size: 3 }), ...deliveryTable(coach, width)];
-  return [box, para("", { size: 3 }), ...deliveryTable(coach, width, { headerFill: NYC_FILL })];
+  // Shaded by the level the CET gave that session and with the 1-5 number off
+  // the write-up, both the same way round as the B's action plan. The template
+  // heads all three columns in its salmon, but the salmon now means Not Yet
+  // Competent on the same page, so an unshaded delivery falls back to the
+  // neutral grey rather than to a colour that says something.
+  return [
+    box,
+    para("", { size: 3 }),
+    ...deliveryTable(coach, width, { headerFill: SHADE, byLevel: "fill", rating: false }),
+  ];
 }
 
 /**
