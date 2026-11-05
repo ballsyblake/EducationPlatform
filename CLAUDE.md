@@ -121,6 +121,9 @@ post-course support, session footage and its feedback notes, the coaches list.
 Libraries: `src/lib/{coursework,grading,support,support-rubric,attendance,coaches,footage}.ts`
 Register exports: `src/lib/{zip,xlsx,register-file,register-photos,register-schema,assessment-plan-parts,assessment-plan-docx,b-diploma-docx,b-diploma-rubric,fa-rubric-appendix}.ts`
 Data: `scripts/{extract-b-diploma-2026.py,import-b-diploma.ts,import-courses.ts}`
+One-off: `npm run assessment:score` — a C Diploma form with the six-area scores
+filled in, which no register carries. FQ settle them by email after a course
+closes, so they are typed in as an argument and nothing in the app passes them.
 See `src/app/(app)/CLAUDE.md`.
 
 **The coach assessment outcome sheet exists twice.** `src/components/outcome-sheet.tsx`
@@ -149,6 +152,15 @@ only number per delivery is a free-text `Session Rating: n` on the 1-5 scale —
 so the generated document's rubric table and its total out of eighteen come out
 blank for the CETs to tick. Don't "fix" that by deriving one from the other; see
 the note at the head of `delivery-rubric.ts`.
+
+**The two registers label the per-delivery rating differently.** The B's
+write-ups say `Session Rating:` and the C's say plain `Rating:`. Until that was
+noticed every one of the C register's seventy-nine deliveries came out unrated,
+with the label swept into the action plan above it as a fourth step —
+`Rating: N/A` printed on the form under three real recommendations — and
+thirty-nine untouched template cells counted as deliveries because that step
+made them look filled in. `FIELDS` in `register-file.ts` carries both
+spellings, longest first, and normalises them to one key.
 
 **The register does carry a per-delivery level, as a cell colour.** The
 Assessment sheet shades each write-up with Excel's Bad / Neutral / Good style,

@@ -214,7 +214,14 @@ const FIELDS = [
   "topic",
   "comment",
   "action plan",
+  // Both spellings. The B register's write-ups say "Session Rating:" and the
+  // C register's say plain "Rating:", and until that was noticed every one of
+  // the C's seventy-nine deliveries came out unrated with the label swept
+  // into the action plan above it as a fourth step — "Rating: N/A" printed on
+  // the form under three real recommendations. Longest first, so that
+  // "Session Rating" is not matched as a "Rating" with a word in front.
   "session rating",
+  "rating",
 ] as const;
 
 // One assessment cell holds a small form typed as free text, and the labels
@@ -230,7 +237,7 @@ const FIELD_RE = new RegExp(
 const BARE_NUMBER = /^\s*\d+[.)]?\s*$/;
 
 /** The template's unfilled dropdown text, which is not a value. */
-const PLACEHOLDERS = new Set(["block ?", "block", "play/practice"]);
+const PLACEHOLDERS = new Set(["block ?", "block", "play/practice", "n/a", "na", "-"]);
 
 /**
  * A shaded assessment cell, read as a level.
@@ -275,7 +282,9 @@ function parseDelivery(
   for (const line of raw.split(/\r?\n/)) {
     const m = FIELD_RE.exec(line);
     if (m) {
-      current = m[1].toLowerCase();
+      // One key for both spellings, so the rest of the parser asks for the
+      // field rather than for whichever label this assessor typed.
+      current = m[1].toLowerCase() === "rating" ? "session rating" : m[1].toLowerCase();
       found.set(current, [m[2].trim()]);
     } else if (current) {
       found.get(current)?.push(line.trimEnd());
