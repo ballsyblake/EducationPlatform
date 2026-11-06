@@ -27,6 +27,7 @@ const delivery = z.object({
   comment: z.string().nullable(),
   actions: z.array(z.string()),
   rating: z.number().nullable(),
+  level: z.enum(["NYC", "C", "HC"]).nullable(),
 });
 
 const verdict = z.enum(["passed", "action_plan", "incomplete", "unrated"]);

@@ -25,10 +25,26 @@ export class XlsxError extends Error {}
 /** A sheet: rows of trimmed cell text, in sheet order, with gaps filled in. */
 export type SheetRows = string[][];
 
+/**
+ * The same grid, holding each cell's background colour as `RRGGBB`, or null.
+ *
+ * Only an explicit `rgb` fill. Excel will also name a fill by theme index and
+ * a tint, which resolves against the workbook's theme and comes out as the
+ * greys the registers shade their headers with — nothing a reader should be
+ * guessing a meaning from. The colours that carry meaning on these sheets are
+ * Excel's own Bad / Neutral / Good cell styles and the hand-picked variants
+ * beside them, and all of those are written out as literal rgb.
+ */
+export type SheetFills = (string | null)[][];
+
+/** A picture sitting in a cell, as bytes and the extension it was stored under. */
 export type Workbook = {
   /** Sheet names in the order the workbook tabs them. */
   names: string[];
   sheet(name: string): SheetRows;
+  /** The same sheet's cell fills, laid out to match `sheet(name)`. */
+  fills(name: string): SheetFills;
+  /** Pictures placed *in* cells on that sheet, by `[row][col]` as `sheet` is. */
   has(name: string): boolean;
 };
 
@@ -82,12 +98,49 @@ function sharedStrings(zip: ZipArchive) {
   return [...xml.matchAll(/<si(?:\s[^>]*)?>([\s\S]*?)<\/si>/g)].map((m) => innerText(m[1]));
 }
 
-function parseSheet(xml: string, shared: string[]): SheetRows {
+/**
+ * `styles.xml` as a lookup from a cell's `s=` index to its fill colour.
+ *
+ * Two hops: `cellXfs` indexes into `fills`, and a solid fill's colour is its
+ * `fgColor` — the *foreground* of the pattern, which for `patternType="solid"`
+ * is what you see. `bgColor` on a solid fill is ignored by Excel, so it is
+ * ignored here too.
+ */
+function cellFills(zip: ZipArchive): (string | null)[] {
+  const xml = zip.read("xl/styles.xml")?.toString("utf8");
+  if (!xml) return [];
+
+  const fillsXml = /<fills(?:\s[^>]*)?>([\s\S]*?)<\/fills>/.exec(xml)?.[1] ?? "";
+  const fills = [...fillsXml.matchAll(/<fill(?:\s[^>]*)?(?:\/>|>([\s\S]*?)<\/fill>)/g)].map(
+    (m) => {
+      const body = m[1] ?? "";
+      if (!/patternType="solid"/.test(body)) return null;
+      const fg = /<fgColor\s([^>]*?)\/?>/.exec(body)?.[1] ?? "";
+      const rgb = /\brgb="([0-9A-Fa-f]{6,8})"/.exec(fg)?.[1];
+      // Excel writes ARGB; the alpha is always FF on a fill and is dropped.
+      return rgb ? rgb.slice(-6).toUpperCase() : null;
+    },
+  );
+
+  const xfsXml = /<cellXfs(?:\s[^>]*)?>([\s\S]*?)<\/cellXfs>/.exec(xml)?.[1] ?? "";
+  return [...xfsXml.matchAll(/<xf\s([^>]*?)(?:\/>|>[\s\S]*?<\/xf>)/g)].map((m) => {
+    const id = Number(/\bfillId="(\d+)"/.exec(m[1])?.[1] ?? NaN);
+    return Number.isInteger(id) ? (fills[id] ?? null) : null;
+  });
+}
+
+function parseSheet(
+  xml: string,
+  shared: string[],
+  styles: (string | null)[],
+): { rows: SheetRows; fills: SheetFills } {
   const rows: SheetRows = [];
+  const fills: SheetFills = [];
 
   for (const rowMatch of xml.matchAll(/<row(?:\s[^>]*)?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
     const body = rowMatch[1] ?? "";
     const cells = new Map<number, string>();
+    const shades = new Map<number, string>();
     let widest = -1;
 
     for (const cellMatch of body.matchAll(
@@ -121,24 +174,42 @@ function parseSheet(xml: string, shared: string[]): SheetRows {
         cells.set(col, value);
         if (col > widest) widest = col;
       }
+
+      // The fill is kept whether or not the cell has text, because an empty
+      // shaded cell is still a shaded cell. It does not widen the row, so a
+      // run of blank formatting past the last value cannot stretch the sheet.
+      const style = Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? NaN);
+      const shade = Number.isInteger(style) ? styles[style] : null;
+      if (shade) shades.set(col, shade);
     }
 
     const row: string[] = [];
-    for (let i = 0; i <= widest; i++) row.push(cells.get(i) ?? "");
+    const shadeRow: (string | null)[] = [];
+    for (let i = 0; i <= widest; i++) {
+      row.push(cells.get(i) ?? "");
+      shadeRow.push(shades.get(i) ?? null);
+    }
+    row.length = widest + 1;
     // Rows carry an `r` attribute, and a sheet may skip empty ones entirely.
     // Pushed into position so a row index means the same thing it does in
     // Excel's own numbering minus one.
     const at = Number(/\br="(\d+)"/.exec(rowMatch[0])?.[1] ?? NaN);
     if (Number.isInteger(at) && at >= 1) {
-      while (rows.length < at - 1) rows.push([]);
+      while (rows.length < at - 1) {
+        rows.push([]);
+        fills.push([]);
+      }
       rows[at - 1] = row;
+      fills[at - 1] = shadeRow;
     } else {
       rows.push(row);
+      fills.push(shadeRow);
     }
   }
 
-  return rows;
+  return { rows, fills };
 }
+
 
 /**
  * A workbook, with each sheet parsed the first time it is asked for.
@@ -178,20 +249,23 @@ export function readWorkbook(buf: Buffer): Workbook {
   if (!sheets.size) throw new XlsxError("That workbook has no sheets in it.");
 
   const shared = sharedStrings(zip);
-  const cache = new Map<string, SheetRows>();
+  const styles = cellFills(zip);
+  const cache = new Map<string, { rows: SheetRows; fills: SheetFills }>();
+
+  const read = (name: string) => {
+    const cached = cache.get(name);
+    if (cached) return cached;
+    const path = sheets.get(name);
+    const xml = path ? zip.read(path)?.toString("utf8") : undefined;
+    const parsed = xml ? parseSheet(xml, shared, styles) : { rows: [], fills: [] };
+    cache.set(name, parsed);
+    return parsed;
+  };
 
   return {
     names: [...sheets.keys()],
     has: (name) => sheets.has(name),
-    sheet(name) {
-      const cached = cache.get(name);
-      if (cached) return cached;
-      const path = sheets.get(name);
-      if (!path) return [];
-      const xml = zip.read(path)?.toString("utf8");
-      const rows = xml ? parseSheet(xml, shared) : [];
-      cache.set(name, rows);
-      return rows;
-    },
+    sheet: (name) => read(name).rows,
+    fills: (name) => read(name).fills,
   };
 }

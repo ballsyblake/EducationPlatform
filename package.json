@@ -25,7 +25,8 @@
     "cda:import-2026": "tsx scripts/import-fq-2026.ts",
     "courses:import": "tsx scripts/import-b-diploma.ts",
     "support:import": "tsx scripts/import-support.ts",
-    "teams:demote": "tsx scripts/demote-course-teams.ts"
+    "teams:demote": "tsx scripts/demote-course-teams.ts",
+    "assessment:score": "node --conditions=react-server --import tsx scripts/score-c-assessment.ts"
   },
   "repository": {
     "type": "git",

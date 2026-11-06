@@ -12,7 +12,12 @@ import {
   WidthType,
 } from "docx";
 import { FULL_WIDTH, para, text } from "@/lib/fq-docx";
-import type { ParsedRegister, RegisterCoach, RegisterDelivery } from "@/lib/register-file";
+import type {
+  DeliveryLevel,
+  ParsedRegister,
+  RegisterCoach,
+  RegisterDelivery,
+} from "@/lib/register-file";
 
 /**
  * The parts FQ's two assessment forms have in common.
@@ -40,6 +45,28 @@ export const SHADE = "F2F2F2"; // Label cells and the total-score cell.
 export const NYC_FILL = "FFC0B8"; // Not Yet Competent, and the delivery headings.
 export const COMPETENT_FILL = "FFEFAD";
 export const HIGHLY_FILL = "BFEFAE";
+
+/**
+ * The three levels as a fill and as a text colour.
+ *
+ * The fills are FQ's own, off the grading band they already print. The text
+ * colours are Excel's — `9C0006`, `9C5700`, `006100`, the fonts that come with
+ * its Bad, Neutral and Good cell styles — because that is literally where they
+ * come from: FQ paste a write-up out of the register's shaded cell and Word
+ * keeps the colour it was typed in. Matthew Mckay's feedback letter carries
+ * `006100` on every run for exactly that reason.
+ */
+export const LEVEL_FILL: Record<DeliveryLevel, string> = {
+  NYC: NYC_FILL,
+  C: COMPETENT_FILL,
+  HC: HIGHLY_FILL,
+};
+
+export const LEVEL_TEXT: Record<DeliveryLevel, string> = {
+  NYC: "9C0006",
+  C: "9C5700",
+  HC: "006100",
+};
 
 /** The templates' rule: one hairline, mid grey, on every edge. */
 const RULE = { style: BorderStyle.SINGLE, size: 4, color: "929292" } as const;
@@ -170,10 +197,20 @@ export function candidateBlock(coach: RegisterCoach, register: ParsedRegister) {
 }
 
 /** One delivery's cell: the little form the register's own cell holds. */
-export function deliveryCell(delivery: RegisterDelivery, width: number) {
+export function deliveryCell(
+  delivery: RegisterDelivery,
+  width: number,
+  color?: string,
+  rating = true,
+) {
   const line = (label: string, value: string | null) =>
     value
-      ? [para([text(`${label}: `, { bold: true, size: SMALL }), text(value, { size: SMALL })])]
+      ? [
+          para([
+            text(`${label}: `, { bold: true, size: SMALL, color }),
+            text(value, { size: SMALL, color }),
+          ]),
+        ]
       : [];
 
   const blocks: Paragraph[] = [
@@ -184,34 +221,34 @@ export function deliveryCell(delivery: RegisterDelivery, width: number) {
   ];
 
   if (delivery.comment) {
-    blocks.push(para("Comment:", { bold: true, size: SMALL, before: 5 }));
+    blocks.push(para("Comment:", { bold: true, size: SMALL, color, before: 5 }));
     // The write-ups are paragraphed by the assessor and reflow badly as one
     // run, so the line breaks they typed are kept.
     for (const line of delivery.comment.split(/\r?\n/).filter(Boolean)) {
-      blocks.push(para(line, { size: SMALL }));
+      blocks.push(para(line, { size: SMALL, color }));
     }
   }
 
   if (delivery.actions.length) {
-    blocks.push(para("Action plan:", { bold: true, size: SMALL, before: 5 }));
+    blocks.push(para("Action plan:", { bold: true, size: SMALL, color, before: 5 }));
     delivery.actions.forEach((step, i) => {
-      blocks.push(para(`${i + 1}. ${step}`, { size: SMALL }));
+      blocks.push(para(`${i + 1}. ${step}`, { size: SMALL, color }));
     });
   }
 
-  if (delivery.rating !== null) {
+  if (rating && delivery.rating !== null) {
     blocks.push(
       para(
         [
-          text("Session rating (1-5): ", { bold: true, size: SMALL }),
-          text(String(delivery.rating), { size: SMALL }),
+          text("Session rating (1-5): ", { bold: true, size: SMALL, color }),
+          text(String(delivery.rating), { size: SMALL, color }),
         ],
         { before: 5 },
       ),
     );
   }
 
-  return tc(blocks.length ? blocks : [para("—", { size: SMALL })], { width });
+  return tc(blocks.length ? blocks : [para("—", { size: SMALL, color })], { width });
 }
 
 /**
@@ -232,7 +269,28 @@ export function deliveryCell(delivery: RegisterDelivery, width: number) {
 export function deliveryTable(
   coach: RegisterCoach,
   width: number,
-  o: { headerFill?: string } = {},
+  o: {
+    /** One fill for every heading, as the C form prints them. */
+    headerFill?: string;
+    /**
+     * Colour each column by the level the CET gave that session, which the
+     * register carries as the shading on the write-up cell.
+     *
+     * `"fill"` shades the heading and `"text"` colours the write-up, which is
+     * how FQ's own two B Diploma documents do it respectively. A delivery
+     * whose cell was left unshaded comes out plain either way, rather than
+     * being guessed at from the 1-5 session rating.
+     */
+    byLevel?: "fill" | "text";
+    /**
+     * Print the free-text `Session Rating: n` off the register under each
+     * write-up. The C form does; neither B document does, on FQ's own copies
+     * or on Blake's — the B is assessed NYC / C / HC and the 1-5 number is a
+     * different instrument, so putting it on a page that also ticks a level
+     * invites the conversion between them that nobody has published.
+     */
+    rating?: boolean;
+  } = {},
 ): (Paragraph | Table)[] {
   if (!coach.deliveries.length) {
     return [
@@ -259,11 +317,24 @@ export function deliveryTable(
                   align: AlignmentType.CENTER,
                 }),
               ],
-              { width: each, fill: o.headerFill },
+              {
+                width: each,
+                fill:
+                  o.byLevel === "fill" && d.level ? LEVEL_FILL[d.level] : o.headerFill,
+              },
             ),
           ),
         }),
-        new TableRow({ children: coach.deliveries.map((d) => deliveryCell(d, each)) }),
+        new TableRow({
+          children: coach.deliveries.map((d) =>
+            deliveryCell(
+              d,
+              each,
+              o.byLevel === "text" && d.level ? LEVEL_TEXT[d.level] : undefined,
+              o.rating ?? true,
+            ),
+          ),
+        }),
       ],
     }),
   ];
@@ -333,7 +404,11 @@ export function signOff(
             label(i, COLS[0]),
             name(staff.name, COLS[1]),
             tc([para("Signature", { size: BODY })], { fill: SHADE, width: COLS[2] }),
-            tc([para("", { size: BODY })], { width: COLS[3] }),
+            // The CET's name again, which is how FQ sign these: they type it
+            // rather than draw on it, and a column left empty for a signature
+            // they are not going to draw is a column somebody has to fill in
+            // by hand before the document can go out.
+            name(staff.name, COLS[3]),
           ],
         }),
       );

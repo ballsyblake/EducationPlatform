@@ -121,6 +121,14 @@ post-course support, session footage and its feedback notes, the coaches list.
 Libraries: `src/lib/{coursework,grading,support,support-rubric,attendance,coaches,footage}.ts`
 Register exports: `src/lib/{zip,xlsx,register-file,register-schema,assessment-plan-parts,assessment-plan-docx,b-diploma-docx,b-diploma-rubric,fa-rubric-appendix}.ts`
 Data: `scripts/{extract-b-diploma-2026.py,import-b-diploma.ts,import-courses.ts}`
+One-off: `npm run assessment:score` — a C Diploma form with the six-area scores
+filled in, which no register carries. FQ settle them by email after a course
+closes, so they are typed in as an argument and nothing in the app passes them.
+`assessmentPlanDocx` takes the same argument for the B: the level ticked per
+area, the CET's evidence beside it, the strengths and gaps bullets, and an
+outcome box to tick where the register is behind the CETs. All of it is typed
+into Word after the export, so a form rebuilt from the register loses it
+unless it is handed back in.
 See `src/app/(app)/CLAUDE.md`.
 
 **The coach assessment outcome sheet exists twice.** `src/components/outcome-sheet.tsx`
@@ -150,6 +158,30 @@ so the generated document's rubric table and its total out of eighteen come out
 blank for the CETs to tick. Don't "fix" that by deriving one from the other; see
 the note at the head of `delivery-rubric.ts`.
 
+**The two registers label the per-delivery rating differently.** The B's
+write-ups say `Session Rating:` and the C's say plain `Rating:`. Until that was
+noticed every one of the C register's seventy-nine deliveries came out unrated,
+with the label swept into the action plan above it as a fourth step —
+`Rating: N/A` printed on the form under three real recommendations — and
+thirty-nine untouched template cells counted as deliveries because that step
+made them look filled in. `FIELDS` in `register-file.ts` carries both
+spellings, longest first, and normalises them to one key.
+
+**The register does carry a per-delivery level, as a cell colour.** The
+Assessment sheet shades each write-up with Excel's Bad / Neutral / Good style,
+which is NYC / C / HC, and that is the only place that judgement exists — there
+is no column for it. `xlsx.ts` reads cell fills for this, `levelFromFill` in
+`register-file.ts` turns one into a level *by hue* rather than by matching hex
+(assessors reach for the colour picker, so there are six fills in use across
+two registers, not three), and `RegisterDelivery.level` carries it. **All
+three documents colour their delivery columns from it, and none of them print
+the 1-5 rating** — the colour and the number say the same thing about a
+session and the colour is the one the CET set, so the number is dropped and
+the shading kept. An unshaded cell is null and the heading falls back to the
+neutral grey, never to the template's salmon, which means Not Yet Competent on
+the same page. The level is still not inferred from the rating, which would be
+the same invented conversion as above.
+
 **The two diplomas have different paperwork, and so does the export.** FQ run
 the B and the C off different forms, so there are three generated documents,
 not one:
@@ -165,9 +197,12 @@ b-diploma-docx.ts          The B Diploma's two: the formative assessment /
 
 The C form scores six areas 0-3 and totals them out of eighteen. The B form
 ticks NYC / C / HC per area and **totals nothing**, carries its own rubric
-(`b-diploma-rubric.ts`, three levels, not FA's four with a column removed), and
-the action plan ends on a Coach Development Plan page the C form has no
-equivalent of. The two B documents even have different titles from each other.
+(`b-diploma-rubric.ts`, three levels, not FA's four with a column removed).
+The two B documents even have different titles from each other. Both end on
+that rubric: there was briefly a Coach Development Plan page after it, with
+the coach's photograph read off the register's in-cell images, and FQ do not
+send one — the page, the photographs and the rich-value reader that found them
+all went together on 2026-11-06, and are in the history if wanted back.
 Don't collapse them: `isBDiploma(register)` picks the layout, `kind` picks which
 of the B pair, and a change to one form is a change to one form.
 
