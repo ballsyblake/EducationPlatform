@@ -137,7 +137,38 @@ function gradingBand() {
  * Checkboxes rather than drawn boxes because this document is circulated to be
  * completed in Word and signed, which is the whole reason FQ want .docx.
  */
-function tickTable() {
+/**
+ * What a CET has already written on a form, where one has.
+ *
+ * The register carries none of this: the six-area level, the evidence beside
+ * it and the strengths and gaps are all typed into the Word file afterwards,
+ * which is why a document regenerated from the register comes out blank and
+ * why twelve of these existed in a folder with the CET's work in three of
+ * them. Passed in so a rebuilt form can carry it rather than lose it.
+ */
+export type BFilled = {
+  /** `DeliveryArea.code` to the level ticked on the six-area table. */
+  levels?: Partial<Record<string, "NYC" | "C" | "HC">>;
+  /** The CET's reasoning beside each level, a paragraph per entry. */
+  evidence?: Partial<Record<string, string[]>>;
+  /** The bullets under "Area of Strength:" and "Performance Gaps:". */
+  strengths?: string[];
+  gaps?: string[];
+  /**
+   * Which outcome box to tick, when the register has not settled it.
+   *
+   * The register is behind the CETs often enough to matter — a coach can read
+   * "In Progress" on the Attendance sheet while the team have decided he is
+   * getting an action plan — and this is the one place the document asserts
+   * an outcome. Left out, it follows `coach.verdict` as it always has.
+   */
+  outcome?: "competent" | "not_yet";
+};
+
+/** The three levels as a tick in the table, in `B_LEVELS` order. */
+const TICK_LEVELS = ["NYC", "C", "HC"] as const;
+
+function tickTable(filled?: BFilled) {
   const COLS = [3686, 1418, 1275, 1418, 6804];
   const LEVELS: [string, number][] = [
     ["NYC", COLS[1]],
@@ -147,6 +178,8 @@ function tickTable() {
 
   const rows = B_DIPLOMA_RUBRIC.map((area) => {
     const [heading, sub] = B_TICK_HEADINGS[area.code] ?? [area.heading[0]];
+    const level = filled?.levels?.[area.code];
+    const evidence = filled?.evidence?.[area.code] ?? [];
     return new TableRow({
       cantSplit: true,
       children: [
@@ -157,22 +190,28 @@ function tickTable() {
           ],
           { width: COLS[0], middle: true },
         ),
-        ...LEVELS.map(([label, width]) =>
+        ...LEVELS.map(([label, width], i) =>
           tc(
             [
               para(label, { size: BODY, align: AlignmentType.CENTER }),
               new Paragraph({
                 alignment: AlignmentType.CENTER,
                 spacing: { before: 0, after: 0 },
-                children: [new CheckBox({})],
+                children: [new CheckBox({ checked: level === TICK_LEVELS[i] })],
               }),
             ],
             { width, middle: true },
           ),
         ),
         // The CET's evidence for the level beside it, which is where this form
-        // carries its longest writing.
-        tc([para("", { size: SMALL })], { width: COLS[4] }),
+        // carries its longest writing. Their own paragraphing is kept: these
+        // run to four paragraphs on one area and reflow badly as one run.
+        tc(
+          evidence.length
+            ? evidence.map((line) => para(line, { size: SMALL }))
+            : [para("", { size: SMALL })],
+          { width: COLS[4] },
+        ),
       ],
     });
   });
@@ -189,7 +228,9 @@ function tickTable() {
  */
 const SIGN_COLS = [2410, 5126, 2387, 4678];
 
-function outcomeRow(tick: RegisterCoach["verdict"]) {
+function outcomeRow(tick: RegisterCoach["verdict"], asked?: BFilled["outcome"]) {
+  const competent = asked ? asked === "competent" : tick === "passed";
+  const notYet = asked ? asked === "not_yet" : tick === "action_plan";
   const box = (
     label: string,
     fill: string,
@@ -223,7 +264,7 @@ function outcomeRow(tick: RegisterCoach["verdict"]) {
         OUTCOME_MAROON,
         2,
         SIGN_COLS[0] + SIGN_COLS[1],
-        tick === "passed",
+        competent,
       ),
       box(
         "NOT COMPETENT YET",
@@ -231,7 +272,7 @@ function outcomeRow(tick: RegisterCoach["verdict"]) {
         "FFFFFF",
         2,
         SIGN_COLS[2] + SIGN_COLS[3],
-        tick === "action_plan",
+        notYet,
       ),
     ],
   });
@@ -490,8 +531,12 @@ const B_NARRATIVE = {
 };
 
 /** The action plan's covering letter, inside its single ruled box. */
-function actionPlanNarrative(coach: RegisterCoach, qualification: string) {
+function actionPlanNarrative(coach: RegisterCoach, qualification: string, filled?: BFilled) {
   const firstName = coach.name.trim().split(/\s+/)[0] || coach.name;
+  // Three empty bullets for a CET to fill in, unless one already has. Three is
+  // what their blank form offers; a filled-in one gets exactly what was typed.
+  const bullets = (lines: string[] | undefined) =>
+    lines?.length ? lines.map((line) => bullet(line)) : [bullet(""), bullet(""), bullet("")];
   return new Table({
     width: FULL_WIDTH,
     columnWidths: [TEXT_WIDTH],
@@ -504,13 +549,9 @@ function actionPlanNarrative(coach: RegisterCoach, qualification: string) {
               para(B_NARRATIVE.opening(firstName, qualification), { size: BODY, after: 5 }),
               para(B_NARRATIVE.framing, { size: BODY, after: 5 }),
               para("Area of Strength:", { size: BODY, after: 3 }),
-              bullet(""),
-              bullet(""),
-              bullet(""),
+              ...bullets(filled?.strengths),
               para("Performance Gaps:", { size: BODY, before: 4, after: 3 }),
-              bullet(""),
-              bullet(""),
-              bullet(""),
+              ...bullets(filled?.gaps),
               // Highlighted on FQ's own copy, with the pen rather than a fill,
               // because it is the sentence the coach is meant to read first.
               para(
@@ -529,7 +570,11 @@ function actionPlanNarrative(coach: RegisterCoach, qualification: string) {
 }
 
 /** `'B' Diploma Practical Coaching Formative Assessment`. */
-export function bActionPlanBlocks(coach: RegisterCoach, register: ParsedRegister) {
+export function bActionPlanBlocks(
+  coach: RegisterCoach,
+  register: ParsedRegister,
+  filled?: BFilled,
+) {
   const qualification = quotedDiploma(register.qualification);
   return [
     candidateBlock(coach, register),
@@ -547,11 +592,14 @@ export function bActionPlanBlocks(coach: RegisterCoach, register: ParsedRegister
     // the table wants the key on the page they are ticking.
     gradingBand(),
     para("", { size: 3 }),
-    tickTable(),
+    tickTable(filled),
     para("", { size: 5 }),
-    actionPlanNarrative(coach, qualification),
+    actionPlanNarrative(coach, qualification, filled),
     para("", { size: 5 }),
-    signOff(coach, register, { columns: SIGN_COLS, before: [outcomeRow(coach.verdict)] }),
+    signOff(coach, register, {
+      columns: SIGN_COLS,
+      before: [outcomeRow(coach.verdict, filled?.outcome)],
+    }),
     new Paragraph({ children: [new PageBreak()] }),
     ...rubricAppendix(),
     ...developmentPlan(coach),
@@ -559,7 +607,11 @@ export function bActionPlanBlocks(coach: RegisterCoach, register: ParsedRegister
 }
 
 /** `'B' Diploma Practical Coaching Post-course Feedback`. */
-export function bFeedbackBlocks(coach: RegisterCoach, register: ParsedRegister) {
+export function bFeedbackBlocks(
+  coach: RegisterCoach,
+  register: ParsedRegister,
+  filled?: BFilled,
+) {
   const qualification = quotedDiploma(register.qualification);
   return [
     candidateBlock(coach, register),
@@ -624,7 +676,7 @@ export function bFeedbackBlocks(coach: RegisterCoach, register: ParsedRegister) 
     para("", { size: 3 }),
     signOff(coach, register, {
       columns: SIGN_COLS,
-      before: [outcomeRow(coach.verdict)],
+      before: [outcomeRow(coach.verdict, filled?.outcome)],
       signature: false,
     }),
     new Paragraph({ children: [new PageBreak()] }),

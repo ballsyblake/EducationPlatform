@@ -87,7 +87,7 @@ async function main() {
   coach.reason = `Scored ${total}/18 on the practical by the CETs.`;
 
   const out = flag(argv, "out") ?? planFilename(coach, kind, register);
-  writeFileSync(out, await assessmentPlanDocx([coach], register, kind, { [coach.name]: scores }));
+  writeFileSync(out, await assessmentPlanDocx([coach], register, kind, { [coach.name]: { scores } }));
   console.log(`Wrote ${out}`);
 }
 

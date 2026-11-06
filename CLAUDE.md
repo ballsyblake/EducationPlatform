@@ -124,6 +124,11 @@ Data: `scripts/{extract-b-diploma-2026.py,import-b-diploma.ts,import-courses.ts}
 One-off: `npm run assessment:score` — a C Diploma form with the six-area scores
 filled in, which no register carries. FQ settle them by email after a course
 closes, so they are typed in as an argument and nothing in the app passes them.
+`assessmentPlanDocx` takes the same argument for the B: the level ticked per
+area, the CET's evidence beside it, the strengths and gaps bullets, and an
+outcome box to tick where the register is behind the CETs. All of it is typed
+into Word after the export, so a form rebuilt from the register loses it
+unless it is handed back in.
 See `src/app/(app)/CLAUDE.md`.
 
 **The coach assessment outcome sheet exists twice.** `src/components/outcome-sheet.tsx`

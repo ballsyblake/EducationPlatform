@@ -17,7 +17,12 @@ import {
   thresholdsFor,
 } from "@/lib/delivery-rubric";
 import { APPENDIX_LEVELS, FA_RUBRIC_APPENDIX } from "@/lib/fa-rubric-appendix";
-import { bActionPlanBlocks, bDocumentTitle, bFeedbackBlocks } from "@/lib/b-diploma-docx";
+import {
+  bActionPlanBlocks,
+  bDocumentTitle,
+  bFeedbackBlocks,
+  type BFilled,
+} from "@/lib/b-diploma-docx";
 import {
   BODY,
   COMPETENT_FILL,
@@ -234,6 +239,9 @@ function scoreBox(score: number, width: number, checked = false) {
  * which is still the usual case.
  */
 export type AreaScores = Partial<Record<string, number>>;
+
+/** Everything a CET may already have settled on one coach's form. */
+export type CoachFilled = BFilled & { scores?: AreaScores };
 
 /**
  * The six-area tick table, blank, and the total under it.
@@ -548,15 +556,18 @@ export async function assessmentPlanDocx(
   register: ParsedRegister,
   kind: "action plan" | "feedback" = "action plan",
   /**
-   * The six-area scores, where a CET has settled them, keyed by coach name.
+   * What a CET has already settled, where one has, keyed by coach name.
    *
-   * The register has none and the export leaves the table blank without them,
-   * which is still what the bundle does. This is for the case FQ actually
-   * have: a course closed, a coach asked what he scored, and the CETs agreed
-   * six numbers between themselves afterwards. B Diploma documents ignore it —
-   * the B ticks a level and totals nothing.
+   * The register carries none of it and the export leaves every one of these
+   * blank without it, which is still what the bundle does. This is for the
+   * cases FQ actually have: six scores agreed by email after a C Diploma
+   * closed, or a B Diploma form a CET has already ticked and written up in
+   * Word, which a document rebuilt from the register would otherwise lose.
+   *
+   * `scores` is the C's and the B ignores it — the B ticks a level per area
+   * and totals nothing. The rest is the B's and the C ignores it.
    */
-  scores?: Record<string, AreaScores>,
+  filled?: Record<string, CoachFilled>,
 ) {
   const b = isBDiploma(register);
   const competent = kind === "feedback";
@@ -565,9 +576,9 @@ export async function assessmentPlanDocx(
   const blocksFor = (coach: RegisterCoach) =>
     b
       ? competent
-        ? bFeedbackBlocks(coach, register)
-        : bActionPlanBlocks(coach, register)
-      : coachBlocks(coach, register, scores?.[coach.name]);
+        ? bFeedbackBlocks(coach, register, filled?.[coach.name])
+        : bActionPlanBlocks(coach, register, filled?.[coach.name])
+      : coachBlocks(coach, register, filled?.[coach.name]?.scores);
 
   const doc = new Document({
     styles: { default: { document: { run: { font: FONT, size: pt(BODY), color: INK } } } },
