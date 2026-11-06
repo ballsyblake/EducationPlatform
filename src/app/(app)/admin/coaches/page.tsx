@@ -3,7 +3,7 @@ import { Avatar } from "@/components/avatar";
 import { Badge, EmptyState, PageHeader, StatTile, type Tone } from "@/components/ui";
 import { formatHours } from "@/lib/attendance";
 import { staffCourseIds } from "@/lib/access";
-import { requireStaff } from "@/lib/auth";
+import { isAdmin, requireStaff } from "@/lib/auth";
 import { getCoachRoster, ROSTER_OUTCOMES, shortCourseTitle } from "@/lib/coaches";
 import { prisma } from "@/lib/db";
 import { displayName } from "@/lib/format";
@@ -51,13 +51,20 @@ export default async function CoachesPage({
   const scope = await staffCourseIds(user);
   const { course: courseId, outcome, q } = await searchParams;
 
-  const [courses, rows] = await Promise.all([
+  const [courses, rows, registerOnly] = await Promise.all([
     prisma.course.findMany({
       where: scope === null ? {} : { id: { in: scope } },
       orderBy: { title: "asc" },
       select: { id: true, title: true },
     }),
     getCoachRoster({ courseId, outcome, query: q, scope }),
+    // Coaches FQ hold a qualification for who have never been on a cohort
+    // here. They are not rows on this page — see the note in `coaches.ts` —
+    // so the page has to say where they went, or somebody searching for one
+    // concludes the account does not exist.
+    isAdmin(user)
+      ? prisma.coachRecord.count({ where: { user: { enrollments: { none: {} } } } })
+      : Promise.resolve(0),
   ]);
 
   const coaches = new Set(rows.map((r) => r.user.id));
@@ -83,6 +90,17 @@ export default async function CoachesPage({
         title="Coaches"
         subtitle="Every coach and where they stand on each course — hours, rating, outcome."
       />
+
+      {registerOnly > 0 && (
+        <p className="mb-4 text-sm text-ink-600">
+          {registerOnly} more coach{registerOnly === 1 ? "" : "es"} hold a Football Queensland
+          qualification without having been on a cohort here.{" "}
+          <Link href="/admin/coach-db" className="font-medium text-maroon-700 hover:underline">
+            They are on the coach register
+          </Link>
+          .
+        </p>
+      )}
 
       <form action="/admin/coaches" className="mb-4 flex flex-wrap items-center gap-2">
         {courseId && <input type="hidden" name="course" value={courseId} />}
