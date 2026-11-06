@@ -299,13 +299,25 @@ function parseDelivery(
   };
 
   const plan = value("action plan");
+
+  // A topic is one line. Some assessors type the write-up straight under it
+  // without a "Comment:" label, and those lines were coming out as part of the
+  // topic — a bold "Topic:" with three paragraphs of assessment after it, on
+  // two deliveries across the two registers. The rest belongs to the comment,
+  // ahead of anything labelled.
+  const topicLines = (value("topic") ?? "").split(/\r?\n/);
+  const topic = topicLines[0]?.trim() || null;
+  const strays = topicLines.slice(1).join("\n").trim();
+  const labelled = value("comment");
+  const comment = [strays, labelled].filter(Boolean).join("\n") || null;
+
   const delivery: RegisterDelivery = {
     deliveryNo,
     assessor: value("assessor"),
     block: value("when"),
     component: value("component"),
-    topic: value("topic"),
-    comment: value("comment"),
+    topic,
+    comment,
     actions: plan
       ? plan
           .split(/\r?\n/)

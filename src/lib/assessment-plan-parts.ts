@@ -404,7 +404,11 @@ export function signOff(
             label(i, COLS[0]),
             name(staff.name, COLS[1]),
             tc([para("Signature", { size: BODY })], { fill: SHADE, width: COLS[2] }),
-            tc([para("", { size: BODY })], { width: COLS[3] }),
+            // The CET's name again, which is how FQ sign these: they type it
+            // rather than draw on it, and a column left empty for a signature
+            // they are not going to draw is a column somebody has to fill in
+            // by hand before the document can go out.
+            name(staff.name, COLS[3]),
           ],
         }),
       );

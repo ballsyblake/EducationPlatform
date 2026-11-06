@@ -546,11 +546,21 @@ function actionPlanNarrative(coach: RegisterCoach, qualification: string, filled
           tc(
             [
               para("ACTION PLAN / FURTHER COMMENTS", { bold: true, size: BODY, after: 6 }),
-              para(B_NARRATIVE.opening(firstName, qualification), { size: BODY, after: 5 }),
+              para(B_NARRATIVE.opening(firstName, qualification), {
+                size: BODY,
+                before: 4,
+                after: 5,
+              }),
               para(B_NARRATIVE.framing, { size: BODY, after: 5 }),
-              para("Area of Strength:", { size: BODY, after: 3 }),
+              para([text("Area of Strength:", { size: BODY, underline: true })], {
+                before: 6,
+                after: 3,
+              }),
               ...bullets(filled?.strengths),
-              para("Performance Gaps:", { size: BODY, before: 4, after: 3 }),
+              para([text("Performance Gaps:", { size: BODY, underline: true })], {
+                before: 8,
+                after: 3,
+              }),
               ...bullets(filled?.gaps),
               // Highlighted on FQ's own copy, with the pen rather than a fill,
               // because it is the sentence the coach is meant to read first.
@@ -579,8 +589,9 @@ export function bActionPlanBlocks(
   return [
     candidateBlock(coach, register),
     para("", { size: 5 }),
-    gradingBand(),
-    para("", { size: 3 }),
+    // The band goes above the tick table, not above the deliveries. It used to
+    // be printed in both places; FQ's own copy has it once, beside the thing it
+    // is a key for, and the delivery headings read as colours either way.
     // The headings take their colour from the level the CET gave that session,
     // which is the shading on the register's own write-up cell. That is where
     // FQ's copy gets it: Beau's fourth delivery is yellow where his first

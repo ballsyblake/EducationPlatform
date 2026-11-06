@@ -93,6 +93,7 @@ export type TextOpts = {
    * width of the cell rather than the words.
    */
   highlight?: Highlight;
+  underline?: boolean;
 };
 
 export function text(content: string, o: TextOpts = {}) {
@@ -102,6 +103,7 @@ export function text(content: string, o: TextOpts = {}) {
     size: pt(o.size ?? 9),
     color: o.color ?? INK,
     highlight: o.highlight,
+    underline: o.underline ? {} : undefined,
     font: FONT,
   });
 }
