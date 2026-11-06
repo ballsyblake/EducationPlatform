@@ -99,6 +99,19 @@ model User {
   photoId String? @unique
   photo   Upload? @relation("CoachPhoto", fields: [photoId], references: [id], onDelete: SetNull)
 
+  /// The coach's Football Australia number, as FALC issues it.
+  ///
+  /// On the account rather than only on an enrolment because it identifies the
+  /// person, not their place on one cohort: the same number is how a coach is
+  /// recognised across intakes and how the qualification export is matched to
+  /// an account whose address has changed. `Enrollment.externalRef` keeps the
+  /// number the enrolment arrived with, which is what that import matched on
+  /// and is deliberately left alone.
+  ///
+  /// Digits only, with no "fa." prefix — the prefix is the FALC username's,
+  /// and storing it twice means two spellings of one number.
+  faNumber String? @unique
+
   sessions     Session[]
   loginTokens  LoginToken[]
   enrollments  Enrollment[]
@@ -129,6 +142,9 @@ model User {
 
   supportExtensions SupportExtension[] @relation("SupportExtensionRequester")
   supportActivities SupportActivity[]  @relation("SupportActivityAuthor")
+
+  /// The coach register: what FQ knows about them as a coach.
+  coachRecord CoachRecord? @relation("CoachRegister")
 
   // Club Development & Assessment
   clubMemberships        ClubMembership[]
@@ -1295,6 +1311,219 @@ model SupportRating {
 
   @@unique([attemptId, code])
   @@index([attemptId])
+}
+
+/**
+ * ==========================================================================
+ * The coach register
+ * --------------------------------------------------------------------------
+ * Every coach FQ holds a qualification for, not only the ones on a cohort
+ * this platform has run. It arrives as a workbook kept by hand — the FA
+ * learning system's qualification export, merged with the clubs, the regions
+ * and the internal ratings that FQ adds to it and nothing upstream knows
+ * about.
+ * Why it is here at all: the spreadsheet is the only record of the FQ-owned
+ * half, and it loses it. 548 ratings were entered on one sheet of the file
+ * this schema was designed against; 212 of them had reached the sheet that
+ * gets read. The rest were sitting beside a "No rating" that overwrote them,
+ * because a VLOOKUP is not a join and a second tab is not a second table.
+ * What is *not* here: the qualifications an export can already answer for.
+ * CoachQualification is a cache of FALC, refreshed by every import and
+ * authoritative about nothing. CoachRecord is the opposite — the club, the
+ * region, the rating, whether somebody still coaches and whether they have
+ * been asked about the B Diploma are FQ's own and exist nowhere else, so an
+ * import may fill them in and must never blank them.
+ * ==========================================================================
+ */
+
+/// An FQ affiliate club, as the affiliate list spells it.
+///
+/// Not the CDA's `Club`, deliberately. That table is the clubs being rated
+/// this cycle — 48 of them, with a tier, a shield and an assessment history —
+/// and this is the 413-row list of everybody affiliated, which is where a
+/// coach's club comes from. Pointing the coach register at `Club` would have
+/// made a coach's club mean "a club FQ happens to be assessing", and joined
+/// two products that share an account system and nothing else.
+///
+/// It exists so a club can stop being free text. The workbook had 176 distinct
+/// club spellings against this list, 71 of which matched nothing — "Taringa
+/// Rovers" for Taringa Rovers Football Club, "No Club", and in one row a
+/// region typed into the club column. A name that matches resolves to a row
+/// here and carries its region with it; a name that doesn't is kept verbatim
+/// on the record and reported, because a wrong club is worse than an unmatched
+/// one.
+model Affiliate {
+  id   String @id @default(cuid())
+  name String
+
+  /// The match key: the name folded to lowercase with punctuation and the
+  /// "football club"/"fc"/"soccer club" tail removed. Unique, so an import
+  /// re-run updates the row it made last time rather than adding a second.
+  slug String @unique
+
+  /// FQ region, e.g. "Metro Region", "Wide Bay Region".
+  region String?
+
+  /// Whether the club is still affiliated. An import never clears this: a club
+  /// absent from a later affiliate list has not necessarily folded, and
+  /// unaffiliating a club is a decision somebody takes.
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  coaches CoachRecord[]
+
+  @@index([region])
+}
+
+/// Whether somebody is still coaching.
+///
+/// `User.active` is about the account — can they be sent a sign-in link, do
+/// they appear in a picker — and it answers a different question. A coach who
+/// has stopped coaching keeps their record, their qualification and their
+/// history, and FQ still needs to find them; what changes is that they should
+/// not be counted in "coaches holding a C Diploma in Metro".
+///
+/// It has a value because the spreadsheet proved the need for one: the only
+/// record that one coach had stopped was the words "Doesn't coach anymore" in
+/// a cell comment on row 209, which no filter, sort or export can see.
+enum CoachingStatus {
+  /// Nothing says otherwise. The state every imported row starts in.
+  UNKNOWN
+  ACTIVE
+  NOT_COACHING
+}
+
+/// Where a coach is up to on being asked about the B Diploma.
+///
+/// Three values rather than a boolean, because the spreadsheet's blank meant
+/// both "said no" and "never asked" — 1,565 rows of it — and those are the
+/// two answers a pathway conversation most needs to tell apart.
+enum BDiplomaInterest {
+  NOT_ASKED
+  YES
+  NO
+}
+
+/// What FQ knows about a coach that no export can tell them.
+///
+/// One row per account, created the first time a coach appears in an import.
+/// Split off `User` rather than added to it: `User` is the account, shared by
+/// both products, and a CDA club administrator has no club-of-coaching, no
+/// internal rating and no B Diploma pathway. The register is Coach Education's.
+model CoachRecord {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation("CoachRegister", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The club, where the name resolved to the affiliate list.
+  affiliateId String?
+  affiliate   Affiliate? @relation(fields: [affiliateId], references: [id], onDelete: SetNull)
+
+  /// The club as the source spelled it, kept whether it matched or not.
+  ///
+  /// Kept even on a match, so an import is auditable: the row says both what
+  /// was typed and what it was taken to mean, and a bad match can be found
+  /// again later. Where nothing matched it is all there is, and the coach shows
+  /// as "Nerimbera (unmatched)" rather than as having no club.
+  clubName String?
+
+  /// FQ region.
+  ///
+  /// Normally the affiliate's, and denormalised here because a coach can have
+  /// a region without a club FQ affiliates — the FQ Academy programs, Football
+  /// Queensland itself, and a coach who has moved interstate are all in the
+  /// source. Where both are known and they disagree, the affiliate's wins and
+  /// the import says so.
+  region String?
+
+  /// FQ's own 1-5 assessment of the coach, in half steps.
+  ///
+  /// The whole reason this table exists. Not an average of their course
+  /// ratings and not derived from anything: a judgement an FQ educator has
+  /// made about a coach, which is why an import will fill it in and will never
+  /// replace a number with the absence of one.
+  internalRating Float?
+
+  /// Where the rating came from — "Coach_DB.xlsx · FQ Data", an educator's
+  /// name. Free text, because the honest answer is usually a file name.
+  ratingSource String?
+
+  /// When the rating was last set, so a stale one can be found.
+  ratingAt DateTime?
+
+  coachingStatus CoachingStatus @default(UNKNOWN)
+
+  /// Why the status is what it is — "doesn't coach anymore (2026 register)".
+  statusNote String?
+
+  bDiplomaInterest   BDiplomaInterest @default(NOT_ASKED)
+  /// When they said it. An expression of interest from 2024 is not a current one.
+  bDiplomaInterestAt DateTime?
+
+  /// What they wrote on the expression-of-interest form, verbatim.
+  ///
+  /// The form asks how long they have held the C Diploma and takes free text,
+  /// which came back as "2", "2 years", "One", "18 months" and "10
+  /// (Goalkeeping B completed 2024)". The answer is kept as given and the
+  /// figure is taken from the C Diploma's completion date instead, which the
+  /// qualification export already holds — see `CoachQualification.completedAt`.
+  bDiplomaInterestNote String?
+
+  /// The file the record was last imported from, and when.
+  source     String?
+  importedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  qualifications CoachQualification[]
+
+  @@index([affiliateId])
+  @@index([region])
+  @@index([coachingStatus])
+  @@index([bDiplomaInterest])
+}
+
+/// One qualification a coach holds. One row per qualification, per coach.
+///
+/// The spreadsheet packed these into a cell — "C Diploma;GoalKeeping B
+/// Diploma" — which cannot be filtered, sorted or counted, so "how many
+/// goalkeeping coaches are there in Wide Bay" was not a question the file could
+/// answer about the 20 people it held the answer for.
+///
+/// A cache, and treated as one. Every value here comes from FALC and FALC can
+/// be exported again, so an import replaces a coach's rows outright rather than
+/// reconciling them. Nothing of FQ's own is ever stored on this table, which is
+/// what makes that safe.
+model CoachQualification {
+  id       String      @id @default(cuid())
+  recordId String
+  record   CoachRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  /// The qualification's name, normalised for case only — "GoalKeeping B
+  /// Diploma" and "Goalkeeping B Diploma" are one qualification spelled two
+  /// ways in the same export, and 33 rows were split across the pair.
+  name String
+
+  /// When they completed it, where the source carries it.
+  ///
+  /// The per-qualification export does; the aggregated sheet carries only an
+  /// expiry, so a record imported from that alone has an expiry and no
+  /// completion. That is the honest state and not a hole to fill by subtracting
+  /// a licence period from the expiry.
+  completedAt DateTime?
+  expiresAt   DateTime?
+
+  /// FALC's own state for the qualification — "Active".
+  status String?
+
+  /// Its CPD progress as FALC words it, e.g. "0/15 CPD Hours".
+  cpd String?
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([recordId, name])
+  @@index([name])
 }
 
 /**

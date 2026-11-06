@@ -25,10 +25,24 @@ export class XlsxError extends Error {}
 /** A sheet: rows of trimmed cell text, in sheet order, with gaps filled in. */
 export type SheetRows = string[][];
 
+/**
+ * A note somebody attached to a cell, keyed on the cell it is attached to.
+ *
+ * Read because a spreadsheet kept by hand grows fields it has no columns for,
+ * and a comment is where they go. The coach register's only record that one
+ * coach had stopped coaching was the words "Doesn't coach anymore" on a cell
+ * in the name column — invisible to every filter, sort and export, and the
+ * reason `CoachingStatus` exists. An importer that ignored comments would have
+ * imported that coach as active.
+ */
+export type SheetComments = Map<string, string>;
+
 export type Workbook = {
   /** Sheet names in the order the workbook tabs them. */
   names: string[];
   sheet(name: string): SheetRows;
+  /** Cell notes on one sheet, by cell reference — "A209" -> "Doesn't coach anymore". */
+  comments(name: string): SheetComments;
   has(name: string): boolean;
 };
 
@@ -147,6 +161,68 @@ function parseSheet(xml: string, shared: string[]): SheetRows {
  * export are of no interest to a caller after the action plans, and one of
  * these files is fifty megabytes.
  */
+/**
+ * The comment text on each cell of one sheet.
+ *
+ * Excel writes a comment twice. The modern form is a threaded comment in
+ * `xl/threadedComments/`, holding the author, the time and the text; the
+ * legacy form in `xl/comments*.xml` is kept beside it for older readers and
+ * wraps the same words in a paragraph of boilerplate about upgrading Excel.
+ * The threaded file is preferred for that reason, and the legacy one read only
+ * where there is no threaded file — a comment written by something other than
+ * a current Excel, which the registers have never produced but a hand-kept
+ * workbook might.
+ *
+ * A cell with a reply thread gives its comments joined in order, because the
+ * reply is usually the answer: "Still coaching?" / "No, retired".
+ */
+function sheetComments(zip: ZipArchive, relsPath: string): SheetComments {
+  const out: SheetComments = new Map();
+  const rels = zip.read(relsPath)?.toString("utf8");
+  if (!rels) return out;
+
+  const find = (kind: string) => {
+    for (const m of rels.matchAll(/<Relationship\s([^>]*?)\/?>/g)) {
+      const type = /\bType="([^"]+)"/.exec(m[1])?.[1] ?? "";
+      if (!type.endsWith(`/${kind}`)) continue;
+      const target = /\bTarget="([^"]+)"/.exec(m[1])?.[1];
+      if (!target) continue;
+      // Sheet relationships are written relative to xl/worksheets/.
+      return `xl/${target.replace(/^\/+/, "").replace(/^(\.\.\/)+/, "")}`;
+    }
+    return null;
+  };
+
+  const add = (ref: string, text: string) => {
+    const trimmed = text.replace(/\s+/g, " ").trim();
+    if (!ref || !trimmed) return;
+    const had = out.get(ref);
+    out.set(ref, had ? `${had} / ${trimmed}` : trimmed);
+  };
+
+  const threadedPath = find("threadedComment");
+  const threaded = threadedPath ? zip.read(threadedPath)?.toString("utf8") : null;
+  if (threaded) {
+    for (const m of threaded.matchAll(
+      /<threadedComment\s([^>]*?)>([\s\S]*?)<\/threadedComment>/g,
+    )) {
+      const ref = /\bref="([A-Z]+\d+)"/.exec(m[1])?.[1] ?? "";
+      const text = /<text(?:\s[^>]*)?>([\s\S]*?)<\/text>/.exec(m[2])?.[1];
+      add(ref, decode(text ?? ""));
+    }
+    return out;
+  }
+
+  const legacyPath = find("comments");
+  const legacy = legacyPath ? zip.read(legacyPath)?.toString("utf8") : null;
+  if (!legacy) return out;
+  for (const m of legacy.matchAll(/<comment\s([^>]*?)>([\s\S]*?)<\/comment>/g)) {
+    const ref = /\bref="([A-Z]+\d+)"/.exec(m[1])?.[1] ?? "";
+    add(ref, innerText(m[2]));
+  }
+  return out;
+}
+
 export function readWorkbook(buf: Buffer): Workbook {
   const zip = readZip(buf);
 
@@ -179,10 +255,22 @@ export function readWorkbook(buf: Buffer): Workbook {
 
   const shared = sharedStrings(zip);
   const cache = new Map<string, SheetRows>();
+  const notes = new Map<string, SheetComments>();
 
   return {
     names: [...sheets.keys()],
     has: (name) => sheets.has(name),
+    comments(name) {
+      const cached = notes.get(name);
+      if (cached) return cached;
+      const path = sheets.get(name);
+      // "xl/worksheets/sheet1.xml" -> "xl/worksheets/_rels/sheet1.xml.rels".
+      const found = path
+        ? sheetComments(zip, path.replace(/([^/]+)$/, "_rels/$1.rels"))
+        : new Map<string, string>();
+      notes.set(name, found);
+      return found;
+    },
     sheet(name) {
       const cached = cache.get(name);
       if (cached) return cached;

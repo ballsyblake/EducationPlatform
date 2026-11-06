@@ -139,10 +139,19 @@ export async function getCoachRoster(filters: CoachFilters = {}): Promise<CoachR
     // drop out of the answer then.
     // An educator's list is their courses; a coach on none of them is not
     // theirs to see, so the unenrolled only appear for an admin.
+    //
+    // Not the coach register, though. `coachRecord: null` is what keeps this
+    // page about courses: FQ hold a qualification for sixteen hundred coaches
+    // who have never been on a cohort here, and without that clause every one
+    // of them arrived as a row reading "Not enrolled" — six seconds to render
+    // a page whose question none of them answer. They have a page of their
+    // own at /admin/coach-db. Somebody added by hand for an intake that has
+    // not started has no register record and is still here, which is the case
+    // this was for.
     courseId || scope !== null
       ? Promise.resolve([])
       : prisma.user.findMany({
-          where: { role: "COACH", enrollments: { none: {} } },
+          where: { role: "COACH", enrollments: { none: {} }, coachRecord: null },
           orderBy: [{ name: "asc" }, { email: "asc" }],
         }),
   ]);

@@ -81,6 +81,12 @@ Every one of these cost somebody an afternoon. They are not hypothetical.
   clubs, 52 named ambassadors with real email addresses, ~2,900 assessment
   scores. Do not paste it into a reply, publish it, or send it anywhere
   external.
+- **The coach database workbook is 1,676 real coaches** with live addresses and
+  FA numbers, and one of its tabs is a Squadi member export carrying home
+  addresses, Working With Children Check numbers and minors. Don't commit it,
+  don't paste it into a reply, and don't read the Squadi tab — see
+  `src/lib/coach-db-file.ts`. It is loaded through `/admin/coach-db` after a
+  deploy; there is deliberately no script and nothing at boot.
 - **`prisma/data/b-diploma-2026.json` holds 87 real coaches' assessment
   history.** Names are real; email addresses are anonymised to
   `first.last@example.com` by the extractor, deliberately.
@@ -117,8 +123,10 @@ open the others.**
 
 ### Coach Education — `src/app/(app)/`
 Courses, coursework, grading, the attendance register, hours and make-ups,
-post-course support, session footage and its feedback notes, the coaches list.
+post-course support, session footage and its feedback notes, the coaches list,
+the coach register.
 Libraries: `src/lib/{coursework,grading,support,support-rubric,attendance,coaches,footage}.ts`
+Coach register: `src/lib/{coach-db-file,coach-db,coach-db-schema,coach-register}.ts`
 Register exports: `src/lib/{zip,xlsx,register-file,register-schema,assessment-plan-parts,assessment-plan-docx,b-diploma-docx,b-diploma-rubric,fa-rubric-appendix}.ts`
 Data: `scripts/{extract-b-diploma-2026.py,import-b-diploma.ts,import-courses.ts}`
 See `src/app/(app)/CLAUDE.md`.
@@ -131,6 +139,41 @@ Export to Word button, because FQ circulates .docx that other people edit and
 sign. Both read the same `OutcomeSheet` from `src/lib/outcome.ts`, so they
 cannot disagree about *what* is on a record — but each owns its own layout, and
 those **will** drift. When a field moves, move it in both.
+
+**The coach register and the coaches list are two different lists.**
+`/admin/coaches` is a row per *enrolment* — where somebody stands on a course.
+`/admin/coach-db` is a row per *person* — every coach FQ holds a qualification
+for, which on the real data is 1,648 people who have never been on a cohort
+here. They were briefly the same page, badly: before `coachRecord: null` went
+into `getCoachRoster`'s unenrolled query, importing the register put sixteen
+hundred rows reading "Not enrolled" onto the coaches list and took it from
+600 ms to six seconds. If you add a coach-shaped list, decide which of the two
+questions it answers first.
+
+Four things about the importer that look like bugs and are not:
+
+- **It never blanks a field.** `recordFields` coalesces every optional value to
+  `undefined`, because `null` would clear the column. The source is a hand-kept
+  spreadsheet with 625 missing regions, and an import that wrote those holes
+  would delete somebody's work on every re-run. Don't "simplify" the `??
+  undefined`s away.
+- **It never writes a rating down to nothing**, which is the specific fault the
+  whole table exists to fix: the spreadsheet's VLOOKUP let a "No rating" cell
+  sit on top of a real judgement, and 336 ratings were behind one.
+- **It does not read the `Squadi` sheet.** That tab is 7,476 people with home
+  addresses, 6,021 Working With Children Check numbers, guardian contacts and
+  165 minors. It is in the workbook because 47 club names were VLOOKUPed out of
+  it. Adding it would be a child-safeguarding dataset in this database to save
+  47 cells.
+- **Writes are chunked, not per row.** Row-at-a-time was four round trips per
+  coach — nearly seven thousand against a hosted database, inside a server
+  action somebody is watching. `createMany` over chunks of two hundred took the
+  same import from 14.3s to 683ms locally.
+
+`CoachQualification` is a cache of FALC and is replaced wholesale on every
+import. That is only safe because nothing of FQ's own is stored on it; if you
+ever add a field somebody types, it stops being a cache and the delete-and-
+rewrite has to go.
 
 **A register is read in the app, and never imported by it.** `/admin/registers`
 takes an `.xlsx` register, parses it (`src/lib/register-file.ts`, on a zip and
