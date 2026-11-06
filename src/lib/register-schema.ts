@@ -32,22 +32,7 @@ const delivery = z.object({
 
 const verdict = z.enum(["passed", "action_plan", "incomplete", "unrated"]);
 
-/**
- * A coach's headshot, re-encoded small by `register-photos.ts`.
- *
- * Bounded on the way back in. The review page is the only thing that puts one
- * here and it caps the pixels before encoding, so anything much over 64 KB is
- * not a photograph this app made — and the field is base64 in a form post that
- * anyone signed in as an admin can craft.
- */
-const photo = z.object({
-  base64: z.string().max(64 * 1024).regex(/^[A-Za-z0-9+/]*={0,2}$/),
-  width: z.number().int().positive().max(4000),
-  height: z.number().int().positive().max(4000),
-});
-
 const coach = z.object({
-  photo: photo.nullable(),
   position: z.number().int(),
   firstName: z.string(),
   lastName: z.string(),

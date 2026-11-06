@@ -3,8 +3,6 @@ import "server-only";
 import {
   AlignmentType,
   CheckBox,
-  HeightRule,
-  ImageRun,
   PageBreak,
   Paragraph,
   Table,
@@ -16,7 +14,6 @@ import {
   B_LEVELS,
   B_RUBRIC_PREAMBLE,
   B_TICK_HEADINGS,
-  FA_COMPETENCIES,
 } from "@/lib/b-diploma-rubric";
 import {
   BODY,
@@ -33,7 +30,7 @@ import {
   signOff,
   tc,
 } from "@/lib/assessment-plan-parts";
-import { FULL_WIDTH, MAROON, para, text } from "@/lib/fq-docx";
+import { FULL_WIDTH, para, text } from "@/lib/fq-docx";
 import type { ParsedRegister, RegisterCoach } from "@/lib/register-file";
 
 /**
@@ -333,167 +330,6 @@ function rubricAppendix() {
   ];
 }
 
-/**
- * The Coach Development Plan, which the coach fills in rather than the CETs.
- *
- * A canvas of empty boxes on FQ's copy, drawn as floating shapes. It is a table
- * here, because a page of free-floating text boxes is what makes a Word file
- * impossible to edit without dragging things around, and the whole point of
- * this page is that somebody types into it. The arrangement is theirs: the
- * coach's details down the left, strengths and the competency panels across the
- * top, the gap and the plan beneath.
- */
-const PLAN_MAROON = MAROON;
-
-/**
- * The coach's own headshot, scaled into the box FQ leave for it.
- *
- * Fitted rather than stretched. Every one of these is a portrait phone
- * photograph and the box is roughly square, so forcing it to the box's
- * proportions would flatten somebody's face on their own assessment.
- */
-const PHOTO_BOX = { width: 118, height: 104 };
-
-function coachPhoto(coach: RegisterCoach) {
-  if (!coach.photo) return null;
-  const scale = Math.min(
-    PHOTO_BOX.width / coach.photo.width,
-    PHOTO_BOX.height / coach.photo.height,
-  );
-  return new Paragraph({
-    alignment: AlignmentType.CENTER,
-    spacing: { before: 0, after: 0 },
-    children: [
-      new ImageRun({
-        data: coach.photo.base64,
-        type: "jpg",
-        transformation: {
-          width: Math.round(coach.photo.width * scale),
-          height: Math.round(coach.photo.height * scale),
-        },
-        altText: {
-          title: coach.name,
-          description: `${coach.name}, from the course register`,
-          name: coach.name,
-        },
-      }),
-    ],
-  });
-}
-
-function developmentPlan(coach: RegisterCoach) {
-  const COLS = [3000, 5800, 5800];
-  // The whole plan has to land on one page — it is a canvas somebody writes
-  // on, and a canvas split across a page break is two half-canvases. These
-  // heights are what is left of a landscape A4 once the title and the two
-  // competency panels have taken theirs.
-  const TALL = { value: 1300, rule: HeightRule.ATLEAST };
-  const TALLER = { value: 1800, rule: HeightRule.ATLEAST };
-
-  const heading = (label: string) =>
-    para(label, { bold: true, size: 14, color: "FF9E0C" });
-
-  const field = (label: string, value?: string) =>
-    tc(
-      [
-        para(label, { bold: true, size: BODY, align: AlignmentType.CENTER }),
-        ...(value ? [para(value, { size: BODY, align: AlignmentType.CENTER })] : []),
-      ],
-      { width: COLS[0], middle: true, color: PLAN_MAROON },
-    );
-
-  /** One of the two competency panels, which are the only filled cells. */
-  const panel = (title: string, items: string[]) =>
-    tc(
-      [
-        para(title, { bold: true, size: BODY, color: "2E7116", align: AlignmentType.CENTER }),
-        para(items.join("    "), {
-          size: SMALL,
-          color: "2E7116",
-          align: AlignmentType.CENTER,
-        }),
-      ],
-      { width: COLS[2], fill: "FBE4D5", middle: true, color: PLAN_MAROON },
-    );
-
-  return [
-    new Paragraph({ children: [new PageBreak()] }),
-    para("COACH DEVELOPMENT PLAN – B DIPLOMA", {
-      bold: true,
-      size: 18,
-      align: AlignmentType.CENTER,
-      after: 2,
-    }),
-    para("Section to be filled by the Coach", {
-      size: 14,
-      align: AlignmentType.CENTER,
-      after: 8,
-    }),
-    new Table({
-      width: FULL_WIDTH,
-      columnWidths: COLS,
-      rows: [
-        new TableRow({
-          height: TALL,
-          children: [
-            tc(
-              [
-                coachPhoto(coach) ??
-                  para("Insert Picture of Coach", { size: BODY, align: AlignmentType.CENTER }),
-              ],
-              { width: COLS[0], middle: true, color: PLAN_MAROON },
-            ),
-            tc(
-              [
-                para("COACH DEVELOPMENT PLAN – B DIPLOMA", {
-                  bold: true,
-                  size: 14,
-                  align: AlignmentType.CENTER,
-                }),
-              ],
-              { span: 2, width: COLS[1] + COLS[2], middle: true, color: PLAN_MAROON },
-            ),
-          ],
-        }),
-        new TableRow({
-          height: TALL,
-          children: [
-            // Filled in where the register knows it. The rest of the column
-            // is the coach's own to complete, which is what the page is for.
-            field("Name:", coach.name),
-            // Strengths runs beside all three competency rows, as on their
-            // page, which is why it is a rowSpan rather than three cells.
-            tc([heading("STRENGTHS")], { width: COLS[1], rowSpan: 3, color: PLAN_MAROON }),
-            tc([heading("FA COACHING COURSE COMPETENCIES")], {
-              width: COLS[2],
-              middle: true,
-              color: PLAN_MAROON,
-            }),
-          ],
-        }),
-        new TableRow({
-          children: [field("Team:"), panel("OFF FIELD", FA_COMPETENCIES.offField)],
-        }),
-        new TableRow({
-          children: [field("Years Coaching:"), panel("ON FIELD", FA_COMPETENCIES.onField)],
-        }),
-        new TableRow({
-          height: TALLER,
-          children: [
-            field("Qualifications:"),
-            tc([heading("PERFORMANCE GAP")], {
-              width: COLS[1],
-              rowSpan: 2,
-              color: PLAN_MAROON,
-            }),
-            tc([heading("GOALS/PLAN")], { width: COLS[2], rowSpan: 2, color: PLAN_MAROON }),
-          ],
-        }),
-        new TableRow({ height: TALLER, children: [field("Mentor:")] }),
-      ],
-    }),
-  ];
-}
 
 /* ------------------------------ The documents ----------------------------- */
 
@@ -613,7 +449,6 @@ export function bActionPlanBlocks(
     }),
     new Paragraph({ children: [new PageBreak()] }),
     ...rubricAppendix(),
-    ...developmentPlan(coach),
   ];
 }
 

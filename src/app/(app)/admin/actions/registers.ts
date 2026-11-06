@@ -8,7 +8,6 @@ import {
   XlsxError,
   type ParsedRegister,
 } from "@/lib/register-file";
-import { attachCoachPhotos } from "@/lib/register-photos";
 
 /**
  * Reading a course register for export.
@@ -67,11 +66,7 @@ export async function reviewRegister(
 
   let register: ParsedRegister;
   try {
-    const buf = Buffer.from(await file.arrayBuffer());
-    register = readRegister(buf, file.name);
-    // After the parse, because it is the one asynchronous step and because a
-    // register that fails to parse has no coaches to hang a photograph on.
-    await attachCoachPhotos(register, buf);
+    register = readRegister(Buffer.from(await file.arrayBuffer()), file.name);
   } catch (error) {
     if (error instanceof RegisterError || error instanceof XlsxError) {
       return { status: "error", message: error.message };

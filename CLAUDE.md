@@ -119,7 +119,7 @@ open the others.**
 Courses, coursework, grading, the attendance register, hours and make-ups,
 post-course support, session footage and its feedback notes, the coaches list.
 Libraries: `src/lib/{coursework,grading,support,support-rubric,attendance,coaches,footage}.ts`
-Register exports: `src/lib/{zip,xlsx,register-file,register-photos,register-schema,assessment-plan-parts,assessment-plan-docx,b-diploma-docx,b-diploma-rubric,fa-rubric-appendix}.ts`
+Register exports: `src/lib/{zip,xlsx,register-file,register-schema,assessment-plan-parts,assessment-plan-docx,b-diploma-docx,b-diploma-rubric,fa-rubric-appendix}.ts`
 Data: `scripts/{extract-b-diploma-2026.py,import-b-diploma.ts,import-courses.ts}`
 One-off: `npm run assessment:score` — a C Diploma form with the six-area scores
 filled in, which no register carries. FQ settle them by email after a course
@@ -182,19 +182,6 @@ neutral grey, never to the template's salmon, which means Not Yet Competent on
 the same page. The level is still not inferred from the rating, which would be
 the same invented conversion as above.
 
-**The coaches' photographs are on the register too, and they are why it is
-52MB.** FQ put a headshot above each coach's column on the Assessment sheet,
-and they are *in-cell* images, not floating drawings: the cell carries a `vm`
-attribute pointing into `metadata.xml` → `rdrichvalue.xml` → `richValueRel.xml`
-→ `_rels` → `xl/media`, which `xlsx.ts` walks in `richValueImages`. They go in
-the B Diploma action plan's Coach Development Plan box. `register-photos.ts`
-re-encodes each one with `sharp` to about 16KB — a 2MB phone photograph at
-2646x3528 becomes 360x480 — because the parsed register travels back to the
-download route as JSON in a form field, and thirty-four originals would be
-fifty megabytes of base64 in a hidden input. `sharp` is loaded at arm's length
-and the photographs are **skipped, not embedded at full size**, if it ever goes
-missing.
-
 **The two diplomas have different paperwork, and so does the export.** FQ run
 the B and the C off different forms, so there are three generated documents,
 not one:
@@ -210,9 +197,12 @@ b-diploma-docx.ts          The B Diploma's two: the formative assessment /
 
 The C form scores six areas 0-3 and totals them out of eighteen. The B form
 ticks NYC / C / HC per area and **totals nothing**, carries its own rubric
-(`b-diploma-rubric.ts`, three levels, not FA's four with a column removed), and
-the action plan ends on a Coach Development Plan page the C form has no
-equivalent of. The two B documents even have different titles from each other.
+(`b-diploma-rubric.ts`, three levels, not FA's four with a column removed).
+The two B documents even have different titles from each other. Both end on
+that rubric: there was briefly a Coach Development Plan page after it, with
+the coach's photograph read off the register's in-cell images, and FQ do not
+send one — the page, the photographs and the rich-value reader that found them
+all went together on 2026-11-06, and are in the history if wanted back.
 Don't collapse them: `isBDiploma(register)` picks the layout, `kind` picks which
 of the B pair, and a change to one form is a change to one form.
 
