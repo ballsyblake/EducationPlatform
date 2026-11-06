@@ -80,11 +80,17 @@ export default async function RegisterPage({ params }: { params: Promise<{ id: s
         <PageHeader breadcrumb={back} title="Attendance register" />
         <EmptyState
           title="This course has no days"
-          description="A register needs delivery days to keep. Courses imported from an FQ register bring their nine days with them; add them to a course you created here."
+          description="A register needs delivery days to keep. A cohort imported from an FQ register brings its nine days with it; one created here, or from a Learning Centre export, needs them added."
           action={
-            <Link href={back.href} className="btn-secondary btn-sm">
-              Back to the course
-            </Link>
+            isAdmin(user) ? (
+              <Link href={`/admin/courses/${id}/days`} className="btn-primary btn-sm">
+                Add the days
+              </Link>
+            ) : (
+              <Link href={back.href} className="btn-secondary btn-sm">
+                Back to the course
+              </Link>
+            )
           }
         />
       </>
