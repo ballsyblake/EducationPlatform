@@ -116,22 +116,3 @@ export const B_TICK_HEADINGS: Record<string, [string, string?]> = {
   COACHING: ["COACHING", "Enter – Educate / Enhance - Ensure"],
   ENVIRONMENT: ["MOTIVATIONAL CLIMATE"],
 };
-
-/**
- * The Coach Development Plan's two competency panels, as the page lists them.
- *
- * FA's course competencies, five off the field and six on it. The page is blank
- * for the coach to fill in, so these are the only words on it that are not a
- * label.
- */
-export const FA_COMPETENCIES = {
-  offField: ["Engagement", "Session Design", "Interaction", "Football Knowledge", "Reflection"],
-  onField: [
-    "Objective",
-    "Content",
-    "Organisation",
-    "Presenting",
-    "Coaching",
-    "Environment",
-  ],
-};

@@ -3,7 +3,6 @@ import "server-only";
 import {
   AlignmentType,
   CheckBox,
-  HeightRule,
   PageBreak,
   Paragraph,
   Table,
@@ -15,7 +14,6 @@ import {
   B_LEVELS,
   B_RUBRIC_PREAMBLE,
   B_TICK_HEADINGS,
-  FA_COMPETENCIES,
 } from "@/lib/b-diploma-rubric";
 import {
   BODY,
@@ -32,7 +30,7 @@ import {
   signOff,
   tc,
 } from "@/lib/assessment-plan-parts";
-import { FULL_WIDTH, MAROON, para, text } from "@/lib/fq-docx";
+import { FULL_WIDTH, para, text } from "@/lib/fq-docx";
 import type { ParsedRegister, RegisterCoach } from "@/lib/register-file";
 
 /**
@@ -84,6 +82,17 @@ import type { ParsedRegister, RegisterCoach } from "@/lib/register-file";
 const OUTCOME_MAROON = "990033";
 
 /**
+ * The three colours FQ name the levels in, in the feedback letter's own
+ * sentence explaining the colour coding.
+ *
+ * Brighter than `LEVEL_TEXT`, which is the Excel font colour the write-ups
+ * themselves carry. Their copy uses both, one for the legend and one for the
+ * prose, so this does too rather than picking one and making the sentence
+ * disagree with what it is describing.
+ */
+const LEGEND = { NYC: "F91E00", C: "E4B900", HC: "44A921" };
+
+/**
  * The B form's grading band: the three levels, no point ranges.
  *
  * The C form prints `(0–11)`, `(12–14)`, `(15–18)` because it totals a score.
@@ -125,7 +134,38 @@ function gradingBand() {
  * Checkboxes rather than drawn boxes because this document is circulated to be
  * completed in Word and signed, which is the whole reason FQ want .docx.
  */
-function tickTable() {
+/**
+ * What a CET has already written on a form, where one has.
+ *
+ * The register carries none of this: the six-area level, the evidence beside
+ * it and the strengths and gaps are all typed into the Word file afterwards,
+ * which is why a document regenerated from the register comes out blank and
+ * why twelve of these existed in a folder with the CET's work in three of
+ * them. Passed in so a rebuilt form can carry it rather than lose it.
+ */
+export type BFilled = {
+  /** `DeliveryArea.code` to the level ticked on the six-area table. */
+  levels?: Partial<Record<string, "NYC" | "C" | "HC">>;
+  /** The CET's reasoning beside each level, a paragraph per entry. */
+  evidence?: Partial<Record<string, string[]>>;
+  /** The bullets under "Area of Strength:" and "Performance Gaps:". */
+  strengths?: string[];
+  gaps?: string[];
+  /**
+   * Which outcome box to tick, when the register has not settled it.
+   *
+   * The register is behind the CETs often enough to matter — a coach can read
+   * "In Progress" on the Attendance sheet while the team have decided he is
+   * getting an action plan — and this is the one place the document asserts
+   * an outcome. Left out, it follows `coach.verdict` as it always has.
+   */
+  outcome?: "competent" | "not_yet";
+};
+
+/** The three levels as a tick in the table, in `B_LEVELS` order. */
+const TICK_LEVELS = ["NYC", "C", "HC"] as const;
+
+function tickTable(filled?: BFilled) {
   const COLS = [3686, 1418, 1275, 1418, 6804];
   const LEVELS: [string, number][] = [
     ["NYC", COLS[1]],
@@ -135,6 +175,8 @@ function tickTable() {
 
   const rows = B_DIPLOMA_RUBRIC.map((area) => {
     const [heading, sub] = B_TICK_HEADINGS[area.code] ?? [area.heading[0]];
+    const level = filled?.levels?.[area.code];
+    const evidence = filled?.evidence?.[area.code] ?? [];
     return new TableRow({
       cantSplit: true,
       children: [
@@ -145,22 +187,28 @@ function tickTable() {
           ],
           { width: COLS[0], middle: true },
         ),
-        ...LEVELS.map(([label, width]) =>
+        ...LEVELS.map(([label, width], i) =>
           tc(
             [
               para(label, { size: BODY, align: AlignmentType.CENTER }),
               new Paragraph({
                 alignment: AlignmentType.CENTER,
                 spacing: { before: 0, after: 0 },
-                children: [new CheckBox({})],
+                children: [new CheckBox({ checked: level === TICK_LEVELS[i] })],
               }),
             ],
             { width, middle: true },
           ),
         ),
         // The CET's evidence for the level beside it, which is where this form
-        // carries its longest writing.
-        tc([para("", { size: SMALL })], { width: COLS[4] }),
+        // carries its longest writing. Their own paragraphing is kept: these
+        // run to four paragraphs on one area and reflow badly as one run.
+        tc(
+          evidence.length
+            ? evidence.map((line) => para(line, { size: SMALL }))
+            : [para("", { size: SMALL })],
+          { width: COLS[4] },
+        ),
       ],
     });
   });
@@ -177,21 +225,52 @@ function tickTable() {
  */
 const SIGN_COLS = [2410, 5126, 2387, 4678];
 
-function outcomeRow() {
-  const box = (label: string, fill: string, color: string, span: number, width: number) =>
+function outcomeRow(tick: RegisterCoach["verdict"], asked?: BFilled["outcome"]) {
+  const competent = asked ? asked === "competent" : tick === "passed";
+  const notYet = asked ? asked === "not_yet" : tick === "action_plan";
+  const box = (
+    label: string,
+    fill: string,
+    color: string,
+    span: number,
+    width: number,
+    checked: boolean,
+  ) =>
     tc(
       [
         new Paragraph({
           spacing: { before: 0, after: 0 },
-          children: [text(`${label}    `, { bold: true, size: BODY, color }), new CheckBox({})],
+          children: [
+            text(`${label}    `, { bold: true, size: BODY, color }),
+            new CheckBox({ checked }),
+          ],
         }),
       ],
       { fill, span, width, middle: true },
     );
+  // Ticked from the register's own verdict rather than from which of the two
+  // documents this is, because the third bundle — the coaches nobody has
+  // judged yet — is built off the action plan layout too, and a tick there
+  // would be the app taking a decision that is the CETs'. Theirs comes out
+  // with both boxes empty, which is what a blank form is for.
   return new TableRow({
     children: [
-      box("COMPETENT", "FFFFFF", OUTCOME_MAROON, 2, SIGN_COLS[0] + SIGN_COLS[1]),
-      box("NOT COMPETENT YET", OUTCOME_MAROON, "FFFFFF", 2, SIGN_COLS[2] + SIGN_COLS[3]),
+      box(
+        "COMPETENT",
+        "FFFFFF",
+        OUTCOME_MAROON,
+        2,
+        SIGN_COLS[0] + SIGN_COLS[1],
+        competent,
+      ),
+      box(
+        "NOT COMPETENT YET",
+        OUTCOME_MAROON,
+        "FFFFFF",
+        2,
+        SIGN_COLS[2] + SIGN_COLS[3],
+        notYet,
+      ),
     ],
   });
 }
@@ -251,120 +330,6 @@ function rubricAppendix() {
   ];
 }
 
-/**
- * The Coach Development Plan, which the coach fills in rather than the CETs.
- *
- * A canvas of empty boxes on FQ's copy, drawn as floating shapes. It is a table
- * here, because a page of free-floating text boxes is what makes a Word file
- * impossible to edit without dragging things around, and the whole point of
- * this page is that somebody types into it. The arrangement is theirs: the
- * coach's details down the left, strengths and the competency panels across the
- * top, the gap and the plan beneath.
- */
-const PLAN_MAROON = MAROON;
-
-function developmentPlan() {
-  const COLS = [3000, 5800, 5800];
-  const TALL = { value: 1700, rule: HeightRule.ATLEAST };
-
-  const heading = (label: string) =>
-    para(label, { bold: true, size: 14, color: "FF9E0C" });
-
-  const field = (label: string) =>
-    tc([para(label, { bold: true, size: BODY, align: AlignmentType.CENTER })], {
-      width: COLS[0],
-      middle: true,
-      color: PLAN_MAROON,
-    });
-
-  /** One of the two competency panels, which are the only filled cells. */
-  const panel = (title: string, items: string[]) =>
-    tc(
-      [
-        para(title, { bold: true, size: BODY, color: "2E7116", align: AlignmentType.CENTER }),
-        para(items.join("    "), {
-          size: SMALL,
-          color: "2E7116",
-          align: AlignmentType.CENTER,
-        }),
-      ],
-      { width: COLS[2], fill: "FBE4D5", middle: true, color: PLAN_MAROON },
-    );
-
-  return [
-    new Paragraph({ children: [new PageBreak()] }),
-    para("COACH DEVELOPMENT PLAN – B DIPLOMA", {
-      bold: true,
-      size: 18,
-      align: AlignmentType.CENTER,
-      after: 2,
-    }),
-    para("Section to be filled by the Coach", {
-      size: 14,
-      align: AlignmentType.CENTER,
-      after: 8,
-    }),
-    new Table({
-      width: FULL_WIDTH,
-      columnWidths: COLS,
-      rows: [
-        new TableRow({
-          height: TALL,
-          children: [
-            tc([para("Insert Picture of Coach", { size: BODY, align: AlignmentType.CENTER })], {
-              width: COLS[0],
-              middle: true,
-              color: PLAN_MAROON,
-            }),
-            tc(
-              [
-                para("COACH DEVELOPMENT PLAN – B DIPLOMA", {
-                  bold: true,
-                  size: 14,
-                  align: AlignmentType.CENTER,
-                }),
-              ],
-              { span: 2, width: COLS[1] + COLS[2], middle: true, color: PLAN_MAROON },
-            ),
-          ],
-        }),
-        new TableRow({
-          height: TALL,
-          children: [
-            field("Name:"),
-            // Strengths runs beside all three competency rows, as on their
-            // page, which is why it is a rowSpan rather than three cells.
-            tc([heading("STRENGTHS")], { width: COLS[1], rowSpan: 3, color: PLAN_MAROON }),
-            tc([heading("FA COACHING COURSE COMPETENCIES")], {
-              width: COLS[2],
-              middle: true,
-              color: PLAN_MAROON,
-            }),
-          ],
-        }),
-        new TableRow({
-          children: [field("Team:"), panel("OFF FIELD", FA_COMPETENCIES.offField)],
-        }),
-        new TableRow({
-          children: [field("Years Coaching:"), panel("ON FIELD", FA_COMPETENCIES.onField)],
-        }),
-        new TableRow({
-          height: TALL,
-          children: [
-            field("Qualifications:"),
-            tc([heading("PERFORMANCE GAP")], {
-              width: COLS[1],
-              rowSpan: 2,
-              color: PLAN_MAROON,
-            }),
-            tc([heading("GOALS/PLAN")], { width: COLS[2], rowSpan: 2, color: PLAN_MAROON }),
-          ],
-        }),
-        new TableRow({ height: TALL, children: [field("Mentor:")] }),
-      ],
-    }),
-  ];
-}
 
 /* ------------------------------ The documents ----------------------------- */
 
@@ -382,8 +347,14 @@ const B_NARRATIVE = {
     `${name}, Congratulations on attending the Football Australia/AFC ${qualification} — this marks an important milestone in your coaching journey.`,
   framing:
     "Your formative assessment represents a valuable opportunity to build on what you have learned throughout the course. The CETs have identified both key strengths and areas where further development is needed. Continue to excel in your strengths - keep thriving in these areas. For the performance gap, we are looking for you to narrow the gap and show improvement in the upcoming months.",
+  // Split so that "not yet" can carry the bold FQ's own copy puts on it. It is
+  // the whole point of the sentence and the first thing the coach reads.
   notYetCompetent: (qualification: string) =>
-    `At this stage, the CETs for the ${qualification} have determined that your practical performance is not yet at the level required to be deemed competent in the course. We are sharing this information now to ensure you have ample time to focus on the areas identified and to work closely with your mentor to address the performance gaps outlined above.`,
+    [
+      `At this stage, the CETs for the ${qualification} have determined that your practical performance is `,
+      "not yet",
+      " at the level required to be deemed competent in the course. We are sharing this information now to ensure you have ample time to focus on the areas identified and to work closely with your mentor to address the performance gaps outlined above.",
+    ] as const,
   feedbackOpening: (qualification: string) =>
     `Congratulations on attending the Football Australia/AFC ${qualification} — this marks an important milestone in your coaching journey.`,
   feedbackFraming:
@@ -396,8 +367,12 @@ const B_NARRATIVE = {
 };
 
 /** The action plan's covering letter, inside its single ruled box. */
-function actionPlanNarrative(coach: RegisterCoach, qualification: string) {
+function actionPlanNarrative(coach: RegisterCoach, qualification: string, filled?: BFilled) {
   const firstName = coach.name.trim().split(/\s+/)[0] || coach.name;
+  // Three empty bullets for a CET to fill in, unless one already has. Three is
+  // what their blank form offers; a filled-in one gets exactly what was typed.
+  const bullets = (lines: string[] | undefined) =>
+    lines?.length ? lines.map((line) => bullet(line)) : [bullet(""), bullet(""), bullet("")];
   return new Table({
     width: FULL_WIDTH,
     columnWidths: [TEXT_WIDTH],
@@ -407,24 +382,30 @@ function actionPlanNarrative(coach: RegisterCoach, qualification: string) {
           tc(
             [
               para("ACTION PLAN / FURTHER COMMENTS", { bold: true, size: BODY, after: 6 }),
-              para(B_NARRATIVE.opening(firstName, qualification), { size: BODY, after: 5 }),
+              para(B_NARRATIVE.opening(firstName, qualification), {
+                size: BODY,
+                before: 4,
+                after: 5,
+              }),
               para(B_NARRATIVE.framing, { size: BODY, after: 5 }),
-              para("Area of Strength:", { size: BODY, after: 3 }),
-              bullet(""),
-              bullet(""),
-              bullet(""),
-              para("Performance Gaps:", { size: BODY, before: 4, after: 3 }),
-              bullet(""),
-              bullet(""),
-              bullet(""),
+              para([text("Area of Strength:", { size: BODY, underline: true })], {
+                before: 6,
+                after: 3,
+              }),
+              ...bullets(filled?.strengths),
+              para([text("Performance Gaps:", { size: BODY, underline: true })], {
+                before: 8,
+                after: 3,
+              }),
+              ...bullets(filled?.gaps),
               // Highlighted on FQ's own copy, with the pen rather than a fill,
               // because it is the sentence the coach is meant to read first.
-              para(B_NARRATIVE.notYetCompetent(qualification), {
-                size: BODY,
-                before: 5,
-                after: 2,
-                highlight: "yellow",
-              }),
+              para(
+                B_NARRATIVE.notYetCompetent(qualification).map((run, i) =>
+                  text(run, { size: BODY, bold: i === 1, highlight: "yellow" }),
+                ),
+                { before: 5, after: 2 },
+              ),
             ],
             { width: TEXT_WIDTH },
           ),
@@ -435,33 +416,48 @@ function actionPlanNarrative(coach: RegisterCoach, qualification: string) {
 }
 
 /** `'B' Diploma Practical Coaching Formative Assessment`. */
-export function bActionPlanBlocks(coach: RegisterCoach, register: ParsedRegister) {
+export function bActionPlanBlocks(
+  coach: RegisterCoach,
+  register: ParsedRegister,
+  filled?: BFilled,
+) {
   const qualification = quotedDiploma(register.qualification);
   return [
     candidateBlock(coach, register),
     para("", { size: 5 }),
-    gradingBand(),
-    para("", { size: 3 }),
-    ...deliveryTable(coach, TEXT_WIDTH),
+    // The band goes above the tick table, not above the deliveries. It used to
+    // be printed in both places; FQ's own copy has it once, beside the thing it
+    // is a key for, and the delivery headings read as colours either way.
+    // The headings take their colour from the level the CET gave that session,
+    // which is the shading on the register's own write-up cell. That is where
+    // FQ's copy gets it: Beau's fourth delivery is yellow where his first
+    // three are salmon.
+    ...deliveryTable(coach, TEXT_WIDTH, { byLevel: "fill", rating: false }),
     para("", { size: 5 }),
     // The band again above the tick table. FQ's copy repeats it, and it earns
     // the repeat: the deliveries can run to a second page, and a CET ticking
     // the table wants the key on the page they are ticking.
     gradingBand(),
     para("", { size: 3 }),
-    tickTable(),
+    tickTable(filled),
     para("", { size: 5 }),
-    actionPlanNarrative(coach, qualification),
+    actionPlanNarrative(coach, qualification, filled),
     para("", { size: 5 }),
-    signOff(coach, register, { columns: SIGN_COLS, before: [outcomeRow()] }),
+    signOff(coach, register, {
+      columns: SIGN_COLS,
+      before: [outcomeRow(coach.verdict, filled?.outcome)],
+    }),
     new Paragraph({ children: [new PageBreak()] }),
     ...rubricAppendix(),
-    ...developmentPlan(),
   ];
 }
 
 /** `'B' Diploma Practical Coaching Post-course Feedback`. */
-export function bFeedbackBlocks(coach: RegisterCoach, register: ParsedRegister) {
+export function bFeedbackBlocks(
+  coach: RegisterCoach,
+  register: ParsedRegister,
+  filled?: BFilled,
+) {
   const qualification = quotedDiploma(register.qualification);
   return [
     candidateBlock(coach, register),
@@ -476,7 +472,22 @@ export function bFeedbackBlocks(coach: RegisterCoach, register: ParsedRegister) 
               [
                 para("PRACTICAL COMMENTS", { bold: true, size: BODY, after: 6 }),
                 para(B_NARRATIVE.feedbackOpening(qualification), { size: BODY, after: 5 }),
-                para(B_NARRATIVE.feedbackFraming, { size: BODY, after: 2 }),
+                para(
+                  [
+                    text(`${B_NARRATIVE.feedbackFraming} `, { size: BODY }),
+                    text("The feedback is colour coded to reflect ", { size: BODY }),
+                    text("not yet competent", { size: BODY, color: LEGEND.NYC }),
+                    text(", ", { size: BODY }),
+                    text("competent", { size: BODY, color: LEGEND.C }),
+                    text(" or ", { size: BODY }),
+                    text("highly competent", { size: BODY, color: LEGEND.HC }),
+                    text(
+                      ", as per the assessment rubric at the bottom of the document.",
+                      { size: BODY },
+                    ),
+                  ],
+                  { after: 2 },
+                ),
               ],
               { width: TEXT_WIDTH },
             ),
@@ -485,7 +496,10 @@ export function bFeedbackBlocks(coach: RegisterCoach, register: ParsedRegister) 
       ],
     }),
     para("", { size: 3 }),
-    ...deliveryTable(coach, TEXT_WIDTH),
+    // The write-ups themselves are coloured here rather than the headings,
+    // which is how FQ's letter does it — the text keeps the colour of the
+    // register cell it was pasted out of.
+    ...deliveryTable(coach, TEXT_WIDTH, { byLevel: "text", rating: false }),
     para("", { size: 3 }),
     new Table({
       width: FULL_WIDTH,
@@ -506,7 +520,11 @@ export function bFeedbackBlocks(coach: RegisterCoach, register: ParsedRegister) 
       ],
     }),
     para("", { size: 3 }),
-    signOff(coach, register, { columns: SIGN_COLS, before: [outcomeRow()], signature: false }),
+    signOff(coach, register, {
+      columns: SIGN_COLS,
+      before: [outcomeRow(coach.verdict, filled?.outcome)],
+      signature: false,
+    }),
     new Paragraph({ children: [new PageBreak()] }),
     ...rubricAppendix(),
   ];

@@ -19,6 +19,10 @@ import {
  * and uploading it again to press Download would be a minute of somebody's
  * afternoon for no new information.
  *
+ * The coaches' photographs are the exception to that, and the reason it still
+ * holds: they are re-encoded small enough to ride back in the same field — see
+ * `register-photos.ts` — rather than being kept anywhere on the server.
+ *
  * Nothing is written. No coach is created, no enrolment touched, no rating
  * stored. Loading real people's records into the platform is the import
  * script's job and a decision somebody takes on purpose — see the data notes in

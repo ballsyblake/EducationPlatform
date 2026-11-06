@@ -13,10 +13,16 @@ import {
 import {
   DELIVERY_AREAS,
   MAX_DELIVERY_POINTS,
+  outcomeFor,
   thresholdsFor,
 } from "@/lib/delivery-rubric";
 import { APPENDIX_LEVELS, FA_RUBRIC_APPENDIX } from "@/lib/fa-rubric-appendix";
-import { bActionPlanBlocks, bDocumentTitle, bFeedbackBlocks } from "@/lib/b-diploma-docx";
+import {
+  bActionPlanBlocks,
+  bDocumentTitle,
+  bFeedbackBlocks,
+  type BFilled,
+} from "@/lib/b-diploma-docx";
 import {
   BODY,
   COMPETENT_FILL,
@@ -147,7 +153,16 @@ function practicalComments(coach: RegisterCoach, width: number): (Paragraph | Ta
     ],
   });
   if (!coach.deliveries.length) return [box, para("", { size: 3 }), ...deliveryTable(coach, width)];
-  return [box, para("", { size: 3 }), ...deliveryTable(coach, width, { headerFill: NYC_FILL })];
+  // Shaded by the level the CET gave that session and with the 1-5 number off
+  // the write-up, both the same way round as the B's action plan. The template
+  // heads all three columns in its salmon, but the salmon now means Not Yet
+  // Competent on the same page, so an unshaded delivery falls back to the
+  // neutral grey rather than to a colour that says something.
+  return [
+    box,
+    para("", { size: 3 }),
+    ...deliveryTable(coach, width, { headerFill: SHADE, byLevel: "fill", rating: false }),
+  ];
 }
 
 /**
@@ -200,19 +215,33 @@ function gradingBand(thresholds: ReturnType<typeof thresholdsFor>) {
 }
 
 /** A digit over a tickable box, which is one cell of the rubric's tick table. */
-function scoreBox(score: number, width: number) {
+function scoreBox(score: number, width: number, checked = false) {
   return tc(
     [
       para(String(score), { size: BODY, align: AlignmentType.CENTER }),
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { before: 0, after: 0 },
-        children: [new CheckBox({})],
+        children: [new CheckBox({ checked })],
       }),
     ],
     { width, middle: true },
   );
 }
+
+/**
+ * A score per area, keyed by `DeliveryArea.code`, where somebody has one.
+ *
+ * No register carries these — FQ settle them by email after a course closes,
+ * and the one that prompted this arrived as six lines in a reply from the CET
+ * who ran the practical, agreed by the State Technical Director. So they are
+ * passed in rather than read, and the table comes out blank when they are not,
+ * which is still the usual case.
+ */
+export type AreaScores = Partial<Record<string, number>>;
+
+/** Everything a CET may already have settled on one coach's form. */
+export type CoachFilled = BFilled & { scores?: AreaScores };
 
 /**
  * The six-area tick table, blank, and the total under it.
@@ -232,12 +261,23 @@ function scoreBox(score: number, width: number) {
  * table says `MOTIVATIONAL CLIMATE` on the same page as an appendix that says
  * Environment; following that would be copying a contradiction.
  */
-function rubricTable(thresholds: ReturnType<typeof thresholdsFor>) {
+function rubricTable(thresholds: ReturnType<typeof thresholdsFor>, scores?: AreaScores) {
   const COLS = [3686, 1028, 1028, 1028, 1027, 6804];
+
+  const given = DELIVERY_AREAS.map((area) => scores?.[area.code]).filter(
+    (value): value is number => typeof value === "number",
+  );
+  // Only once every area has an answer. A sheet half filled in is not a coach
+  // who scored nothing in the rest, so a partial set leaves the total blank.
+  const total = given.length === DELIVERY_AREAS.length
+    ? given.reduce((sum, value) => sum + value, 0)
+    : null;
+  const outcome = total === null ? null : outcomeFor(total, thresholds);
 
   const rows = DELIVERY_AREAS.map((area) => {
     const appendix = FA_RUBRIC_APPENDIX.find((r) => r.code === area.code);
     const sub = appendix?.heading.slice(1) ?? [];
+    const score = scores?.[area.code];
     return new TableRow({
       cantSplit: true,
       children: [
@@ -250,24 +290,48 @@ function rubricTable(thresholds: ReturnType<typeof thresholdsFor>) {
           ],
           { width: COLS[0], middle: true },
         ),
-        scoreBox(0, COLS[1]),
-        scoreBox(1, COLS[2]),
-        scoreBox(2, COLS[3]),
-        scoreBox(3, COLS[4]),
-        // The evidence column, blank: the CET's reasoning for the score beside
-        // it, which is where the template carries its longest writing.
-        tc([para("", { size: SMALL })], { width: COLS[5] }),
+        scoreBox(0, COLS[1], score === 0),
+        scoreBox(1, COLS[2], score === 1),
+        scoreBox(2, COLS[3], score === 2),
+        scoreBox(3, COLS[4], score === 3),
+        // The evidence column: the CET's reasoning for the score beside it,
+        // which is where the template carries its longest writing, and blank
+        // for them to fill in.
+        //
+        // The awarded score goes here in words as well as in a tick, because
+        // FQ score in half points — 1.5 for an area that drew constructive
+        // feedback — and FA's grid has four boxes, 0 to 3, with nothing
+        // between them. Rounding to the nearest box would change a coach's
+        // mark, so a half score ticks nothing and is written out instead.
+        tc(
+          [
+            para(
+              score === undefined
+                ? ""
+                : `Awarded ${score}${Number.isInteger(score) ? "" : " — between the boxes above"}`,
+              { size: SMALL },
+            ),
+          ],
+          { width: COLS[5] },
+        ),
       ],
     });
   });
 
-  const outcomeBox = (label: string, fill: string, width: number) =>
+  const outcomeBox = (label: string, fill: string, width: number, band: string) =>
     tc(
       [
         new Paragraph({
           alignment: AlignmentType.CENTER,
           spacing: { before: 0, after: 0 },
-          children: [text(`${label}    `, { size: BODY }), new CheckBox({})],
+          children: [
+            text(`${label}    `, { size: BODY }),
+            // Ticked from the total rather than chosen again. FA's guide says
+            // what nine points means, so a complete sheet already carries its
+            // outcome and asking for it twice only invites the two
+            // disagreeing. Nothing is ticked without a complete sheet.
+            new CheckBox({ checked: outcome?.label === band }),
+          ],
         }),
       ],
       { fill, width, middle: true },
@@ -278,7 +342,7 @@ function rubricTable(thresholds: ReturnType<typeof thresholdsFor>) {
   // outcomes line up with the three bands that define them. Spanning the grid
   // instead squeezes "NYC – Not Yet Competent" into the width of two
   // checkboxes, so it is a table of its own.
-  const total = new Table({
+  const totalTable = new Table({
     width: FULL_WIDTH,
     columnWidths: BAND_COLS,
     rows: [
@@ -286,16 +350,16 @@ function rubricTable(thresholds: ReturnType<typeof thresholdsFor>) {
         children: [
           tc(
             [
-              para(`Total Score ____ / ${MAX_DELIVERY_POINTS}`, {
+              para(`Total Score ${total ?? "____"} / ${MAX_DELIVERY_POINTS}`, {
                 size: BODY,
                 align: AlignmentType.CENTER,
               }),
             ],
             { fill: SHADE, width: BAND_COLS[0], middle: true },
           ),
-          outcomeBox("NYC – Not Yet Competent", NYC_FILL, BAND_COLS[1]),
-          outcomeBox("C – Competent", COMPETENT_FILL, BAND_COLS[2]),
-          outcomeBox("HC – Highly Competent", HIGHLY_FILL, BAND_COLS[3]),
+          outcomeBox("NYC – Not Yet Competent", NYC_FILL, BAND_COLS[1], "Not Yet Competent"),
+          outcomeBox("C – Competent", COMPETENT_FILL, BAND_COLS[2], "Competent"),
+          outcomeBox("HC – Highly Competent", HIGHLY_FILL, BAND_COLS[3], "Highly Competent"),
         ],
       }),
     ],
@@ -305,7 +369,7 @@ function rubricTable(thresholds: ReturnType<typeof thresholdsFor>) {
     gradingBand(thresholds),
     para("", { size: 4 }),
     new Table({ width: FULL_WIDTH, columnWidths: COLS, rows }),
-    total,
+    totalTable,
     // No note under the table explaining that it comes out blank. The band
     // across the top already names the three outcomes and their point ranges,
     // and FQ's own form carries no such paragraph — it was the app explaining
@@ -444,7 +508,7 @@ function appendix() {
 
 /* -------------------------------- Packing --------------------------------- */
 
-function coachBlocks(coach: RegisterCoach, register: ParsedRegister) {
+function coachBlocks(coach: RegisterCoach, register: ParsedRegister, scores?: AreaScores) {
   const thresholds = thresholdsFor({
     qualification: register.qualification,
     title: register.courseTitle,
@@ -454,7 +518,7 @@ function coachBlocks(coach: RegisterCoach, register: ParsedRegister) {
     para("", { size: 5 }),
     ...practicalComments(coach, TEXT_WIDTH),
     para("", { size: 5 }),
-    ...rubricTable(thresholds),
+    ...rubricTable(thresholds, scores),
     narrativeBlock(coach, register, TEXT_WIDTH),
     para("", { size: 5 }),
     // No course-judgement table between the narrative and the sign-off. It was
@@ -491,6 +555,19 @@ export async function assessmentPlanDocx(
   coaches: RegisterCoach[],
   register: ParsedRegister,
   kind: "action plan" | "feedback" = "action plan",
+  /**
+   * What a CET has already settled, where one has, keyed by coach name.
+   *
+   * The register carries none of it and the export leaves every one of these
+   * blank without it, which is still what the bundle does. This is for the
+   * cases FQ actually have: six scores agreed by email after a C Diploma
+   * closed, or a B Diploma form a CET has already ticked and written up in
+   * Word, which a document rebuilt from the register would otherwise lose.
+   *
+   * `scores` is the C's and the B ignores it — the B ticks a level per area
+   * and totals nothing. The rest is the B's and the C ignores it.
+   */
+  filled?: Record<string, CoachFilled>,
 ) {
   const b = isBDiploma(register);
   const competent = kind === "feedback";
@@ -499,9 +576,9 @@ export async function assessmentPlanDocx(
   const blocksFor = (coach: RegisterCoach) =>
     b
       ? competent
-        ? bFeedbackBlocks(coach, register)
-        : bActionPlanBlocks(coach, register)
-      : coachBlocks(coach, register);
+        ? bFeedbackBlocks(coach, register, filled?.[coach.name])
+        : bActionPlanBlocks(coach, register, filled?.[coach.name])
+      : coachBlocks(coach, register, filled?.[coach.name]?.scores);
 
   const doc = new Document({
     styles: { default: { document: { run: { font: FONT, size: pt(BODY), color: INK } } } },
@@ -533,9 +610,31 @@ export async function assessmentPlanDocx(
   return Packer.toBuffer(doc);
 }
 
-/** What a coach's file is called inside the bundle. */
-export function planFilename(coach: RegisterCoach, kind: "action plan" | "feedback") {
-  return docxFilename(coach.name, kind);
+/**
+ * What a coach's file is called inside the bundle.
+ *
+ * `Billy Ho-Fung Wong - B Diploma Assessment - Action Plan.docx`, which is the
+ * convention Blake circulates these under and the one FQ's own template file
+ * is named for (`C Diploma Assessment - Action Plan / Feedback`). The
+ * qualification is in the name because a coach can sit both diplomas and the
+ * two files would otherwise collide in whatever folder they end up in.
+ *
+ * Not the document's own title, which is longer and differs between the B's
+ * two documents (`Formative Assessment` against `Post-course Feedback`): the
+ * file name is for finding the file, and a column of names that agree down to
+ * the last three words is harder to scan, not easier.
+ */
+export function planFilename(
+  coach: RegisterCoach,
+  kind: "action plan" | "feedback",
+  register: ParsedRegister,
+) {
+  const what = kind === "feedback" ? "Feedback" : "Action Plan";
+  return docxFilename(
+    coach.name,
+    `${register.qualification ?? "Diploma"} Assessment`,
+    what,
+  );
 }
 
 export { docxFilename };
