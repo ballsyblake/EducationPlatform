@@ -138,7 +138,7 @@ export function tc(children: Paragraph[], o: CellOpts = {}) {
 }
 
 /** A label cell and its value, which is how the candidate block is built. */
-function labelled(label: string, value: string | null, widths: [number, number]) {
+export function labelled(label: string, value: string | null, widths: [number, number]) {
   return [
     tc([para(label, { bold: true, size: BODY })], { fill: SHADE, width: widths[0] }),
     tc([para(value || "", { size: BODY })], { width: widths[1] }),

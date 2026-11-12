@@ -71,12 +71,12 @@ async function main() {
   const outcome = outcomeFor(total, thresholds);
 
   // Half points are FQ's, not FA's: their grid has four boxes and nothing
-  // between them, so a 1.5 ticks no box and is written out beside the row
-  // instead. Worth saying out loud rather than leaving somebody to notice it
-  // on the printed form.
+  // between them. FQ's 9 November form takes them without argument — the score
+  // is written into a `/3` cell rather than ticked — which is why this no
+  // longer has to warn that a half score ticks nothing.
   const halves = numbers.filter((n) => !Number.isInteger(n)).length;
   console.log(`${coach.name}: ${numbers.join(", ")} = ${total}/18 — ${outcome.label}`);
-  if (halves) console.log(`${halves} half score(s): written beside the row, no box ticked.`);
+  if (halves) console.log(`${halves} half score(s): written into the cell as given.`);
 
   const asked = flag(argv, "outcome");
   const competent = asked === null ? outcome.competent : asked !== "not-yet";
