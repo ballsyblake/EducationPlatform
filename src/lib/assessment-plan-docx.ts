@@ -2,7 +2,6 @@ import "server-only";
 
 import {
   AlignmentType,
-  CheckBox,
   Document,
   PageBreak,
   Packer,
@@ -30,11 +29,11 @@ import {
   NYC_FILL,
   SHADE,
   SMALL,
-  TEXT_WIDTH,
   bullet,
   candidateBlock,
   deliveryTable,
   isBDiploma,
+  labelled,
   quotedDiploma,
   signOff,
   tc,
@@ -48,7 +47,6 @@ import {
   INK,
   para,
   pt,
-  text,
 } from "@/lib/fq-docx";
 import type { ParsedRegister, RegisterCoach } from "@/lib/register-file";
 
@@ -56,123 +54,299 @@ import type { ParsedRegister, RegisterCoach } from "@/lib/register-file";
 const LEVEL_FILLS = ["A6A6A6", "EE0000", "FFC000", "00B050"];
 
 /**
- * FQ's `Assessment — Action Plan / Feedback` document, filled in from a
+ * FQ's `‘C’ Diploma Practical Coaching Assessment` document, filled in from a
  * register.
  *
- * Laid out off the copy returned for Leesa Faunt's October 2026 C Diploma
- * assessment, and **laid out off it closely**: the same landscape page, the
- * same four-cell candidate block, the same salmon delivery headings, the same
- * grading band in grey, salmon, yellow and green, the same tick table with the
- * area centred and the descriptors beside it, the same red-amber-green rubric
- * appendix. A coach receiving one of these next to one typed by hand should not
- * be able to tell which was which.
+ * Laid out off `NAME - C Diploma Live or Video Assessment / Self-reflection`
+ * of 9 November 2026, which replaced the October form this file was first
+ * built from. Three things changed with it and all three are structural:
  *
- * That is why this file carries a palette and column widths rather than
- * percentages and the house maroon. The first version of it was built in the
- * app's own visual language — maroon section bands, small grey labels — and
- * read as a different document, which on paperwork a coach signs is a
- * difference that matters. The brand furniture it does share lives in
- * `fq-docx.ts`.
+ * 1. **The coach scores themselves first.** A `COACH SELF-REFLECTION` table
+ *    sits above the assessors' half, six areas out of three in the coach's own
+ *    words, and `FOR CET USE ONLY` divides the two.
+ * 2. **The rubric is written in, not ticked.** The old form's four checkboxes
+ *    per area are one `/3` cell. That is also what makes FQ's half points
+ *    expressible: they score 1.5 for an area, FA's grid has no box between 1
+ *    and 2, and a cell takes `1.5 / 3` without rounding anybody's mark.
+ * 3. **The covering letter is shorter, and FQ now write both halves of it.**
+ *    The competent paragraph used to be ours — written to their shape because
+ *    their template only had the not-yet-competent wording — and theirs is on
+ *    this form, so ours is gone. The strengths and gaps bullet lists went with
+ *    the rewrite: the evidence column beside each area is where the CET writes
+ *    now, and FQ took the duplicate off their own form.
  *
- * **Two documents out of one layout.** The template's covering paragraph is
- * pre-written for a coach who has not been deemed competent, while the form
- * above it still offers a Competent box — one document cannot carry both, and
- * the structure note at
- * `/mnt/project-files/action-plan-doc/c-diploma-action-plan-structure.md`
- * flagged it. So the narrative is conditional: a coach the register has signed
- * off as passed gets the feedback wording, and a coach who needs an action plan
- * gets the referral wording. Everything else is identical, because it is the
- * same assessment either way.
+ * **Two documents out of one layout, and they differ by more than wording.**
+ * The form as FQ hand it out is the *action plan*: the coach reflects, submits
+ * a video, the assessors score it, and the page is forward-looking — hence the
+ * video link, the blank assessment date and `Good luck with your next
+ * attempt`. The *feedback* version is the end of a course, so the
+ * video-assessment furniture comes off and the register's own practical
+ * write-ups go on in its place. Blake asked for exactly that split on
+ * 2026-11-12.
  *
- * **What this fills in, and what it leaves blank.** Everything the register
- * holds is filled: the course facts, every practical delivery's assessor,
- * block, component, topic and write-up, the action steps the assessors wrote,
- * the 1-5 session and course ratings, and the CETs' names. The six-area rubric
- * is left for the CETs to tick, and the total out of eighteen left blank,
- * because no 2026 register carries a rubric score — see the note at the head of
- * `register-file.ts`. Deriving eighteen points from a 1-5 rating would be
- * inventing a conversion nobody has published. Areas of strength are left blank
- * for the same reason: the register records gaps, in its action steps, and
- * nothing in it is marked as a strength.
+ * **What this fills in, and what it leaves blank.** The feedback version
+ * fills everything the register holds: the course facts, every practical
+ * delivery's assessor, block, component, topic and write-up, the action steps
+ * the assessors wrote, the per-delivery NYC/C/HC level as the heading's
+ * colour, and the CETs' names. The six-area rubric is left blank on both,
+ * because no 2026 register carries a rubric score — see the note at the head
+ * of `register-file.ts`. Deriving eighteen points from a 1-5 rating would be
+ * inventing a conversion nobody has published. The self-reflection is blank
+ * because it is the coach's to write.
  */
+
+/* ------------------------------- Geometry --------------------------------- */
+
+/**
+ * The C template's page margin, which is narrower than the B's 1134.
+ *
+ * Both diplomas are A4 landscape and the two forms are otherwise built the
+ * same way, but FQ set this one at 720 a side and the tables are drawn to the
+ * width that leaves. The margin is picked per document in `assessmentPlanDocx`
+ * rather than shared, because a document is all one diploma either way.
+ */
+export const C_MARGIN = 720;
+
+/** The C's text column, in twips. */
+const C_WIDTH = 16840 - C_MARGIN * 2;
+
+/**
+ * A transcribed grid, scaled to the text column.
+ *
+ * The template's own grids sum to a little more than its text width — Word
+ * lets a table overhang the right margin and FQ's file does — so every grid
+ * here is the template's column *proportions* normalised to the column that is
+ * actually there. Fixing the columns at all is the point: the templates fix
+ * theirs, and a table left to fit itself gets re-laid out by Word around
+ * whatever happens to be in it, which on a form full of deliberately empty
+ * cells is nothing at all.
+ */
+function fit(cols: number[]) {
+  const total = cols.reduce((sum, col) => sum + col, 0);
+  return cols.map((col) => Math.round((col / total) * C_WIDTH));
+}
+
+const CANDIDATE_COLS = fit([3969, 3826, 3404, 4395]);
+const REFLECTION_COLS = fit([3105, 2687, 9788]);
+/** The grading band, and the total row under the score table that answers it. */
+const BAND_COLS = fit([3119, 4415, 3616, 4370]);
+/**
+ * The score table's grid, which carries two rows of different shapes.
+ *
+ * Six scoring rows are `area | /3 | evidence`, where the evidence cell spans
+ * the last three columns; the total row is `Total Score | NYC | C | HC`, where
+ * the NYC cell spans the second and third. One grid serves both, which is how
+ * the template does it and the only way the two line up down the page.
+ */
+const SCORE_COLS = fit([3105, 2707, 1134, 3827, 4830]);
+const SIGN_COLS = fit([2410, 5126, 2387, 5670]);
+const APPENDIX_COLS = fit([2310, 2820, 3405, 3165, 4140]);
 
 /* ------------------------------- Narrative -------------------------------- */
 
 /**
  * The covering paragraphs, in FQ's own words.
  *
- * The opening and the framing are transcribed from the template. The closing
- * paragraph exists twice: `notYetCompetent` is the template's, verbatim bar the
- * diploma's name; `competent` is **not** on FQ's template, which has no
- * competent variant at all, and is written here to the same shape. It is the
- * one piece of wording in this document that FQ have not signed off, and it is
- * in one place so they can.
+ * All of it is now transcribed from their form, including the competent
+ * finding. The previous version of this file carried a competent paragraph
+ * written here, flagged in the code as the one piece of wording FQ had not
+ * signed off, because their October template was pre-written for a coach who
+ * had failed and offered no alternative. The 9 November form has both, so
+ * theirs replaced ours.
+ *
+ * `opening` names the video or live assessment, which is true of the document
+ * FQ hand out and not of a course feedback letter, so the feedback version
+ * drops that clause. The closing line is one sentence on their form with a
+ * slash in it — `your next attempt / coaching career` — because one template
+ * serves both; here the two documents each take their own half.
  */
 const NARRATIVE = {
-  opening: (qualification: string) =>
-    `Congratulations on attending the Football Australia/AFC ${qualification} — this marks an important milestone in your coaching journey.`,
-  framing:
-    "Your formative assessment represents a valuable opportunity to build on what you have learned throughout the course. The CETs have identified both key strengths and areas where further development is needed. Continue to excel in your strengths - keep thriving in these areas. For the performance gap, we are looking for you to narrow the gap and show improvement in the upcoming months.",
-  // The same opening sentence without the three that follow it. Those three
-  // point at the strengths and gaps lists, and the feedback letter no longer
-  // has them: a coach who passed is told so, not handed a form to fill in.
-  framingCompetent:
-    "Your formative assessment represents a valuable opportunity to build on what you have learned throughout the course.",
-  notYetCompetent: (qualification: string) =>
-    `At this stage, the CETs for the ${qualification} have determined that your practical performance is not yet at the level required to be deemed competent in the course. We are sharing this information now to ensure you have ample time to focus on the areas identified and to work closely with your mentor to address the performance gaps outlined above. It is recommended that you reach out to a mentor/'critical friend' in your environment to continually seek feedback and self-evaluate. Next steps in working towards being competent will involve completing a video assessment in the next 3 to 6 months, with appropriate elevation and audio.`,
-  competent: (qualification: string) =>
-    `The CETs for the ${qualification} have determined that your practical performance meets the level required to be deemed competent in the course. The areas identified above are the ones to keep working on: competent is a standard reached, not a ceiling. It is recommended that you reach out to a mentor/'critical friend' in your environment to continually seek feedback and self-evaluate as you apply this in your own coaching.`,
+  opening: (qualification: string, assessed: boolean) =>
+    `Congratulations on attending the Football Australia/AFC ${qualification}${
+      assessed ? " and in undertaking the video / live assessment" : ""
+    } — this marks an important milestone in your coaching journey.`,
+  competent: "Your practical performance is at the level required to be deemed competent – congratulations!",
+  notYetCompetent:
+    "At this stage your practical performance is not yet at the level required to be deemed competent. We are sharing this information now to ensure you have ample time to focus on the areas identified and to work closely with your mentor to address the performance gaps outlined above.",
+  closing: (assessed: boolean) =>
+    assessed ? "Good luck with your next attempt." : "Good luck with your coaching career.",
   practicalComments:
-    "The CETs observed and provided feedback after each practical component you delivered throughout the course. This includes general comments on each session, as well as key areas to continue working on to develop to the next level. This feedback is intended to support your ongoing development and should be read alongside the assessment and action plan below.",
+    "The CETs observed and provided feedback after each practical component you delivered throughout the course. This includes general comments on each session, as well as key areas to continue working on to develop to the next level.",
 };
 
 /* ------------------------------ Page blocks ------------------------------- */
 
 /**
- * The practical comments box: the heading and FQ's standing paragraph.
+ * The candidate block, which is a different block on each of the two forms.
  *
- * The write-ups themselves follow as their own table — see `deliveryTable` in
- * `assessment-plan-parts.ts` for why they are not inside this box.
+ * The action plan's is the template's: the assessment date, whether it is to
+ * be live or on video, and a line for the YouTube link, all blank, because
+ * they describe an assessment that has not happened yet. The feedback version
+ * is the end of a course, so those three come off and the course's own date
+ * and location go back in their place.
  */
-function practicalComments(coach: RegisterCoach, width: number): (Paragraph | Table)[] {
-  const box = new Table({
-    width: FULL_WIDTH,
-    columnWidths: [width],
-    rows: [
+function cCandidateBlock(coach: RegisterCoach, register: ParsedRegister, assessed: boolean) {
+  const left: [number, number] = [CANDIDATE_COLS[0], CANDIDATE_COLS[1]];
+  const right: [number, number] = [CANDIDATE_COLS[2], CANDIDATE_COLS[3]];
+  const rows = [
+    new TableRow({
+      children: [
+        ...labelled("Candidate Name", coach.name, left),
+        ...labelled("Accreditation Level", quotedDiploma(register.qualification), right),
+      ],
+    }),
+  ];
+
+  if (assessed) {
+    rows.push(
       new TableRow({
         children: [
-          tc(
-            [
-              para("PRACTICAL COMMENTS", { bold: true, size: BODY, after: 5 }),
-              para(NARRATIVE.practicalComments, { size: BODY, after: 0 }),
-            ],
-            { width },
-          ),
+          // Blank. The register's course dates are not this date: the form is
+          // handed over before the video assessment it heads.
+          ...labelled("Assessment Date (MM/YY)", null, left),
+          ...labelled("Video or Live Assessment", null, right),
         ],
       }),
+      new TableRow({
+        children: [
+          tc([para("Video Link (upload to Youtube)", { bold: true, size: BODY })], {
+            fill: SHADE,
+            width: CANDIDATE_COLS[0],
+          }),
+          tc([para("", { size: BODY })], {
+            span: 3,
+            width: CANDIDATE_COLS[1] + CANDIDATE_COLS[2] + CANDIDATE_COLS[3],
+          }),
+        ],
+      }),
+    );
+  } else {
+    rows.push(
+      new TableRow({
+        children: [
+          ...labelled("Course Date (MM/YY)", register.courseDates, left),
+          ...labelled("Course Location", register.location, right),
+        ],
+      }),
+    );
+  }
+
+  return new Table({ width: FULL_WIDTH, columnWidths: CANDIDATE_COLS, rows });
+}
+
+/**
+ * The coach's own six-area reflection, blank.
+ *
+ * On the action plan only, and on FQ's form it is the first thing the coach
+ * meets: they score themselves out of three and write why before the assessors
+ * see the video. Nothing in the app or the register holds it — it is written
+ * on the document after it is handed over, the same way the CETs' own evidence
+ * is — so what the export can do is put the table there with the headings and
+ * the guidance line right. `filled` takes it back on a rebuild.
+ */
+function selfReflection(filled?: CoachFilled) {
+  const header = new TableRow({
+    children: [
+      tc(
+        [
+          para("COACH SELF-REFLECTION", { bold: true, size: BODY, after: 3 }),
+          para(
+            "For guidance in completing your self-reflection, please refer to the Assessment Rubric Criteria at the end of this document",
+            { size: BODY },
+          ),
+        ],
+        { fill: SHADE, span: 3, width: C_WIDTH },
+      ),
     ],
   });
-  if (!coach.deliveries.length) return [box, para("", { size: 3 }), ...deliveryTable(coach, width)];
-  // Shaded by the level the CET gave that session and with the 1-5 number off
-  // the write-up, both the same way round as the B's action plan. The template
-  // heads all three columns in its salmon, but the salmon now means Not Yet
-  // Competent on the same page, so an unshaded delivery falls back to the
-  // neutral grey rather than to a colour that says something.
+
+  const rows = DELIVERY_AREAS.map((area) => {
+    const own = filled?.reflection?.[area.code];
+    return new TableRow({
+      cantSplit: true,
+      children: [
+        tc([para(areaHeading(area.code, area.title), { size: BODY, align: AlignmentType.CENTER })], {
+          width: REFLECTION_COLS[0],
+          middle: true,
+        }),
+        tc([para(scoreOutOfThree(own?.score), { size: BODY, align: AlignmentType.CENTER })], {
+          width: REFLECTION_COLS[1],
+          middle: true,
+        }),
+        tc(
+          (own?.comment?.length ? own.comment : [""]).map((line) =>
+            para(line, { size: SMALL }),
+          ),
+          { width: REFLECTION_COLS[2] },
+        ),
+      ],
+    });
+  });
+
+  return new Table({ width: FULL_WIDTH, columnWidths: REFLECTION_COLS, rows: [header, ...rows] });
+}
+
+/**
+ * The practical write-ups off the register, with their heading paragraph.
+ *
+ * The feedback version only, and the one thing on it that the register
+ * actually fills. The old form carried these under a `PRACTICAL COMMENTS` box
+ * on both documents; the new one has no such section at all, so they go on the
+ * feedback letter under a plain heading and come off the action plan, which is
+ * about the assessment still to come rather than the course just finished.
+ */
+function practicalComments(coach: RegisterCoach): (Paragraph | Table)[] {
   return [
-    box,
-    para("", { size: 3 }),
-    ...deliveryTable(coach, width, { headerFill: SHADE, byLevel: "fill", rating: false }),
+    para("PRACTICAL COMMENTS", { bold: true, size: BODY, after: 3 }),
+    para(NARRATIVE.practicalComments, { size: BODY, after: 4 }),
+    // Shaded by the level the CET gave that session and with no 1-5 number on
+    // it. The colour and the rating say the same thing about a session, the
+    // colour is the one the CET set, and an unshaded delivery falls back to
+    // the neutral grey rather than to the template's salmon, which means Not
+    // Yet Competent on the same page.
+    ...deliveryTable(coach, C_WIDTH, { headerFill: SHADE, byLevel: "fill", rating: false }),
   ];
 }
 
 /**
- * The grading band's columns, shared with the total row under the tick table.
+ * The six areas as the template heads them in its two scoring tables.
  *
- * The template's own figures. The two rows have to agree: the band says what
- * each outcome means and the total row is where one of them is ticked, and a
- * reader lines them up by eye.
+ * Transcribed rather than built out of `FA_RUBRIC_APPENDIX`, which heads the
+ * same six areas at much greater length: composing them from the appendix put
+ * three lines in a cell the template fills with one and pushed the form onto a
+ * third page.
+ *
+ * The sixth is the one divergence. FQ's form says `MOTIVATIONAL CLIMATE` in
+ * these tables and `Environment` in the appendix on the following page, which
+ * is a contradiction on one document rather than two names for two things, so
+ * it is headed with both.
  */
-const BAND_COLS = [3686, 4111, 3402, 3402];
+const AREA_HEADINGS: Record<string, string> = {
+  OBJECTIVE: "OBJECTIVE",
+  CONTENT: "CONTENTS – 5Rs",
+  ORGANISATION: "ORGANISATION",
+  PRESENTING: "PRESENTING / Engage – Explain - Exit",
+  COACHING: "COACHING / Enter – Educate / Enhance - Ensure",
+  ENVIRONMENT: "ENVIRONMENT / Motivational climate",
+};
+
+function areaHeading(code: string, title: string) {
+  return AREA_HEADINGS[code] ?? title.toUpperCase();
+}
+
+/**
+ * A score in the template's `/3` cell.
+ *
+ * `/3` on its own where there is no answer, which is the template's own
+ * placeholder, and `1.5 / 3` where there is. Half points are the reason this
+ * is a cell rather than the four checkboxes the October form had: FQ settle
+ * the six areas by email after a course closes and score 1.5 for an area that
+ * drew constructive feedback, FA's grid has no box between 1 and 2, and
+ * rounding to the nearest box would change a coach's mark.
+ */
+function scoreOutOfThree(score?: number) {
+  return score === undefined ? "/3" : `${score} / 3`;
+}
 
 /** The grading scale as the template's four coloured cells. */
 function gradingBand(thresholds: ReturnType<typeof thresholdsFor>) {
@@ -193,18 +367,18 @@ function gradingBand(thresholds: ReturnType<typeof thresholdsFor>) {
             width: BAND_COLS[0],
             middle: true,
           }),
+          // The template's own inequalities rather than the ranges the October
+          // form printed: `(<9)`, `(9 ≤ x < 12)`, `(≥12)`. They say the same
+          // thing about an integer total and the right thing about a total that
+          // ends in a half, which this form's cells can now carry.
+          band(`NYC – Not Yet Competent (<${thresholds.competent})`, NYC_FILL, BAND_COLS[1]),
           band(
-            `NYC – Not Yet Competent (0–${thresholds.competent - 1})`,
-            NYC_FILL,
-            BAND_COLS[1],
-          ),
-          band(
-            `C - Competent (${thresholds.competent}–${thresholds.highlyCompetent - 1})`,
+            `C – Competent (${thresholds.competent} ≤ x < ${thresholds.highlyCompetent})`,
             COMPETENT_FILL,
             BAND_COLS[2],
           ),
           band(
-            `HC – Highly Competent (${thresholds.highlyCompetent}–${MAX_DELIVERY_POINTS})`,
+            `HC – Highly Competent (≥${thresholds.highlyCompetent})`,
             HIGHLY_FILL,
             BAND_COLS[3],
           ),
@@ -212,21 +386,6 @@ function gradingBand(thresholds: ReturnType<typeof thresholdsFor>) {
       }),
     ],
   });
-}
-
-/** A digit over a tickable box, which is one cell of the rubric's tick table. */
-function scoreBox(score: number, width: number, checked = false) {
-  return tc(
-    [
-      para(String(score), { size: BODY, align: AlignmentType.CENTER }),
-      new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing: { before: 0, after: 0 },
-        children: [new CheckBox({ checked })],
-      }),
-    ],
-    { width, middle: true },
-  );
 }
 
 /**
@@ -240,158 +399,150 @@ function scoreBox(score: number, width: number, checked = false) {
  */
 export type AreaScores = Partial<Record<string, number>>;
 
-/** Everything a CET may already have settled on one coach's form. */
-export type CoachFilled = BFilled & { scores?: AreaScores };
+/** Everything a CET, or the coach, may already have written on one form. */
+export type CoachFilled = BFilled & {
+  scores?: AreaScores;
+  /**
+   * The coach's own self-reflection, keyed by `DeliveryArea.code`.
+   *
+   * Same reasoning as `BFilled.evidence`: it is typed into the exported Word
+   * file, so a form rebuilt from the register destroys it unless it is handed
+   * back in. Nothing in the app passes this.
+   */
+  reflection?: Partial<Record<string, { score?: number; comment?: string[] }>>;
+};
 
 /**
- * The six-area tick table, blank, and the total under it.
+ * The assessors' six-area table, and the total under it.
  *
- * Real Word checkboxes rather than drawn ones, as on the template: this
- * document is sent out to be completed and signed, and a box somebody can click
- * is the difference between filling the form in Word and printing it to tick by
- * hand.
+ * Left blank. A register carries no rubric score, so there is nothing to score
+ * from — and a table filled in from the 1-5 session rating would be the
+ * platform quietly asserting a conversion between two instruments that FA have
+ * never published one for.
  *
- * Left blank, with a line saying why. A register carries no rubric score, so
- * there is nothing to tick from — and a table pre-filled from the 1-5 rating
- * would be the platform quietly asserting a conversion between two instruments
- * that FA have never published one for.
- *
- * The sixth area is headed `Environment`, which is what the template's own
- * appendix calls it and what `DeliveryScore.code` stores. The template's tick
- * table says `MOTIVATIONAL CLIMATE` on the same page as an appendix that says
- * Environment; following that would be copying a contradiction.
+ * The sixth area is headed `Environment` in the appendix and `MOTIVATIONAL
+ * CLIMATE` in this table, and both are the template's own wording on the same
+ * page. `DeliveryArea.title` is Environment, so the heading here follows the
+ * appendix rather than copying a contradiction forward.
  */
-function rubricTable(thresholds: ReturnType<typeof thresholdsFor>, scores?: AreaScores) {
-  const COLS = [3686, 1028, 1028, 1028, 1027, 6804];
-
+function scoreTable(thresholds: ReturnType<typeof thresholdsFor>, filled?: CoachFilled) {
+  const scores = filled?.scores;
   const given = DELIVERY_AREAS.map((area) => scores?.[area.code]).filter(
     (value): value is number => typeof value === "number",
   );
   // Only once every area has an answer. A sheet half filled in is not a coach
   // who scored nothing in the rest, so a partial set leaves the total blank.
-  const total = given.length === DELIVERY_AREAS.length
-    ? given.reduce((sum, value) => sum + value, 0)
-    : null;
+  const total =
+    given.length === DELIVERY_AREAS.length
+      ? given.reduce((sum, value) => sum + value, 0)
+      : null;
   const outcome = total === null ? null : outcomeFor(total, thresholds);
 
+  const evidenceWidth = SCORE_COLS[2] + SCORE_COLS[3] + SCORE_COLS[4];
   const rows = DELIVERY_AREAS.map((area) => {
-    const appendix = FA_RUBRIC_APPENDIX.find((r) => r.code === area.code);
-    const sub = appendix?.heading.slice(1) ?? [];
-    const score = scores?.[area.code];
+    // The CET's reasoning beside the score, which is where this form carries
+    // its longest writing now that the strengths and gaps lists have gone, and
+    // blank for them to fill in.
+    const evidence = filled?.evidence?.[area.code] ?? [];
     return new TableRow({
       cantSplit: true,
       children: [
+        tc([para(areaHeading(area.code, area.title), { size: BODY, align: AlignmentType.CENTER })], {
+          width: SCORE_COLS[0],
+          middle: true,
+        }),
         tc(
-          [
-            para(area.title, { size: BODY, caps: true, align: AlignmentType.CENTER }),
-            ...(sub.length
-              ? [para(sub.join(" – "), { size: SMALL, align: AlignmentType.CENTER })]
-              : []),
-          ],
-          { width: COLS[0], middle: true },
+          [para(scoreOutOfThree(scores?.[area.code]), { size: BODY, align: AlignmentType.CENTER })],
+          { width: SCORE_COLS[1], middle: true },
         ),
-        scoreBox(0, COLS[1], score === 0),
-        scoreBox(1, COLS[2], score === 1),
-        scoreBox(2, COLS[3], score === 2),
-        scoreBox(3, COLS[4], score === 3),
-        // The evidence column: the CET's reasoning for the score beside it,
-        // which is where the template carries its longest writing, and blank
-        // for them to fill in.
-        //
-        // The awarded score goes here in words as well as in a tick, because
-        // FQ score in half points — 1.5 for an area that drew constructive
-        // feedback — and FA's grid has four boxes, 0 to 3, with nothing
-        // between them. Rounding to the nearest box would change a coach's
-        // mark, so a half score ticks nothing and is written out instead.
         tc(
-          [
-            para(
-              score === undefined
-                ? ""
-                : `Awarded ${score}${Number.isInteger(score) ? "" : " — between the boxes above"}`,
-              { size: SMALL },
-            ),
-          ],
-          { width: COLS[5] },
+          (evidence.length ? evidence : [""]).map((line) => para(line, { size: SMALL })),
+          { span: 3, width: evidenceWidth },
         ),
       ],
     });
   });
 
-  const outcomeBox = (label: string, fill: string, width: number, band: string) =>
+  // Three coloured cells with nothing to tick, which is the template's own
+  // total row. The October form had none either and this file put a Word
+  // checkbox in each; they are gone because the sdt renders as a crossed box
+  // in anything but Word, and a letter converted to PDF with two outcomes
+  // apparently ticked is worse than one a CET marks by hand.
+  //
+  // Where a complete set of scores does settle it, that outcome's label is
+  // bold. It follows from the total rather than being asked for, because FA's
+  // guide says what nine points means and asking twice only invites the two
+  // disagreeing.
+  const outcomeBox = (label: string, fill: string, width: number, band: string, span?: number) =>
     tc(
       [
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 0, after: 0 },
-          children: [
-            text(`${label}    `, { size: BODY }),
-            // Ticked from the total rather than chosen again. FA's guide says
-            // what nine points means, so a complete sheet already carries its
-            // outcome and asking for it twice only invites the two
-            // disagreeing. Nothing is ticked without a complete sheet.
-            new CheckBox({ checked: outcome?.label === band }),
-          ],
+        para(label, {
+          size: BODY,
+          bold: outcome?.label === band,
+          align: AlignmentType.CENTER,
         }),
       ],
-      { fill, width, middle: true },
+      { fill, width, middle: true, span },
     );
 
-  // The total row sits under the grid but on the *grading band's* columns, not
-  // the grid's, which is what the template does and the only way the three
-  // outcomes line up with the three bands that define them. Spanning the grid
-  // instead squeezes "NYC – Not Yet Competent" into the width of two
-  // checkboxes, so it is a table of its own.
-  const totalTable = new Table({
-    width: FULL_WIDTH,
-    columnWidths: BAND_COLS,
-    rows: [
-      new TableRow({
-        children: [
-          tc(
-            [
-              para(`Total Score ${total ?? "____"} / ${MAX_DELIVERY_POINTS}`, {
-                size: BODY,
-                align: AlignmentType.CENTER,
-              }),
-            ],
-            { fill: SHADE, width: BAND_COLS[0], middle: true },
-          ),
-          outcomeBox("NYC – Not Yet Competent", NYC_FILL, BAND_COLS[1], "Not Yet Competent"),
-          outcomeBox("C – Competent", COMPETENT_FILL, BAND_COLS[2], "Competent"),
-          outcomeBox("HC – Highly Competent", HIGHLY_FILL, BAND_COLS[3], "Highly Competent"),
-        ],
-      }),
-    ],
-  });
+  rows.push(
+    new TableRow({
+      children: [
+        tc(
+          [
+            para(`Total Score: ${total ?? "x"} / ${MAX_DELIVERY_POINTS}`, {
+              size: BODY,
+              align: AlignmentType.CENTER,
+            }),
+          ],
+          { fill: SHADE, width: SCORE_COLS[0], middle: true },
+        ),
+        outcomeBox(
+          "NYC – Not Yet Competent",
+          NYC_FILL,
+          SCORE_COLS[1] + SCORE_COLS[2],
+          "Not Yet Competent",
+          2,
+        ),
+        outcomeBox("C – Competent", COMPETENT_FILL, SCORE_COLS[3], "Competent"),
+        outcomeBox("HC – Highly Competent", HIGHLY_FILL, SCORE_COLS[4], "Highly Competent"),
+      ],
+    }),
+  );
 
   return [
     gradingBand(thresholds),
-    para("", { size: 4 }),
-    new Table({ width: FULL_WIDTH, columnWidths: COLS, rows }),
-    totalTable,
-    // No note under the table explaining that it comes out blank. The band
-    // across the top already names the three outcomes and their point ranges,
-    // and FQ's own form carries no such paragraph — it was the app explaining
-    // itself on a document a coach signs, which is not the place for it. Why
-    // the table is empty is in `CLAUDE.md` and in the page the export comes
-    // from, for the people who need to know.
-    para("", { size: 4 }),
+    para("", { size: 2 }),
+    new Table({ width: FULL_WIDTH, columnWidths: SCORE_COLS, rows }),
+    para("", { size: 2 }),
   ];
 }
 
 /**
  * The covering letter, inside the template's single ruled box.
  *
- * Two documents come out of here and they are not the same letter. The action
- * plan is working paperwork: it carries the blank strengths and gaps lists the
- * CET fills in with the coach. The feedback letter is the end of the matter, so
- * it is the congratulation, the framing and the competency finding, and nothing
- * to fill in.
+ * Shorter than the October form's, because FQ's rewrite is: the greeting, the
+ * congratulation, the competency finding, and a line of good luck. The
+ * framing paragraph and the blank `Area of Strength` / `Performance Gaps`
+ * bullet lists are not on their new form and are not here either — the
+ * evidence column beside each area is where the CET writes now, and the lists
+ * were the same thing asked for twice.
  */
-function narrativeBlock(coach: RegisterCoach, register: ParsedRegister, width: number) {
-  const competent = coach.verdict === "passed";
+function narrativeBlock(
+  coach: RegisterCoach,
+  register: ParsedRegister,
+  assessed: boolean,
+  filled?: CoachFilled,
+) {
+  // Which letter this is follows the document, not the register's verdict. The
+  // two agree in the bundle — the route asks for a feedback letter when the
+  // register signed the coach off and an action plan otherwise — but an action
+  // plan is by definition the document a coach who is not yet competent gets,
+  // and the not-yet-judged bundle is action plans on coaches with no verdict
+  // at all. A CET who has settled it ahead of the register says so in `filled`.
+  const competent = filled?.outcome ? filled.outcome === "competent" : !assessed;
   const qualification = quotedDiploma(register.qualification);
+  const firstName = coach.name.trim().split(/\s+/)[0] || coach.name;
 
   const inner: Paragraph[] = [
     para(competent ? "FEEDBACK / FURTHER COMMENTS" : "ACTION PLAN / FURTHER COMMENTS", {
@@ -399,26 +550,28 @@ function narrativeBlock(coach: RegisterCoach, register: ParsedRegister, width: n
       size: BODY,
       after: 6,
     }),
-    para(NARRATIVE.opening(qualification), { size: BODY, after: 5 }),
-    para(competent ? NARRATIVE.framingCompetent : NARRATIVE.framing, { size: BODY, after: 5 }),
+    para(`Dear ${firstName},`, { size: BODY, after: 5 }),
+    para(NARRATIVE.opening(qualification, assessed), { size: BODY, after: 5 }),
+    para(competent ? NARRATIVE.competent : NARRATIVE.notYetCompetent, {
+      size: BODY,
+      after: 5,
+    }),
   ];
 
-  // The two bullet lists are on the action plan only. They are blank for the
-  // CET to fill in — nothing on a register is marked as a strength, and the
-  // gaps are already written out against the delivery each came from on the
-  // first page — so on a coach who passed they were an empty form stapled to a
-  // letter saying the assessment is finished. The action plan is the document
-  // that is still being worked on, and it keeps them.
-  if (!competent) {
+  // The bullets FQ took off their form, back only where a CET has actually
+  // written some. Twelve of the Moreton action plans came back with them filled
+  // in by hand, and a rebuild that dropped them would be destroying the CET's
+  // work rather than following the template.
+  if (filled?.strengths?.length) {
     inner.push(
       para("Area of Strength:", { size: BODY, after: 3 }),
-      bullet(""),
-      bullet(""),
-      bullet(""),
+      ...filled.strengths.map((line) => bullet(line)),
+    );
+  }
+  if (filled?.gaps?.length) {
+    inner.push(
       para("Performance Gaps:", { size: BODY, before: 4, after: 3 }),
-      bullet(""),
-      bullet(""),
-      bullet(""),
+      ...filled.gaps.map((line) => bullet(line)),
     );
   }
 
@@ -429,23 +582,18 @@ function narrativeBlock(coach: RegisterCoach, register: ParsedRegister, width: n
     );
   }
 
-  inner.push(
-    para(
-      competent ? NARRATIVE.competent(qualification) : NARRATIVE.notYetCompetent(qualification),
-      { size: BODY, before: 5, after: 2 },
-    ),
-  );
+  inner.push(para(NARRATIVE.closing(assessed), { size: BODY, before: 5, after: 2 }));
 
   return new Table({
     width: FULL_WIDTH,
-    columnWidths: [width],
-    rows: [new TableRow({ children: [tc(inner, { width })] })],
+    columnWidths: [C_WIDTH],
+    rows: [new TableRow({ children: [tc(inner, { width: C_WIDTH })] })],
   });
 }
 
-/** FA's descriptor grid, which is the reference the ticks are made against. */
+/** FA's descriptor grid, which is the reference the scores are given against. */
 function appendix() {
-  const COLS = [2245, 3603, 3461, 3461, 3602];
+  const COLS = APPENDIX_COLS;
   const rows = [
     new TableRow({
       tableHeader: true,
@@ -499,6 +647,7 @@ function appendix() {
     new Paragraph({ children: [new PageBreak()] }),
     para("Football Australia Coach Education Assessment Rubric", {
       size: BODY,
+      bold: true,
       align: AlignmentType.CENTER,
       after: 6,
     }),
@@ -508,25 +657,46 @@ function appendix() {
 
 /* -------------------------------- Packing --------------------------------- */
 
-function coachBlocks(coach: RegisterCoach, register: ParsedRegister, scores?: AreaScores) {
+/**
+ * One coach's C Diploma form.
+ *
+ * `assessed` is what separates the two documents: the action plan is the form
+ * FQ hand out ahead of a video or live assessment, so it carries the coach's
+ * self-reflection and the video link and nothing off the register; the
+ * feedback version is the end of a course, so it carries the register's
+ * practical write-ups instead.
+ */
+function coachBlocks(
+  coach: RegisterCoach,
+  register: ParsedRegister,
+  kind: "action plan" | "feedback",
+  filled?: CoachFilled,
+) {
   const thresholds = thresholdsFor({
     qualification: register.qualification,
     title: register.courseTitle,
   });
+  const assessed = kind === "action plan";
+
   return [
-    candidateBlock(coach, register),
-    para("", { size: 5 }),
-    ...practicalComments(coach, TEXT_WIDTH),
-    para("", { size: 5 }),
-    ...rubricTable(thresholds, scores),
-    narrativeBlock(coach, register, TEXT_WIDTH),
-    para("", { size: 5 }),
-    // No course-judgement table between the narrative and the sign-off. It was
-    // ours, not FQ's — a row restating the register's rating, readiness,
-    // outcome and attendance — and on a document whose whole point is that the
-    // CETs make the judgement, printing the register's answer underneath their
-    // blank rubric read as the decision already being taken.
-    signOff(coach, register),
+    cCandidateBlock(coach, register, assessed),
+    para("", { size: 2 }),
+    ...(assessed
+      ? [
+          selfReflection(filled),
+          para("", { size: 2 }),
+          para("FOR CET USE ONLY – To be completed by the Assessor", {
+            size: BODY,
+            align: AlignmentType.CENTER,
+            after: 4,
+          }),
+        ]
+      : practicalComments(coach)),
+    para("", { size: 2 }),
+    ...scoreTable(thresholds, filled),
+    narrativeBlock(coach, register, assessed, filled),
+    para("", { size: 2 }),
+    signOff(coach, register, { columns: SIGN_COLS }),
     ...appendix(),
   ];
 }
@@ -541,8 +711,9 @@ function documentTitle(register: ParsedRegister) {
  *
  * Landscape at the templates' own page and margins, which is the only way the
  * practical write-ups fit side by side and the rubric's descriptors stay
- * readable. Both diplomas use the same page, so the section setup is shared
- * even though the blocks inside it are not.
+ * readable. Both diplomas use the same page but not the same margins — FQ set
+ * the C's 9 November form at 720 a side and the B's at 1134 — and a document
+ * is all one diploma, so the margin is picked here.
  *
  * `kind` decides which document this is, not the coach's verdict, because the
  * export route already knows: it asks for a feedback letter when the register
@@ -564,12 +735,14 @@ export async function assessmentPlanDocx(
    * closed, or a B Diploma form a CET has already ticked and written up in
    * Word, which a document rebuilt from the register would otherwise lose.
    *
-   * `scores` is the C's and the B ignores it — the B ticks a level per area
-   * and totals nothing. The rest is the B's and the C ignores it.
+   * `scores` and `reflection` are the C's and the B ignores them — the B ticks
+   * a level per area and totals nothing. `levels` is the B's and the C ignores
+   * it. `evidence`, `strengths`, `gaps` and `outcome` are read by both.
    */
   filled?: Record<string, CoachFilled>,
 ) {
   const b = isBDiploma(register);
+  const margin = b ? 1134 : C_MARGIN;
   const competent = kind === "feedback";
   const title = b ? bDocumentTitle(register, competent) : documentTitle(register);
 
@@ -578,7 +751,7 @@ export async function assessmentPlanDocx(
       ? competent
         ? bFeedbackBlocks(coach, register, filled?.[coach.name])
         : bActionPlanBlocks(coach, register, filled?.[coach.name])
-      : coachBlocks(coach, register, filled?.[coach.name]?.scores);
+      : coachBlocks(coach, register, kind, filled?.[coach.name]);
 
   const doc = new Document({
     styles: { default: { document: { run: { font: FONT, size: pt(BODY), color: INK } } } },
@@ -588,10 +761,10 @@ export async function assessmentPlanDocx(
           page: {
             size: { orientation: "landscape" },
             margin: {
-              top: 1134,
-              bottom: 1134,
-              left: 1134,
-              right: 1134,
+              top: margin,
+              bottom: margin,
+              left: margin,
+              right: margin,
               header: 578,
               footer: 641,
             },

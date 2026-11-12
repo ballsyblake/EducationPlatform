@@ -155,8 +155,8 @@ assignments at the foot of the file, so adding a field to one and not the other
 stops compiling. And **no 2026 register carries a six-area rubric score** — the
 only number per delivery is a free-text `Session Rating: n` on the 1-5 scale —
 so the generated document's rubric table and its total out of eighteen come out
-blank for the CETs to tick. Don't "fix" that by deriving one from the other; see
-the note at the head of `delivery-rubric.ts`.
+blank for the CETs to fill in. Don't "fix" that by deriving one from the other;
+see the note at the head of `delivery-rubric.ts`.
 
 **The two registers label the per-delivery rating differently.** The B's
 write-ups say `Session Rating:` and the C's say plain `Rating:`. Until that was
@@ -195,7 +195,34 @@ b-diploma-docx.ts          The B Diploma's two: the formative assessment /
                            action plan, and the post-course feedback letter
 ```
 
-The C form scores six areas 0-3 and totals them out of eighteen. The B form
+The C form scores six areas 0-3 and totals them out of eighteen. **Its layout
+changed on 2026-11-12**, off FQ's `C Diploma Live or Video Assessment /
+Self-reflection` form of 9 November, and the change is structural rather than
+cosmetic:
+
+- **The coach scores themselves first**, in a `COACH SELF-REFLECTION` table
+  above the assessors' half, with `FOR CET USE ONLY` dividing the two.
+- **The rubric is written in, not ticked.** One `/3` cell per area in place of
+  four checkboxes, which is also what makes FQ's half points expressible —
+  they score 1.5 for an area and FA's grid has no box between 1 and 2.
+- **FQ now write both halves of the covering letter.** The competent paragraph
+  used to be ours, written to their shape because their template only had the
+  not-yet-competent wording. Theirs is on this form, so ours is gone, and the
+  blank strengths/gaps lists went with it — the evidence column beside each
+  area is where a CET writes now.
+- **The C's margins are 720, the B's 1134.** `assessmentPlanDocx` picks per
+  document. Every C grid is transcribed from the template and normalised to
+  the column that leaves, by `fit()`.
+
+**The C's two documents differ by more than wording.** The action plan is the
+form FQ hand out ahead of a video or live assessment, so it carries the
+self-reflection, the video link, a blank assessment date and `Good luck with
+your next attempt`, and **nothing off the register**. The feedback version is
+the end of a course, so that furniture comes off and the register's practical
+write-ups go on in its place. `kind` decides which, and the covering letter
+follows the document rather than the register's verdict.
+
+The B form
 ticks NYC / C / HC per area and **totals nothing**, carries its own rubric
 (`b-diploma-rubric.ts`, three levels, not FA's four with a column removed).
 The two B documents even have different titles from each other. Both end on
