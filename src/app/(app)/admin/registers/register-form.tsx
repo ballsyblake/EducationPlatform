@@ -95,6 +95,7 @@ export function RegisterForm() {
   const [fileName, setFileName] = useState<string | null>(null);
   const register = state.register;
   const counts = register ? countVerdicts(register.coaches) : null;
+  const isB = !!register?.qualification?.trim().toUpperCase().startsWith("B");
   // Coaches the register has written up but not yet rated or signed off.
   const awaiting = register?.coaches.filter(awaitingJudgement).length ?? 0;
 
@@ -225,7 +226,13 @@ export function RegisterForm() {
               className="btn-secondary"
               disabled={!counts.passed}
             >
-              Feedback only ({counts.passed})
+              {/*
+                The C's pass document is FQ's own `On Course Pass` form and the
+                B's is their post-course feedback letter, so the button is
+                named for whichever one this register will produce. The two are
+                different documents, not one document worded two ways.
+              */}
+              {isB ? "Feedback" : "On course pass"} only ({counts.passed})
             </button>
             {/*
               Mid-course, the Rating and Outcome columns are empty and nobody is
@@ -241,8 +248,7 @@ export function RegisterForm() {
           </form>
           <p className="text-xs text-ink-500">
             A zip of Word files, one per coach, plus a summary of the table above, laid out off
-            FQ&rsquo;s own {register.qualification?.trim().toUpperCase().startsWith("B") ? "B" : "C"}{" "}
-            Diploma paperwork. The six-area assessment comes out blank for the CETs to complete: no
+            FQ&rsquo;s own {isB ? "B" : "C"} Diploma paperwork. The six-area assessment comes out blank for the CETs to complete: no
             2026 register carries a per-area score, and nothing here converts the 1&ndash;5
             session rating into one.
           </p>

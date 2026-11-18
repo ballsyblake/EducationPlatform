@@ -3,6 +3,7 @@ import "server-only";
 import {
   AlignmentType,
   BorderStyle,
+  PageBreak,
   Paragraph,
   Table,
   TableCell,
@@ -11,6 +12,7 @@ import {
   VerticalAlign,
   WidthType,
 } from "docx";
+import { APPENDIX_LEVELS, FA_RUBRIC_APPENDIX } from "@/lib/fa-rubric-appendix";
 import { FULL_WIDTH, para, text } from "@/lib/fq-docx";
 import type {
   DeliveryLevel,
@@ -438,4 +440,82 @@ export function signOff(
     columnWidths: COLS,
     rows: [...(o.before ?? []), ...rows],
   });
+}
+
+/* ---------------------------- FA's rubric page ---------------------------- */
+
+/** The appendix's four level headings, which are a traffic light. */
+const APPENDIX_FILLS = ["A6A6A6", "EE0000", "FFC000", "00B050"];
+
+/**
+ * FA's descriptor grid, which is the reference the six scores are given
+ * against, on its own page.
+ *
+ * Shared by both C Diploma documents and by neither B document, which carry
+ * FQ's own three-level rubric instead (`b-diploma-rubric.ts`). It takes its
+ * column widths rather than owning them because the two C forms are set at
+ * different margins — FQ's 9 November assessment form at 720 a side and the
+ * on-course pass form at 1134 — so the five columns are not the same five
+ * columns on each.
+ */
+export function faRubricAppendix(cols: number[]): (Paragraph | Table)[] {
+  const rows = [
+    new TableRow({
+      tableHeader: true,
+      children: [
+        tc([para("Assessment Area", { bold: true, size: BODY })], { width: cols[0] }),
+        ...APPENDIX_LEVELS.map((level, i) =>
+          tc(
+            [
+              para(level, {
+                bold: true,
+                size: BODY,
+                color: "FFFFFF",
+                align: AlignmentType.CENTER,
+              }),
+            ],
+            { fill: APPENDIX_FILLS[i], width: cols[i + 1] },
+          ),
+        ),
+      ],
+    }),
+    ...FA_RUBRIC_APPENDIX.map(
+      (area) =>
+        new TableRow({
+          cantSplit: true,
+          children: [
+            tc(
+              [
+                para(area.heading[0], {
+                  bold: true,
+                  size: BODY,
+                  align: AlignmentType.CENTER,
+                }),
+                ...area.heading.slice(1).map((sub) => bullet(sub)),
+              ],
+              { width: cols[0], middle: true },
+            ),
+            ...area.levels.map((descriptor, i) =>
+              tc(
+                descriptor
+                  .split("\n")
+                  .map((line) => para(line, { size: SMALL, align: AlignmentType.CENTER })),
+                { width: cols[i + 1], middle: true },
+              ),
+            ),
+          ],
+        }),
+    ),
+  ];
+
+  return [
+    new Paragraph({ children: [new PageBreak()] }),
+    para("Football Australia Coach Education Assessment Rubric", {
+      size: BODY,
+      bold: true,
+      align: AlignmentType.CENTER,
+      after: 6,
+    }),
+    new Table({ width: FULL_WIDTH, columnWidths: cols, rows }),
+  ];
 }

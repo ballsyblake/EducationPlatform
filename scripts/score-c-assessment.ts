@@ -2,7 +2,8 @@
  * One C Diploma assessment form, with the six-area scores filled in.
  *
  *   npm run assessment:score -- <register.xlsx> "<coach name>" \
- *     --scores 2,1.5,2,1.5,2,2 [--outcome competent|not-yet] [--out <file>]
+ *     --scores 2,1.5,2,1.5,2,2 \
+ *     [--outcome competent|highly-competent|not-yet] [--out <file>]
  *
  * The register carries no rubric score — `/admin/registers` exports the form
  * with the table blank for that reason, and that is still what the bundle
@@ -81,13 +82,30 @@ async function main() {
   const asked = flag(argv, "outcome");
   const competent = asked === null ? outcome.competent : asked !== "not-yet";
   const kind = competent ? "feedback" : "action plan";
+  // FQ's on-course pass form states the outcome in words and has a paragraph
+  // for each of the three, so `--outcome` can name the third. Handed to the
+  // document rather than left to the total, because the point of the flag is
+  // the case where the CETs and the arithmetic disagree.
+  const outcomeLevel =
+    asked === null
+      ? undefined
+      : asked === "not-yet"
+        ? ("Not Yet Competent" as const)
+        : asked === "highly-competent"
+          ? ("Highly Competent" as const)
+          : ("Competent" as const);
   // The covering paragraph branches on the register's verdict, which is about
   // the whole course and was settled before these scores existed.
   coach.verdict = competent ? "passed" : "action_plan";
   coach.reason = `Scored ${total}/18 on the practical by the CETs.`;
 
   const out = flag(argv, "out") ?? planFilename(coach, kind, register);
-  writeFileSync(out, await assessmentPlanDocx([coach], register, kind, { [coach.name]: { scores } }));
+  writeFileSync(
+    out,
+    await assessmentPlanDocx([coach], register, kind, {
+      [coach.name]: { scores, outcomeLevel },
+    }),
+  );
   console.log(`Wrote ${out}`);
 }
 

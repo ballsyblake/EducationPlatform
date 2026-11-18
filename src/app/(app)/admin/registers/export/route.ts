@@ -1,4 +1,5 @@
 import { assessmentPlanDocx, docxFilename, planFilename } from "@/lib/assessment-plan-docx";
+import { isBDiploma } from "@/lib/assessment-plan-parts";
 import { requireAdmin } from "@/lib/auth";
 import { parsedRegisterSchema } from "@/lib/register-schema";
 import {
@@ -64,7 +65,11 @@ function summaryCsv(register: ParsedRegister) {
       coach.verdict === "action_plan"
         ? "Action plan"
         : coach.verdict === "passed"
-          ? "Feedback"
+          ? // Named for the form it actually is: the B's post-course feedback
+            // letter, or FQ's `On Course Pass` form for the C.
+            isBDiploma(register)
+            ? "Feedback"
+            : "On course pass"
           : "None",
     ]),
   ];

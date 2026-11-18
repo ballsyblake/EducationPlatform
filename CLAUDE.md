@@ -183,17 +183,38 @@ the same page. The level is still not inferred from the rating, which would be
 the same invented conversion as above.
 
 **The two diplomas have different paperwork, and so does the export.** FQ run
-the B and the C off different forms, so there are three generated documents,
-not one:
+the B and the C off different forms, and each diploma's two cases are two
+forms again, so there are four generated documents, not one:
 
 ```
-assessment-plan-parts.ts   What all three share: the candidate block, the
+assessment-plan-parts.ts   What they all share: the candidate block, the
                            delivery write-ups, the palette, the cell helpers,
-                           the sign-off
-assessment-plan-docx.ts    The C Diploma form, and the dispatch
+                           the sign-off, FA's rubric page
+assessment-plan-docx.ts    The C's video / live assessment form, and the
+                           dispatch
+c-on-course-docx.ts        The C's On Course Pass form — what a coach
+                           assessed during the course is sent
 b-diploma-docx.ts          The B Diploma's two: the formative assessment /
                            action plan, and the post-course feedback letter
 ```
+
+**The C's two forms are two different documents, not one worded twice.** The 9
+November self-reflection form is handed out *ahead* of a video or live
+reassessment — self-reflection table, video link, blank assessment date, no
+register. FQ's 2027 `On Course Pass` form is the end of a course: the
+register's write-ups, the six areas written across the page rather than down
+it, no evidence column, and a covering letter FQ wrote in three versions, one
+per outcome. `kind` picks between them exactly as it picks between the B's
+pair — `action plan` is the reassessment form, `feedback` the on-course one —
+and the margins differ with the form, 720 against 1134.
+
+**Which of the three paragraphs prints is the one thing that form settles
+without scores.** `outcomeOf` in `c-on-course-docx.ts`, in order: what a CET
+handed back, a complete set of six scores by arithmetic, the register's
+rating through `bandFor`, then the verdict. The rating's band table is FQ's
+own published statement of what a 1-5 rating means, so reading a *sentence*
+off it is not the invented 1-5-to-18 conversion this file keeps warning
+about — the `/3` cells and the total stay blank.
 
 The C form scores six areas 0-3 and totals them out of eighteen. **Its layout
 changed on 2026-11-12**, off FQ's `C Diploma Live or Video Assessment /
@@ -214,13 +235,12 @@ cosmetic:
   document. Every C grid is transcribed from the template and normalised to
   the column that leaves, by `fit()`.
 
-**The C's two documents differ by more than wording.** The action plan is the
-form FQ hand out ahead of a video or live assessment, so it carries the
-self-reflection, the video link, a blank assessment date and `Good luck with
-your next attempt`, and **nothing off the register**. The feedback version is
-the end of a course, so that furniture comes off and the register's practical
-write-ups go on in its place. `kind` decides which, and the covering letter
-follows the document rather than the register's verdict.
+That form is now the reassessment one only: it carries the self-reflection,
+the video link, a blank assessment date and `Good luck with your next
+attempt`, and **nothing off the register**. Its feedback branch — the same
+page with that furniture stripped off — stood in for a course-end C document
+until FQ sent one on 2026-11-18, and is kept rather than deleted because it is
+one `kind` away from being wanted back.
 
 The B form
 ticks NYC / C / HC per area and **totals nothing**, carries its own rubric
