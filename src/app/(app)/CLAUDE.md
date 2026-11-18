@@ -18,6 +18,7 @@ admin/
   page.tsx          Manage — course list; the create form is admin-only
   courses/[id]/     Course settings and coursework authoring (ADMIN only)
     register/       The attendance register. The page educators live on.
+    days/           The delivery days the register is kept against (ADMIN only)
   coaches/          Every coach, one row per enrolment, across all registers
   grading/          The queue: submissions and written quiz answers
   support/          The post-course support desk
@@ -52,6 +53,17 @@ approximations of it. **Keep database access out of them.**
 
 ## Things that are true here and easy to get wrong
 
+- **Days are added by hand, and numbered by date.** `admin/courses/<id>/days`
+  is the only way to create one outside the register importer — it did not
+  exist while every cohort came off a spreadsheet, and the register's empty
+  state told whoever got there to add days to a course created here with
+  nowhere to do it. `dayNo` follows the dates, so inserting a day in the middle
+  of a block renumbers the rest; nothing is attached to the number (attendance,
+  staff marks and make-ups all hang off the day's id), so renumbering moves a
+  heading and nothing else. The unique `(courseId, dayNo)` is why it is done in
+  two passes through negative numbers. Removing a day is refused once anything
+  is recorded against it: attendance cascades with the day, and a day that ran
+  is a correction somebody should make deliberately.
 - **Attendance is minutes, not a tick.** A day is worth its scheduled length; a
   day with no times is worth zero, never a guessed eight hours. Only days the
   register has *taken* count towards a requirement, and only days inside a

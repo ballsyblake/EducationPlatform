@@ -342,6 +342,26 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
         </section>
 
         {/* ------------------------------- Roster ------------------------------ */}
+        {/* Shown even with no days. A cohort created from a Learning Centre
+            export has none, and hiding the section left the one thing it needed
+            next off the page entirely. */}
+        {course.days.length === 0 && (
+          <section className="card card-pad">
+            <h2 className="text-lg font-semibold text-ink-900">Delivery days</h2>
+            <p className="mt-1 text-sm text-ink-500">
+              No days yet, so there is no register to keep and no hours for anybody to be
+              measured against.{" "}
+              <Link
+                href={`/admin/courses/${course.id}/days`}
+                className="font-medium text-maroon-700 hover:underline"
+              >
+                Add the days
+              </Link>
+              .
+            </p>
+          </section>
+        )}
+
         {course.days.length > 0 && (
           <section className="card card-pad">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -353,6 +373,9 @@ export default async function ManageCoursePage({ params }: { params: Promise<{ i
                 </p>
               </div>
               <span className="flex flex-wrap gap-2">
+                <Link href={`/admin/courses/${course.id}/days`} className="btn-secondary btn-sm">
+                  Edit days
+                </Link>
                 <Link href={`/admin/courses/${course.id}/assess`} className="btn-secondary btn-sm">
                   Take the roll
                 </Link>
