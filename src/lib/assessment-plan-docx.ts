@@ -14,8 +14,9 @@ import {
   MAX_DELIVERY_POINTS,
   outcomeFor,
   thresholdsFor,
+  type DeliveryOutcome,
 } from "@/lib/delivery-rubric";
-import { APPENDIX_LEVELS, FA_RUBRIC_APPENDIX } from "@/lib/fa-rubric-appendix";
+import { cOnCourseBlocks } from "@/lib/c-on-course-docx";
 import {
   bActionPlanBlocks,
   bDocumentTitle,
@@ -25,6 +26,7 @@ import {
 import {
   BODY,
   COMPETENT_FILL,
+  faRubricAppendix,
   HIGHLY_FILL,
   NYC_FILL,
   SHADE,
@@ -49,9 +51,6 @@ import {
   pt,
 } from "@/lib/fq-docx";
 import type { ParsedRegister, RegisterCoach } from "@/lib/register-file";
-
-/** The C form appendix's four level headings, which are a traffic light. */
-const LEVEL_FILLS = ["A6A6A6", "EE0000", "FFC000", "00B050"];
 
 /**
  * FQ's `‘C’ Diploma Practical Coaching Assessment` document, filled in from a
@@ -410,6 +409,17 @@ export type CoachFilled = BFilled & {
    * back in. Nothing in the app passes this.
    */
   reflection?: Partial<Record<string, { score?: number; comment?: string[] }>>;
+  /**
+   * The three-way outcome the on-course pass letter states in words.
+   *
+   * `BFilled.outcome` is two-way — the B Diploma's form ticks a box and the
+   * C's 9 November form bolds one of three coloured cells off the total — and
+   * neither can say Highly Competent without a complete set of scores. FQ's
+   * on-course pass letter has a paragraph per outcome and the register carries
+   * no scores, so this is how a CET who has settled it says which one prints.
+   * Left out, `outcomeOf` works it out; see the precedence there.
+   */
+  outcomeLevel?: DeliveryOutcome["label"];
 };
 
 /**
@@ -591,70 +601,6 @@ function narrativeBlock(
   });
 }
 
-/** FA's descriptor grid, which is the reference the scores are given against. */
-function appendix() {
-  const COLS = APPENDIX_COLS;
-  const rows = [
-    new TableRow({
-      tableHeader: true,
-      children: [
-        tc([para("Assessment Area", { bold: true, size: BODY })], { width: COLS[0] }),
-        ...APPENDIX_LEVELS.map((level, i) =>
-          tc(
-            [
-              para(level, {
-                bold: true,
-                size: BODY,
-                color: "FFFFFF",
-                align: AlignmentType.CENTER,
-              }),
-            ],
-            { fill: LEVEL_FILLS[i], width: COLS[i + 1] },
-          ),
-        ),
-      ],
-    }),
-    ...FA_RUBRIC_APPENDIX.map(
-      (area) =>
-        new TableRow({
-          cantSplit: true,
-          children: [
-            tc(
-              [
-                para(area.heading[0], {
-                  bold: true,
-                  size: BODY,
-                  align: AlignmentType.CENTER,
-                }),
-                ...area.heading.slice(1).map((sub) => bullet(sub)),
-              ],
-              { width: COLS[0], middle: true },
-            ),
-            ...area.levels.map((descriptor, i) =>
-              tc(
-                descriptor
-                  .split("\n")
-                  .map((line) => para(line, { size: SMALL, align: AlignmentType.CENTER })),
-                { width: COLS[i + 1], middle: true },
-              ),
-            ),
-          ],
-        }),
-    ),
-  ];
-
-  return [
-    new Paragraph({ children: [new PageBreak()] }),
-    para("Football Australia Coach Education Assessment Rubric", {
-      size: BODY,
-      bold: true,
-      align: AlignmentType.CENTER,
-      after: 6,
-    }),
-    new Table({ width: FULL_WIDTH, columnWidths: COLS, rows }),
-  ];
-}
-
 /* -------------------------------- Packing --------------------------------- */
 
 /**
@@ -665,6 +611,15 @@ function appendix() {
  * self-reflection and the video link and nothing off the register; the
  * feedback version is the end of a course, so it carries the register's
  * practical write-ups instead.
+ *
+ * **Only the action plan reaches here now.** FQ's 2027 `On Course Pass` form,
+ * which arrived on 2026-11-18, is their own course-end C document and is what
+ * a passing coach gets — `c-on-course-docx.ts`, dispatched in
+ * `assessmentPlanDocx`. The feedback branch below is what stood in for it
+ * until then: this same form with the video-assessment furniture stripped off.
+ * It is kept rather than deleted because it is one `kind` away from being
+ * wanted again, and because the two differ in what they *are* rather than in
+ * wording — see the head of the new file.
  */
 function coachBlocks(
   coach: RegisterCoach,
@@ -697,7 +652,7 @@ function coachBlocks(
     narrativeBlock(coach, register, assessed, filled),
     para("", { size: 2 }),
     signOff(coach, register, { columns: SIGN_COLS }),
-    ...appendix(),
+    ...faRubricAppendix(APPENDIX_COLS),
   ];
 }
 
@@ -711,9 +666,9 @@ function documentTitle(register: ParsedRegister) {
  *
  * Landscape at the templates' own page and margins, which is the only way the
  * practical write-ups fit side by side and the rubric's descriptors stay
- * readable. Both diplomas use the same page but not the same margins — FQ set
- * the C's 9 November form at 720 a side and the B's at 1134 — and a document
- * is all one diploma, so the margin is picked here.
+ * readable. The three forms do not share a margin — FQ set the C's 9 November
+ * video-assessment form at 720 a side, and both the B's and the C's on-course
+ * pass form at 1134 — and a document is all one form, so it is picked here.
  *
  * `kind` decides which document this is, not the coach's verdict, because the
  * export route already knows: it asks for a feedback letter when the register
@@ -721,6 +676,15 @@ function documentTitle(register: ParsedRegister) {
  * bundle it asks for action plans on coaches with no verdict at all. Deriving
  * it from the verdict here would send that bundle out as feedback letters the
  * moment somebody passed a single coach on the sheet.
+ *
+ * So there are four documents behind two kinds, and `kind` with the register's
+ * qualification picks one:
+ *
+ * ```
+ *          action plan                     feedback
+ *   B      formative assessment            post-course feedback letter
+ *   C      video / live assessment form    on course pass  (c-on-course-docx)
+ * ```
  */
 export async function assessmentPlanDocx(
   coaches: RegisterCoach[],
@@ -742,8 +706,10 @@ export async function assessmentPlanDocx(
   filled?: Record<string, CoachFilled>,
 ) {
   const b = isBDiploma(register);
-  const margin = b ? 1134 : C_MARGIN;
   const competent = kind === "feedback";
+  // The 9 November form's narrow margin is that form's, not the C's: the
+  // on-course pass form is set at 1134 like the B's.
+  const margin = b || competent ? 1134 : C_MARGIN;
   const title = b ? bDocumentTitle(register, competent) : documentTitle(register);
 
   const blocksFor = (coach: RegisterCoach) =>
@@ -751,7 +717,9 @@ export async function assessmentPlanDocx(
       ? competent
         ? bFeedbackBlocks(coach, register, filled?.[coach.name])
         : bActionPlanBlocks(coach, register, filled?.[coach.name])
-      : coachBlocks(coach, register, kind, filled?.[coach.name]);
+      : competent
+        ? cOnCourseBlocks(coach, register, filled?.[coach.name])
+        : coachBlocks(coach, register, kind, filled?.[coach.name]);
 
   const doc = new Document({
     styles: { default: { document: { run: { font: FONT, size: pt(BODY), color: INK } } } },
@@ -802,7 +770,16 @@ export function planFilename(
   kind: "action plan" | "feedback",
   register: ParsedRegister,
 ) {
-  const what = kind === "feedback" ? "Feedback" : "Action Plan";
+  // The C's course-end document is FQ's `On Course Pass` form and is named
+  // for it, because the file name is how Blake can tell at a glance which of
+  // the two C layouts a document came out of. The B's pair keep Feedback /
+  // Action Plan.
+  const what =
+    kind === "feedback"
+      ? isBDiploma(register)
+        ? "Feedback"
+        : "On Course Pass"
+      : "Action Plan";
   return docxFilename(
     coach.name,
     `${register.qualification ?? "Diploma"} Assessment`,
