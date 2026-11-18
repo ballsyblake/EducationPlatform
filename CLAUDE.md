@@ -208,6 +208,18 @@ per outcome. `kind` picks between them exactly as it picks between the B's
 pair — `action plan` is the reassessment form, `feedback` the on-course one —
 and the margins differ with the form, 720 against 1134.
 
+**The on-course pass form's pages are fixed, not flowed.** Page 1 is who the
+coach is and the CETs' feedback, page 2 the scoring, the letter and the
+sign-off, pages 3 and 4 FA's rubric three areas each — Blake's ask of
+2026-11-18, because a document a coach signs should break where it changes
+subject. Two things hold it together. `faRubricAppendix` takes `perPage`, so
+the six areas split evenly instead of five and a lonely sixth. And the break
+after the write-ups is forced **only when they fit above it**, which
+`estimateLines` guesses at fifty characters a line against a thirty-four line
+page: forced blind, the register's longest coach gets one orphaned line and a
+page of white. The estimate never changes what is printed, only where the
+break goes.
+
 **Which of the three paragraphs prints is the one thing that form settles
 without scores.** `outcomeOf` in `c-on-course-docx.ts`, in order: what a CET
 handed back, a complete set of six scores by arithmetic, the register's

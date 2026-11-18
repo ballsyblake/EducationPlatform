@@ -449,7 +449,7 @@ const APPENDIX_FILLS = ["A6A6A6", "EE0000", "FFC000", "00B050"];
 
 /**
  * FA's descriptor grid, which is the reference the six scores are given
- * against, on its own page.
+ * against, on a page of its own.
  *
  * Shared by both C Diploma documents and by neither B document, which carry
  * FQ's own three-level rubric instead (`b-diploma-rubric.ts`). It takes its
@@ -457,9 +457,18 @@ const APPENDIX_FILLS = ["A6A6A6", "EE0000", "FFC000", "00B050"];
  * different margins — FQ's 9 November assessment form at 720 a side and the
  * on-course pass form at 1134 — so the five columns are not the same five
  * columns on each.
+ *
+ * `perPage` breaks it into pages of that many areas, each with the level
+ * headings repeated above it. Left out, the six run as one table and Word
+ * puts the break wherever the page happens to run out, which is how the
+ * sixth area ends up alone under a repeated header. Three and three is what
+ * the on-course pass form asks for; see the note on `cOnCourseBlocks`.
  */
-export function faRubricAppendix(cols: number[]): (Paragraph | Table)[] {
-  const rows = [
+export function faRubricAppendix(
+  cols: number[],
+  o: { perPage?: number } = {},
+): (Paragraph | Table)[] {
+  const header = () =>
     new TableRow({
       tableHeader: true,
       children: [
@@ -478,37 +487,41 @@ export function faRubricAppendix(cols: number[]): (Paragraph | Table)[] {
           ),
         ),
       ],
-    }),
-    ...FA_RUBRIC_APPENDIX.map(
-      (area) =>
-        new TableRow({
-          cantSplit: true,
-          children: [
-            tc(
-              [
-                para(area.heading[0], {
-                  bold: true,
-                  size: BODY,
-                  align: AlignmentType.CENTER,
-                }),
-                ...area.heading.slice(1).map((sub) => bullet(sub)),
-              ],
-              { width: cols[0], middle: true },
-            ),
-            ...area.levels.map((descriptor, i) =>
-              tc(
-                descriptor
-                  .split("\n")
-                  .map((line) => para(line, { size: SMALL, align: AlignmentType.CENTER })),
-                { width: cols[i + 1], middle: true },
-              ),
-            ),
-          ],
-        }),
-    ),
-  ];
+    });
 
-  return [
+  const areaRow = (area: (typeof FA_RUBRIC_APPENDIX)[number]) =>
+    new TableRow({
+      cantSplit: true,
+      children: [
+        tc(
+          [
+            para(area.heading[0], {
+              bold: true,
+              size: BODY,
+              align: AlignmentType.CENTER,
+            }),
+            ...area.heading.slice(1).map((sub) => bullet(sub)),
+          ],
+          { width: cols[0], middle: true },
+        ),
+        ...area.levels.map((descriptor, i) =>
+          tc(
+            descriptor
+              .split("\n")
+              .map((line) => para(line, { size: SMALL, align: AlignmentType.CENTER })),
+            { width: cols[i + 1], middle: true },
+          ),
+        ),
+      ],
+    });
+
+  const per = o.perPage && o.perPage > 0 ? o.perPage : FA_RUBRIC_APPENDIX.length;
+  const pages: (typeof FA_RUBRIC_APPENDIX)[] = [];
+  for (let i = 0; i < FA_RUBRIC_APPENDIX.length; i += per) {
+    pages.push(FA_RUBRIC_APPENDIX.slice(i, i + per));
+  }
+
+  return pages.flatMap((areas) => [
     new Paragraph({ children: [new PageBreak()] }),
     para("Football Australia Coach Education Assessment Rubric", {
       size: BODY,
@@ -516,6 +529,10 @@ export function faRubricAppendix(cols: number[]): (Paragraph | Table)[] {
       align: AlignmentType.CENTER,
       after: 6,
     }),
-    new Table({ width: FULL_WIDTH, columnWidths: cols, rows }),
-  ];
+    new Table({
+      width: FULL_WIDTH,
+      columnWidths: cols,
+      rows: [header(), ...areas.map(areaRow)],
+    }),
+  ]);
 }

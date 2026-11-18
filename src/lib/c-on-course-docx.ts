@@ -1,6 +1,6 @@
 import "server-only";
 
-import { AlignmentType, Paragraph, Table, TableRow } from "docx";
+import { AlignmentType, PageBreak, Paragraph, Table, TableRow } from "docx";
 import {
   DELIVERY_AREAS,
   MAX_DELIVERY_POINTS,
@@ -253,6 +253,59 @@ const AREA_HEADINGS: Record<string, [string, string?]> = {
 };
 
 /**
+ * Roughly how many lines of 9.5pt text one coach's write-ups will take.
+ *
+ * Deliberately a guess, and only ever used to decide whether the page break
+ * after them is safe to force — never to change what is printed. There is no
+ * layout engine here: `docx` writes the file and Word decides where the text
+ * lands, so the alternative to an estimate is forcing the break blind, which
+ * on a coach with three long write-ups puts one orphaned line and a page of
+ * white where page two should be.
+ *
+ * The tallest column decides, because they sit side by side. A line is about
+ * fifty characters at this size in a column a third of the text width, and
+ * each label and action step costs at least one line of its own.
+ */
+const CHARS_PER_LINE = 50;
+
+/**
+ * Lines of write-up that fit under the candidate block on page one.
+ *
+ * Measured against the Wynnum C register rather than derived from the page
+ * geometry: at 31 and 32 estimated lines a coach's write-ups sit on page one
+ * with room under them, and at 40 — Michael Mason, three deliveries — they
+ * run a line over. The line is drawn between, leaning low, because the cost
+ * of guessing too high is the orphan this exists to avoid and the cost of
+ * guessing too low is a page break one line earlier than it had to be.
+ */
+const PAGE_ONE_LINES = 34;
+
+function estimateLines(coach: RegisterCoach) {
+  const wrapped = (value: string | null) =>
+    value ? Math.max(1, Math.ceil(value.length / CHARS_PER_LINE)) : 0;
+  const cell = (delivery: RegisterCoach["deliveries"][number]) => {
+    let lines = 0;
+    for (const value of [delivery.assessor, delivery.block, delivery.component, delivery.topic]) {
+      lines += wrapped(value);
+    }
+    if (delivery.comment) {
+      lines += 1; // The "Comment:" label.
+      for (const paragraph of delivery.comment.split(/\r?\n/).filter(Boolean)) {
+        lines += wrapped(paragraph);
+      }
+    }
+    if (delivery.actions.length) {
+      lines += 1; // The "Action plan:" label.
+      lines += delivery.actions.reduce((sum, step) => sum + wrapped(step), 0);
+    }
+    return lines;
+  };
+  // One heading row above the lot, and the columns sit side by side, so the
+  // tallest of them is the height.
+  return 1 + Math.max(0, ...coach.deliveries.map(cell));
+}
+
+/**
  * The practical write-ups off the register, straight under the candidate
  * block, which is where this template puts them.
  *
@@ -462,7 +515,28 @@ function narrativeBlock(
 
 /* -------------------------------- Packing --------------------------------- */
 
-/** One coach's on-course pass document, in the template's own order. */
+/**
+ * One coach's on-course pass document, in the template's own order, on four
+ * pages that are fixed rather than wherever the text happens to run out.
+ *
+ * ```
+ * 1  who the coach is, and the CETs' feedback on each practical delivery
+ * 2  the six areas, the grading scale, the covering letter and the sign-off
+ * 3  FA's rubric, the first three areas
+ * 4  FA's rubric, the last three
+ * ```
+ *
+ * Blake asked for this on 2026-11-18, and it is a layout decision rather than
+ * a cosmetic one: left to flow, the break landed in the middle of whichever
+ * block was unlucky — the ruled letter box split across two pages on a coach
+ * with two write-ups, and the rubric put five areas on one page and the sixth
+ * alone under a repeated header on the next. A document a coach signs should
+ * break where it changes subject.
+ *
+ * A coach with three long write-ups still pushes everything down a page. That
+ * is the right failure: the break after the deliveries is a minimum, not a
+ * budget, and nothing is squeezed to hold the count at four.
+ */
 export function cOnCourseBlocks(
   coach: RegisterCoach,
   register: ParsedRegister,
@@ -478,12 +552,22 @@ export function cOnCourseBlocks(
     candidateBlock(coach, register),
     para("", { size: 2 }),
     ...practicalComments(coach),
-    para("", { size: 2 }),
+    // Only where the write-ups plausibly fit above it. Forced regardless, a
+    // coach whose third delivery runs a line past the foot of page one gets
+    // that line alone on a page of its own; left to flow, that coach's
+    // document is still four pages and still breaks between subjects, just
+    // one line later.
+    ...(estimateLines(coach) <= PAGE_ONE_LINES
+      ? [new Paragraph({ children: [new PageBreak()] })]
+      : [para("", { size: 2 })]),
     scoreTable(outcome, thresholds, filled),
     para("", { size: 2 }),
     narrativeBlock(coach, register, outcome, filled),
     para("", { size: 2 }),
     signOff(coach, register, { columns: SIGN_COLS }),
-    ...faRubricAppendix(APPENDIX_COLS),
+    // Three areas a page, which splits FA's six evenly and puts its own break
+    // in front of each. Even is the point: the descriptors are long and a
+    // 5 + 1 split reads as an overflow rather than a reference.
+    ...faRubricAppendix(APPENDIX_COLS, { perPage: 3 }),
   ];
 }
