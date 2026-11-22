@@ -190,23 +190,29 @@ forms again, so there are four generated documents, not one:
 assessment-plan-parts.ts   What they all share: the candidate block, the
                            delivery write-ups, the palette, the cell helpers,
                            the sign-off, FA's rubric page
-assessment-plan-docx.ts    The C's video / live assessment form, and the
-                           dispatch
+assessment-plan-docx.ts    The C's 2027 Action Plan form, and the dispatch
 c-on-course-docx.ts        The C's On Course Pass form — what a coach
                            assessed during the course is sent
 b-diploma-docx.ts          The B Diploma's two: the formative assessment /
                            action plan, and the post-course feedback letter
 ```
 
-**The C's two forms are two different documents, not one worded twice.** The 9
-November self-reflection form is handed out *ahead* of a video or live
-reassessment — self-reflection table, video link, blank assessment date, no
-register. FQ's 2027 `On Course Pass` form is the end of a course: the
-register's write-ups, the six areas written across the page rather than down
-it, no evidence column, and a covering letter FQ wrote in three versions, one
-per outcome. `kind` picks between them exactly as it picks between the B's
-pair — `action plan` is the reassessment form, `feedback` the on-course one —
-and the margins differ with the form, 720 against 1134.
+**The C's two forms are the same course and the two verdicts.** Both are
+FQ's 2027 forms and both put the register's write-ups at the top of page one.
+`action plan` is the `Action Plan` form: six areas down the page with an
+evidence column, a grading band above them, and one letter, FQ's
+not-yet-competent one, with `Area of Strength` / `Performance Gaps` lists left
+as `…` for a CET. `feedback` is the `On Course Pass` form: six areas across
+the page, no evidence column, a letter in three versions, one per outcome.
+Both are at 1134 margins, like the B's.
+
+**The C action plan carries no self-reflection, video link or assessment
+date** — not any more. From 2026-11-12 to 2026-11-22 it was FQ's 9 November
+reassessment handout, which had those and nothing off the register; Blake
+reported the missing feedback as a bug, sent the 2027 form, and said an
+action plan sets out the coach's results from the course. The 9 November
+layout is in the history. Don't bring the self-reflection back onto this
+document.
 
 **The on-course pass form's pages are fixed, not flowed.** Page 1 is who the
 coach is and the CETs' feedback, page 2 the scoring, the letter and the
@@ -215,7 +221,8 @@ sign-off, pages 3 and 4 FA's rubric three areas each — Blake's ask of
 subject. Two things hold it together. `faRubricAppendix` takes `perPage`, so
 the six areas split evenly instead of five and a lonely sixth. And the break
 after the write-ups is forced **only when they fit above it**, which
-`estimateLines` guesses at fifty characters a line against a thirty-four line
+`estimateDeliveryLines` (shared, in the parts file, and used by the action plan
+too) guesses at fifty characters a line against a thirty-four line
 page: forced blind, the register's longest coach gets one orphaned line and a
 page of white. The estimate never changes what is printed, only where the
 break goes.
@@ -228,31 +235,11 @@ own published statement of what a 1-5 rating means, so reading a *sentence*
 off it is not the invented 1-5-to-18 conversion this file keeps warning
 about — the `/3` cells and the total stay blank.
 
-The C form scores six areas 0-3 and totals them out of eighteen. **Its layout
-changed on 2026-11-12**, off FQ's `C Diploma Live or Video Assessment /
-Self-reflection` form of 9 November, and the change is structural rather than
-cosmetic:
-
-- **The coach scores themselves first**, in a `COACH SELF-REFLECTION` table
-  above the assessors' half, with `FOR CET USE ONLY` dividing the two.
-- **The rubric is written in, not ticked.** One `/3` cell per area in place of
-  four checkboxes, which is also what makes FQ's half points expressible —
-  they score 1.5 for an area and FA's grid has no box between 1 and 2.
-- **FQ now write both halves of the covering letter.** The competent paragraph
-  used to be ours, written to their shape because their template only had the
-  not-yet-competent wording. Theirs is on this form, so ours is gone, and the
-  blank strengths/gaps lists went with it — the evidence column beside each
-  area is where a CET writes now.
-- **The C's margins are 720, the B's 1134.** `assessmentPlanDocx` picks per
-  document. Every C grid is transcribed from the template and normalised to
-  the column that leaves, by `fit()`.
-
-That form is now the reassessment one only: it carries the self-reflection,
-the video link, a blank assessment date and `Good luck with your next
-attempt`, and **nothing off the register**. Its feedback branch — the same
-page with that furniture stripped off — stood in for a course-end C document
-until FQ sent one on 2026-11-18, and is kept rather than deleted because it is
-one `kind` away from being wanted back.
+The C forms score six areas 0-3 and total them out of eighteen. **The rubric
+is written in, not ticked**: one `/3` cell per area, which is what makes FQ's
+half points expressible — they score 1.5 for an area and FA's grid has no box
+between 1 and 2. FQ's files hold Word checkboxes in the total row; they are not
+carried over, because an unticked one renders as a crossed box outside Word.
 
 The B form
 ticks NYC / C / HC per area and **totals nothing**, carries its own rubric

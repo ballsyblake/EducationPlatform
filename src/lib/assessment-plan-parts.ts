@@ -3,7 +3,6 @@ import "server-only";
 import {
   AlignmentType,
   BorderStyle,
-  PageBreak,
   Paragraph,
   Table,
   TableCell,
@@ -343,6 +342,63 @@ export function deliveryTable(
 }
 
 /**
+ * Roughly how many lines of 9.5pt text one coach's write-ups will take.
+ *
+ * Deliberately a guess, and only ever used to decide whether a page break
+ * after them is safe to force — never to change what is printed. There is no
+ * layout engine here: `docx` writes the file and Word decides where the text
+ * lands, so the alternative to an estimate is forcing the break blind, which
+ * on a coach with three long write-ups puts one orphaned line and a page of
+ * white where page two should be.
+ *
+ * The tallest column decides, because they sit side by side. A line is about
+ * fifty characters at this size in a column a third of the text width, and
+ * each label and action step costs at least one line of its own.
+ *
+ * Shared by both C Diploma forms: the on-course pass form it was measured
+ * against, and the 2027 action plan, which puts the same write-ups in the same
+ * place on the same page.
+ */
+const CHARS_PER_LINE = 50;
+
+/**
+ * Lines of write-up that fit under the candidate block on page one.
+ *
+ * Measured against the Wynnum C register rather than derived from the page
+ * geometry: at 31 and 32 estimated lines a coach's write-ups sit on page one
+ * with room under them, and at 40 — Michael Mason, three deliveries — they
+ * run a line over. The line is drawn between, leaning low, because the cost
+ * of guessing too high is the orphan this exists to avoid and the cost of
+ * guessing too low is a page break one line earlier than it had to be.
+ */
+export const PAGE_ONE_LINES = 34;
+
+export function estimateDeliveryLines(coach: RegisterCoach) {
+  const wrapped = (value: string | null) =>
+    value ? Math.max(1, Math.ceil(value.length / CHARS_PER_LINE)) : 0;
+  const cell = (delivery: RegisterDelivery) => {
+    let lines = 0;
+    for (const value of [delivery.assessor, delivery.block, delivery.component, delivery.topic]) {
+      lines += wrapped(value);
+    }
+    if (delivery.comment) {
+      lines += 1; // The "Comment:" label.
+      for (const paragraph of delivery.comment.split(/\r?\n/).filter(Boolean)) {
+        lines += wrapped(paragraph);
+      }
+    }
+    if (delivery.actions.length) {
+      lines += 1; // The "Action plan:" label.
+      lines += delivery.actions.reduce((sum, step) => sum + wrapped(step), 0);
+    }
+    return lines;
+  };
+  // One heading row above the lot, and the columns sit side by side, so the
+  // tallest of them is the height.
+  return 1 + Math.max(0, ...coach.deliveries.map(cell));
+}
+
+/**
  * The CET signature rows, off the register's own staff block.
  *
  * Narrowed to the CETs who actually assessed *this* coach. FQ's templates have
@@ -381,14 +437,22 @@ export function signOff(
     coach.deliveries.map((d) => d.assessor?.trim().split(/\s+/)[0]?.toLowerCase()).filter(Boolean),
   );
   const theirs = cets.filter((s) => assessors.has(s.name.split(/\s+/)[0].toLowerCase()));
+  // Where nobody on the staff block matches — a coach with no write-ups, or an
+  // assessor the sheet names differently — a form to be signed gets the
+  // template's two blank lines, not every CET on the course. Five signature
+  // lines on a document none of them can be shown to have assessed is the
+  // wrong-signature form described above, and on the C action plan it was five
+  // rows that pushed two of them onto a page of their own. The B feedback
+  // letter, which nobody signs, still names the course's CETs.
+  const blank = [
+    { role: "CET 1", name: "" },
+    { role: "CET 2", name: "" },
+  ];
   const signing = theirs.length
     ? theirs
-    : cets.length
+    : !signature && cets.length
       ? cets
-      : [
-          { role: "CET 1", name: "" },
-          { role: "CET 2", name: "" },
-        ];
+      : blank;
 
   // "CET 1", "CET 2" — renumbered for the document rather than carried over as
   // CET3/CET4, which are positions on the course.
@@ -521,13 +585,20 @@ export function faRubricAppendix(
     pages.push(FA_RUBRIC_APPENDIX.slice(i, i + per));
   }
 
+  // The break belongs *to* the heading rather than sitting in a paragraph of
+  // its own above it. A lone break paragraph still needs a line's height on
+  // the page it leaves, and a form whose letter and signatures fill page two
+  // to the last row does not have one: the empty paragraph is pushed to page
+  // three, takes the break with it, and the rubric starts on page four with a
+  // blank page in front of it. `pageBreakBefore` costs nothing where it
+  // starts.
   return pages.flatMap((areas) => [
-    new Paragraph({ children: [new PageBreak()] }),
     para("Football Australia Coach Education Assessment Rubric", {
       size: BODY,
       bold: true,
       align: AlignmentType.CENTER,
       after: 6,
+      pageBreakBefore: true,
     }),
     new Table({
       width: FULL_WIDTH,
