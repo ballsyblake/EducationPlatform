@@ -152,11 +152,21 @@ back to the download route as the JSON it parsed to, because one of these files
 is 52MB of embedded photographs; the route re-validates it against
 `register-schema.ts`, and that schema is tied to `ParsedRegister` by a pair of
 assignments at the foot of the file, so adding a field to one and not the other
-stops compiling. And **no 2026 register carries a six-area rubric score** — the
-only number per delivery is a free-text `Session Rating: n` on the 1-5 scale —
-so the generated document's rubric table and its total out of eighteen come out
-blank for the CETs to fill in. Don't "fix" that by deriving one from the other;
-see the note at the head of `delivery-rubric.ts`.
+stops compiling.
+
+**Registers come in two scales, and eighteen is the standard from here on**
+(Blake, 2026-11-23). The older 2026 registers (Moreton B, Wynnum C) carry no
+six-area score: the course Rating is 1-5, the pass mark 2.5, and the documents'
+rubric table and total out of eighteen come out blank for the CETs. FQ's newer
+template (Logan Lightning C) has the six areas as rows on the Assessment sheet
+and a `Total Rating` under them, and the Attendance Rating is that total.
+`readRegister` sets `ratingScale` to 18 when those rows are there or any rating
+is above five; the pass mark is then the diploma's FA line (`thresholdsFor`,
+nine on a C), the six scores ride on `RegisterCoach.scores` into both C forms'
+`/3` cells, and the On Course Pass paragraph follows `outcomeFor` on the total.
+Read against 2.5 and the 1-5 band table, every Logan coach from 9/18 up printed
+Highly Competent. Neither scale is ever converted into the other; see the note
+at the head of `delivery-rubric.ts`.
 
 **The two registers label the per-delivery rating differently.** The B's
 write-ups say `Session Rating:` and the C's say plain `Rating:`. Until that was

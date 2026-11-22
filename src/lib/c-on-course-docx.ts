@@ -219,6 +219,16 @@ export function outcomeOf(
     return filled.outcome === "competent" ? "Competent" : "Not Yet Competent";
   }
 
+  // On an eighteen-point register the rating *is* the six-area total, and
+  // FA's lines say what it means. Read through the 1-5 band table instead,
+  // every Logan coach from 9/18 up printed Highly Competent.
+  if (register.ratingScale === 18 && coach.rating !== null) {
+    return outcomeFor(
+      coach.rating,
+      thresholdsFor({ qualification: register.qualification, title: register.courseTitle }),
+    ).label;
+  }
+
   // `faRating` is "Not yet competent" in sentence case on the band table and
   // "Not Yet Competent" on this form; the three labels are otherwise the same
   // words.

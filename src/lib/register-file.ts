@@ -13,17 +13,27 @@
  * Pure, and no database access, so both the upload action and the download
  * route can read the same register the same way.
  *
- * **What the register does not carry.** Not one of FQ's 2026 registers holds a
- * score on Football Australia's six-area rubric. Every delivery has an
- * assessor, a block, a component, a topic, a write-up and often three action
- * steps, and the only number is a free-text `Session Rating: n` on the 1-5
- * scale. So the documents this feeds have their rubric table and their total
- * out of eighteen left for the CETs to tick, and the pass/fail split comes off
- * the register's own Outcome and Rating columns. Deriving eighteen points from
- * a 1-5 rating would be inventing a conversion nobody has published — see
- * `delivery-rubric.ts`, which refuses the same thing.
+ * **Two kinds of register, and the rating means a different thing on each.**
+ * FQ's older 2026 registers (Moreton B, Wynnum C) hold no score on Football
+ * Australia's six-area rubric: the course Rating is 1-5 in half steps, the
+ * pass mark is 2.5, and the documents this feeds leave their rubric table and
+ * total out of eighteen for the CETs to fill in. FQ's newer template — the
+ * 50/50 Logan Lightning C register of November 2026, and Blake's word on
+ * 2026-11-23 that **eighteen is the standard from here on** — adds the six
+ * areas as rows on the Assessment sheet, half points and all, with a `Total
+ * Rating` row under them, and the Attendance sheet's Rating is that total. So
+ * `ratingScale` says which a register is, the pass mark follows the diploma's
+ * own competency line on FA's scale (nine on a C), and the six scores travel
+ * on each coach to fill the documents' `/3` cells.
+ *
+ * Nothing converts one scale into the other. A 1-5 register still prints a
+ * blank rubric, because deriving eighteen points from a 1-5 rating would be
+ * inventing a conversion nobody has published — see `delivery-rubric.ts`,
+ * which refuses the same thing. An eighteen-point register is not converted
+ * either: it is read as what it already is.
  */
 
+import { DELIVERY_AREAS, thresholdsFor } from "@/lib/delivery-rubric";
 import { DEFAULT_RATING_THRESHOLD } from "@/lib/support-rubric";
 import { readWorkbook, type SheetFills, type SheetRows, XlsxError } from "@/lib/xlsx";
 
@@ -80,8 +90,16 @@ export type RegisterCoach = {
   name: string;
   track: "MAIN" | "CATCH_UP";
   club: string | null;
-  /** The course rating, 1-5 in half steps. */
+  /**
+   * The course rating, on the register's `ratingScale`: 1-5 in half steps on
+   * the older registers, the six-area total out of eighteen on the new.
+   */
   rating: number | null;
+  /**
+   * FA's six areas, 0-3 in half points, keyed by `DeliveryArea.code`, where
+   * the register carries them. Empty on a 1-5 register.
+   */
+  scores: Record<string, number>;
   /** The register's own Outcome column, verbatim: "Passed", "In Progress". */
   outcome: string | null;
   readiness: string | null;
@@ -108,7 +126,13 @@ export type ParsedRegister = {
   /** CET1..CET5 and whoever else the staff block names. */
   staff: { role: string; name: string }[];
   coaches: RegisterCoach[];
-  /** The 1-5 mark at or above which the register treats a coach as competent. */
+  /**
+   * What the Rating column is out of. Eighteen where the register carries the
+   * six areas and their total, or where any rating is above five, which no
+   * 1-5 rating can be; five otherwise.
+   */
+  ratingScale: 5 | 18;
+  /** The rating at or above which the register treats a coach as competent. */
   passMark: number;
   sourceFile: string;
   /**
@@ -333,7 +357,24 @@ function parseDelivery(
 type AssessmentColumn = {
   deliveries: RegisterDelivery[];
   currentRating: number | null;
+  scores: Record<string, number>;
   comment: string | null;
+};
+
+/**
+ * The six areas as the new register labels its rows.
+ *
+ * `Motivational Climate` is FA's Environment — the same contradiction FQ's own
+ * forms carry between their scoring table and the rubric page — so both are
+ * accepted.
+ */
+const SCORE_ROWS: Record<string, string[]> = {
+  OBJECTIVE: ["Objective"],
+  CONTENT: ["Content", "Contents"],
+  ORGANISATION: ["Organisation", "Organization"],
+  PRESENTING: ["Presenting"],
+  COACHING: ["Coaching"],
+  ENVIRONMENT: ["Motivational Climate", "Environment"],
 };
 
 /**
@@ -346,6 +387,7 @@ type AssessmentColumn = {
  */
 function readAssessments(rows: SheetRows, fills: SheetFills) {
   const out = new Map<string, AssessmentColumn>();
+  const none = { columns: out, eighteen: false };
   let labelCol = -1;
   let nameRow = -1;
   for (let col = 0; col < 4; col++) {
@@ -356,15 +398,27 @@ function readAssessments(rows: SheetRows, fills: SheetFills) {
       break;
     }
   }
-  if (nameRow < 0) return out;
+  if (nameRow < 0) return none;
 
   const deliveryRows = new Map<number, number>();
   rows.forEach((_, i) => {
     const m = /^practical delivery\s*(\d+)$/i.exec(cell(rows, i, labelCol));
     if (m) deliveryRows.set(Number(m[1]), i);
   });
-  const ratingRow = findRow(rows, labelCol, "Current rating");
+  // `Current rating` on the older registers, `Total Rating` on the new one,
+  // where it is the six areas summed. Either is the Attendance sheet's Rating
+  // kept a second time.
+  const currentRow = findRow(rows, labelCol, "Current rating");
+  const totalRow = findRow(rows, labelCol, "Total Rating");
+  const ratingRow = currentRow >= 0 ? currentRow : totalRow;
   const commentRow = findRow(rows, labelCol, "Comment");
+  const scoreRows = DELIVERY_AREAS.map((area) => {
+    for (const label of SCORE_ROWS[area.code] ?? [area.title]) {
+      const row = findRow(rows, labelCol, label, nameRow + 1);
+      if (row >= 0) return [area.code, row] as const;
+    }
+    return null;
+  }).filter((entry): entry is readonly [string, number] => entry !== null);
 
   const numbers = [...deliveryRows.keys()].sort((a, b) => a - b);
   (rows[nameRow] ?? []).forEach((rawName, col) => {
@@ -380,14 +434,27 @@ function readAssessments(rows: SheetRows, fills: SheetFills) {
       );
       if (parsed) deliveries.push(parsed);
     }
+    const scores: Record<string, number> = {};
+    for (const [code, row] of scoreRows) {
+      const value = num(cell(rows, row, col));
+      // A score outside FA's 0-3 is a typo, not a mark, and is left out rather
+      // than printed on a form a coach signs.
+      if (value !== null && value >= 0 && value <= 3) scores[code] = value;
+    }
+    // A column of untouched template cells reads as six blanks, but one with
+    // every area at nought and no write-up is a template too, not a coach who
+    // showed nothing in all six.
+    const scored = Object.values(scores).some((v) => (v ?? 0) > 0) || deliveries.length > 0;
+    const current = ratingRow >= 0 ? num(cell(rows, ratingRow, col)) : null;
     out.set(name.toLowerCase(), {
       deliveries,
-      currentRating: ratingRow >= 0 ? num(cell(rows, ratingRow, col)) : null,
+      currentRating: current && current > 0 ? current : null,
+      scores: scored ? scores : {},
       comment: commentRow >= 0 ? cell(rows, commentRow, col) || null : null,
     });
   });
 
-  return out;
+  return { columns: out, eighteen: totalRow >= 0 && scoreRows.length === DELIVERY_AREAS.length };
 }
 
 /* ------------------------------- Attendance ------------------------------- */
@@ -403,7 +470,7 @@ const RESULT_KEYS = [
 
 type RosterRow = Omit<
   RegisterCoach,
-  "deliveries" | "assessmentComment" | "verdict" | "reason"
+  "deliveries" | "assessmentComment" | "verdict" | "reason" | "scores"
 >;
 
 function readRosterBlock(
@@ -597,7 +664,10 @@ export function classify(
     "rating" | "outcome" | "comments" | "attendanceMet" | "journal"
   >,
   passMark: number,
+  scale: 5 | 18 = 5,
 ): { verdict: RegisterVerdict; reason: string } {
+  // "Rated 7.5/18", where the scale is the one a reader would not assume.
+  const rated = (rating: number) => (scale === 18 ? `${rating}/18` : String(rating));
   const outcome = (coach.outcome ?? "").trim();
   const note = actionPlanNote(coach.comments);
 
@@ -637,7 +707,7 @@ export function classify(
   if (coach.rating < passMark) {
     return {
       verdict: "action_plan",
-      reason: `Rated ${coach.rating}, below the ${passMark} pass mark.`,
+      reason: `Rated ${rated(coach.rating)}, below the ${passMark} pass mark.`,
     };
   }
 
@@ -648,8 +718,8 @@ export function classify(
   return {
     verdict: "incomplete",
     reason: missing.length
-      ? `Rated ${coach.rating}, at or above the pass mark, but ${missing.join(" and ")} outstanding and not signed off.`
-      : `Rated ${coach.rating}, at or above the pass mark, but the outcome is not signed off${
+      ? `Rated ${rated(coach.rating)}, at or above the pass mark, but ${missing.join(" and ")} outstanding and not signed off.`
+      : `Rated ${rated(coach.rating)}, at or above the pass mark, but the outcome is not signed off${
           outcome ? ` (“${outcome}”)` : ""
         }.`,
   };
@@ -662,16 +732,21 @@ const REQUIRED_SHEETS = ["Course Info", "Attendance"];
 /**
  * One register, read.
  *
- * `passMark` is the 1-5 figure at or above which the register's own rating
- * counts as competent. It defaults to the platform's own pass mark rather than
- * a course's, because the file is read before anybody has said which cohort in
+ * `passMark` is the 1-5 figure at or above which a 1-5 register's rating counts
+ * as competent. It defaults to the platform's own pass mark rather than a
+ * course's, because the file is read before anybody has said which cohort in
  * the database it belongs to — and on every 2026 register the Outcome column is
  * filled in anyway, which decides most coaches before the rating is reached.
+ *
+ * On an eighteen-point register it is not used: the pass mark there is FA's
+ * competency line for the diploma, off `thresholdsFor` — nine on a C. Read
+ * against 2.5, every coach on the Logan register cleared it, the four the
+ * register itself sends to action plans at 7.5, 8, 8 and 8.5 among them.
  */
 export function readRegister(
   buf: Buffer,
   sourceFile: string,
-  passMark = DEFAULT_RATING_THRESHOLD,
+  ratingPassMark = DEFAULT_RATING_THRESHOLD,
 ): ParsedRegister {
   const book = readWorkbook(buf);
 
@@ -692,22 +767,36 @@ export function readRegister(
       "This register has no Assessment sheet, so no practical delivery write-ups or action steps could be read. Every document will carry the course facts and nothing else.",
     );
   }
-  const assessments = book.has("Assessment")
+  const read = book.has("Assessment")
     ? readAssessments(book.sheet("Assessment"), book.fills("Assessment"))
-    : new Map<string, AssessmentColumn>();
+    : { columns: new Map<string, AssessmentColumn>(), eighteen: false };
+  const assessments = read.columns;
 
-  const coaches: RegisterCoach[] = [...roster, ...catchUps].map((person) => {
+  const people = [...roster, ...catchUps].map((person) => {
     const found = assessments.get(person.name.toLowerCase());
-    // The Assessment sheet's "Current rating" and the Attendance sheet's
-    // "Rating" are the same figure kept in two places. The register's own
-    // Result block wins; the assessment sheet fills a gap.
-    const rating = person.rating ?? found?.currentRating ?? null;
+    // The Assessment sheet's rating row and the Attendance sheet's "Rating"
+    // are the same figure kept in two places. The register's own Result block
+    // wins; the assessment sheet fills a gap — which on the Logan register is
+    // its catch-up coach, scored 10/18 on the sheet with the Result block
+    // left empty.
+    return { person, found, rating: person.rating ?? found?.currentRating ?? null };
+  });
+
+  const ratingScale: 5 | 18 =
+    read.eighteen || people.some((p) => (p.rating ?? 0) > 5) ? 18 : 5;
+  const passMark =
+    ratingScale === 18
+      ? thresholdsFor({ qualification: info.qualification }).competent
+      : ratingPassMark;
+
+  const coaches: RegisterCoach[] = people.map(({ person, found, rating }) => {
     const withRating = { ...person, rating };
     return {
       ...withRating,
+      scores: found?.scores ?? {},
       deliveries: found?.deliveries ?? [],
       assessmentComment: found?.comment ?? null,
-      ...classify(withRating, passMark),
+      ...classify(withRating, passMark, ratingScale),
     };
   });
 
@@ -747,6 +836,7 @@ export function readRegister(
     courseDates: info.courseDates,
     staff,
     coaches,
+    ratingScale,
     passMark,
     sourceFile,
     warnings,

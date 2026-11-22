@@ -160,7 +160,9 @@ export function RegisterForm() {
           ))}
 
           <p className="text-sm text-ink-600">
-            Pass mark {register.passMark} on the register&rsquo;s 1&ndash;5 rating.{" "}
+            {register.ratingScale === 18
+              ? `Pass mark ${register.passMark} of 18 on the register’s six-area total.`
+              : `Pass mark ${register.passMark} on the register’s 1–5 rating.`}{" "}
             <strong>{counts.action_plan}</strong> need an action plan,{" "}
             <strong>{counts.passed}</strong> passed, <strong>{counts.incomplete}</strong> are
             rated at the pass mark but not signed off, and <strong>{counts.unrated}</strong>{" "}
@@ -248,9 +250,10 @@ export function RegisterForm() {
           </form>
           <p className="text-xs text-ink-500">
             A zip of Word files, one per coach, plus a summary of the table above, laid out off
-            FQ&rsquo;s own {isB ? "B" : "C"} Diploma paperwork. The six-area assessment comes out blank for the CETs to complete: no
-            2026 register carries a per-area score, and nothing here converts the 1&ndash;5
-            session rating into one.
+            FQ&rsquo;s own {isB ? "B" : "C"} Diploma paperwork.{" "}
+            {register.ratingScale === 18
+              ? "The six-area scores are filled in from the register's own rows for every coach it scores."
+              : "The six-area assessment comes out blank for the CETs to complete: this register carries no per-area score, and nothing here converts the 1–5 rating into one."}
           </p>
         </div>
       )}

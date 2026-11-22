@@ -506,9 +506,16 @@ function coachBlocks(coach: RegisterCoach, register: ParsedRegister, filled?: Co
   ];
 }
 
-/** What the letterhead and the footer say, which is the template's own line. */
+/**
+ * What the letterhead and the footer say, which is both C templates' own line.
+ *
+ * The same on the action plan and the on-course pass form: FQ head both
+ * `‘C’ Diploma Practical Coaching Assessment` and name the document only in
+ * its file name. #46 briefly printed `Assessment – Action Plan` here, which put
+ * "Action Plan" at the head of every coach's On Course Pass.
+ */
 function documentTitle(register: ParsedRegister) {
-  return `${quotedDiploma(register.qualification)} Assessment – Action Plan`;
+  return `${quotedDiploma(register.qualification)} Practical Coaching Assessment`;
 }
 
 /**
@@ -560,14 +567,23 @@ export async function assessmentPlanDocx(
   const margin = C_MARGIN;
   const title = b ? bDocumentTitle(register, competent) : documentTitle(register);
 
+  // The register's own six scores, where it carries them, fill the C forms'
+  // `/3` cells — read, not derived: the eighteen-point registers score the
+  // areas themselves. A CET's scores handed back in `filled` still win.
+  const cFilled = (coach: RegisterCoach): CoachFilled | undefined => {
+    const own = filled?.[coach.name];
+    if (own?.scores || !Object.keys(coach.scores ?? {}).length) return own;
+    return { ...own, scores: coach.scores };
+  };
+
   const blocksFor = (coach: RegisterCoach) =>
     b
       ? competent
         ? bFeedbackBlocks(coach, register, filled?.[coach.name])
         : bActionPlanBlocks(coach, register, filled?.[coach.name])
       : competent
-        ? cOnCourseBlocks(coach, register, filled?.[coach.name])
-        : coachBlocks(coach, register, filled?.[coach.name]);
+        ? cOnCourseBlocks(coach, register, cFilled(coach))
+        : coachBlocks(coach, register, cFilled(coach));
 
   const doc = new Document({
     styles: { default: { document: { run: { font: FONT, size: pt(BODY), color: INK } } } },
