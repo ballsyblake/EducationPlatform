@@ -16,10 +16,12 @@ import {
   NYC_FILL,
   SHADE,
   SMALL,
+  PAGE_ONE_LINES,
   TEXT_WIDTH,
   bullet,
   candidateBlock,
   deliveryTable,
+  estimateDeliveryLines,
   faRubricAppendix,
   quotedDiploma,
   signOff,
@@ -251,59 +253,6 @@ const AREA_HEADINGS: Record<string, [string, string?]> = {
   COACHING: ["COACHING", "Enter / Educate / Enhance / Ensure"],
   ENVIRONMENT: ["ENVIRONMENT", "Motivational climate"],
 };
-
-/**
- * Roughly how many lines of 9.5pt text one coach's write-ups will take.
- *
- * Deliberately a guess, and only ever used to decide whether the page break
- * after them is safe to force — never to change what is printed. There is no
- * layout engine here: `docx` writes the file and Word decides where the text
- * lands, so the alternative to an estimate is forcing the break blind, which
- * on a coach with three long write-ups puts one orphaned line and a page of
- * white where page two should be.
- *
- * The tallest column decides, because they sit side by side. A line is about
- * fifty characters at this size in a column a third of the text width, and
- * each label and action step costs at least one line of its own.
- */
-const CHARS_PER_LINE = 50;
-
-/**
- * Lines of write-up that fit under the candidate block on page one.
- *
- * Measured against the Wynnum C register rather than derived from the page
- * geometry: at 31 and 32 estimated lines a coach's write-ups sit on page one
- * with room under them, and at 40 — Michael Mason, three deliveries — they
- * run a line over. The line is drawn between, leaning low, because the cost
- * of guessing too high is the orphan this exists to avoid and the cost of
- * guessing too low is a page break one line earlier than it had to be.
- */
-const PAGE_ONE_LINES = 34;
-
-function estimateLines(coach: RegisterCoach) {
-  const wrapped = (value: string | null) =>
-    value ? Math.max(1, Math.ceil(value.length / CHARS_PER_LINE)) : 0;
-  const cell = (delivery: RegisterCoach["deliveries"][number]) => {
-    let lines = 0;
-    for (const value of [delivery.assessor, delivery.block, delivery.component, delivery.topic]) {
-      lines += wrapped(value);
-    }
-    if (delivery.comment) {
-      lines += 1; // The "Comment:" label.
-      for (const paragraph of delivery.comment.split(/\r?\n/).filter(Boolean)) {
-        lines += wrapped(paragraph);
-      }
-    }
-    if (delivery.actions.length) {
-      lines += 1; // The "Action plan:" label.
-      lines += delivery.actions.reduce((sum, step) => sum + wrapped(step), 0);
-    }
-    return lines;
-  };
-  // One heading row above the lot, and the columns sit side by side, so the
-  // tallest of them is the height.
-  return 1 + Math.max(0, ...coach.deliveries.map(cell));
-}
 
 /**
  * The practical write-ups off the register, straight under the candidate
@@ -557,7 +506,7 @@ export function cOnCourseBlocks(
     // that line alone on a page of its own; left to flow, that coach's
     // document is still four pages and still breaks between subjects, just
     // one line later.
-    ...(estimateLines(coach) <= PAGE_ONE_LINES
+    ...(estimateDeliveryLines(coach) <= PAGE_ONE_LINES
       ? [new Paragraph({ children: [new PageBreak()] })]
       : [para("", { size: 2 })]),
     scoreTable(outcome, thresholds, filled),

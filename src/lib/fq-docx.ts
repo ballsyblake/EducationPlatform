@@ -94,6 +94,8 @@ export type TextOpts = {
    */
   highlight?: Highlight;
   underline?: boolean;
+  /** Start a new page at this paragraph. See `faRubricAppendix` for why. */
+  pageBreakBefore?: boolean;
 };
 
 export function text(content: string, o: TextOpts = {}) {
@@ -112,6 +114,7 @@ export function para(content: string | TextRun[], o: TextOpts = {}) {
   return new Paragraph({
     children: typeof content === "string" ? [text(content, o)] : content,
     alignment: o.align,
+    pageBreakBefore: o.pageBreakBefore,
     spacing: { before: pt(o.before ?? 0), after: pt(o.after ?? 2) },
   });
 }
