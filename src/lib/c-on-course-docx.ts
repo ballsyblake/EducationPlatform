@@ -369,11 +369,12 @@ function scoreTable(
           alignment: AlignmentType.CENTER,
           spacing: { before: 0, after: 0 },
           children: [
-            text(`${label}  `, { size: BODY, bold: matches }),
             // A real Word checkbox, so a CET who reads the total differently
-            // clicks it rather than retyping the row. Blake's ask of
+            // clicks it rather than retyping the row. Box before the label,
+            // which is the order on Blake's marked-up copy. His ask of
             // 2026-11-24.
             new CheckBox({ checked: tick }),
+            text(` ${label}`, { size: BODY, bold: matches }),
           ],
         }),
       ],
@@ -454,7 +455,14 @@ function narrativeBlock(
   // own 160-twip gap between these paragraphs is 80 here, not 8. The rest of
   // the form is set at the house's near-zero spacing; the letter is not,
   // because it is four paragraphs of prose in a ruled box and FQ space it.
-  const GAP = 80;
+  // Three quarters of FQ's 160-twip gap, the same trim the action plan's
+  // letter takes and for the same reason: this form is four fixed pages, and
+  // page two holds the scoring grid, the letter and the signatures. The
+  // checkbox on the total row and the handwriting on the signature lines are
+  // each a little taller than the Arial they replaced, which was enough to
+  // push a second CET's signature onto a page of its own. A point and a half
+  // between paragraphs nobody sees; the orphan everybody does.
+  const GAP = 60;
   const inner: Paragraph[] = [
     para(competent ? "FEEDBACK / FURTHER COMMENTS" : "ACTION PLAN / FURTHER COMMENTS", {
       bold: true,

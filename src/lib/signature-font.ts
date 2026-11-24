@@ -48,7 +48,7 @@ const SIGNATURE_FILE = "Sacramento-Regular.ttf";
  * Fourteen puts the lowercase of a signature at about the height of the
  * surrounding text; the cell is a single line either way.
  */
-export const SIGNATURE_SIZE = 14;
+export const SIGNATURE_SIZE = 13;
 
 let cache: Buffer | null | undefined;
 

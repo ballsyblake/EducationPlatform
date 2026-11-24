@@ -267,6 +267,17 @@ action plan sets out the coach's results from the course. The 9 November
 layout is in the history. Don't bring the self-reflection back onto this
 document.
 
+**The C action plan is five pages, and the break before the letter is
+deliberate.** Blake sent a marked-up copy on 2026-11-24 with row heights set
+in Word — 580 twips on each of the six scoring rows, 2597 on the rubric's —
+because a row left to hug its content is one line of Arial tall and the
+scoring grid came out as a stack of rules with nowhere to write. At that
+height the grid, the letter and two signature lines no longer make one page,
+and what fell off was a CET's signature, alone under a heading. So the letter
+and the sign-off start a page: deliveries, scoring, letter and signatures,
+then FA's rubric three areas a page. The same copy puts the tick box *before*
+the band's label, which is where both C forms put it now.
+
 **The on-course pass form's pages are fixed, not flowed.** Page 1 is who the
 coach is and the CETs' feedback, page 2 the scoring, the letter and the
 sign-off, pages 3 and 4 FA's rubric three areas each — Blake's ask of

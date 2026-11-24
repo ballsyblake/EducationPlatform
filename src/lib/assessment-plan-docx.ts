@@ -3,6 +3,7 @@ import "server-only";
 import {
   AlignmentType,
   CheckBox,
+  HeightRule,
   Document,
   PageBreak,
   Packer,
@@ -295,6 +296,9 @@ export type CoachFilled = BFilled & {
   outcomeLevel?: DeliveryOutcome["label"];
 };
 
+/** The height Blake set on the six scoring rows in Word, in twips. */
+const SCORE_ROW_HEIGHT = 580;
+
 /**
  * The assessors' six-area table, the evidence beside each score, and the total
  * under them.
@@ -329,6 +333,13 @@ function scoreTable(thresholds: ReturnType<typeof thresholdsFor>, filled?: Coach
     const evidence = filled?.evidence?.[area.code] ?? [];
     return new TableRow({
       cantSplit: true,
+      // Blake's copy of 2026-11-24 sets this on each of the six rows. A row
+      // left to hug its content is one line of Arial tall, and six of them
+      // make the scoring grid a stack of rules with no room to write the
+      // evidence in; a minimum height gives the CET the space the printed
+      // form has. Still a minimum, so an area with four lines of evidence
+      // grows.
+      height: { value: SCORE_ROW_HEIGHT, rule: HeightRule.ATLEAST },
       children: [
         tc(
           [
@@ -374,8 +385,9 @@ function scoreTable(thresholds: ReturnType<typeof thresholdsFor>, filled?: Coach
           alignment: AlignmentType.CENTER,
           spacing: { before: 0, after: 0 },
           children: [
-            text(`${label}  `, { size: BODY, bold: outcome?.label === band }),
+            // Box first, then the label, which is the order on Blake's copy.
             new CheckBox({ checked: outcome?.label === band }),
+            text(` ${label}`, { size: BODY, bold: outcome?.label === band }),
           ],
         }),
       ],
@@ -508,7 +520,16 @@ function coachBlocks(coach: RegisterCoach, register: ParsedRegister, filled?: Co
     gradingBand(thresholds),
     para("", { size: 2 }),
     scoreTable(thresholds, filled),
-    para("", { size: 2 }),
+    // The letter and the signatures start a page. They used to sit under the
+    // scoring grid, which fitted while a scoring row was one line of Arial
+    // tall; at the row height on Blake's copy of 2026-11-24 the grid, the
+    // letter and two signature lines no longer make one page, and the row
+    // that falls off is a CET's signature — on page three alone, under a
+    // heading, with a page of white under it. So the break is deliberate and
+    // in the one place the document changes subject, which is the rule the
+    // on-course pass form already follows: scoring on one page, what the
+    // CETs wrote and signed on the next.
+    new Paragraph({ children: [new PageBreak()] }),
     signOff(coach, register, {
       columns: SIGN_COLS,
       before: [narrativeRow(coach, register, filled)],
