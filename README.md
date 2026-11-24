@@ -487,6 +487,75 @@ yet judged — which is what the CETs make the judgement on.
 Nothing is written to the database. Reading a register for export and importing
 one are different acts; see *Loading a real intake* for the second.
 
+## The coach register
+
+Everything above is about a cohort. The coach register is the other list: every
+coach Football Queensland holds a qualification for, whether or not this
+platform has ever run them through a course. It lives at `/admin/coach-db`, and
+on the real data 1,648 of its 1,676 coaches are on no cohort here at all.
+
+It replaces a workbook. `Coach_DB.xlsx` held the FA Learning Centre's
+qualification export on one sheet, FQ's own internal ratings on another, the
+affiliate list on a third, and joined them with a VLOOKUP on email address. A
+VLOOKUP is not a join, and the arithmetic of that is the reason for this page:
+of the 548 ratings on the second sheet, **212 had reached the first**. The other
+336 sat behind a cell reading "No rating" that nothing was ever going to
+reconcile — and the rating is the only thing in the whole file that is FQ's own
+and exists nowhere upstream.
+
+### What the register holds
+
+| Field | Where it comes from |
+| --- | --- |
+| Name, address, FA number | The `main` sheet. The FA number goes on the account, not the enrolment, because it identifies the person across intakes |
+| Qualifications | The FALC export, **one row per qualification** — the spreadsheet packed them into a cell as `C Diploma;GoalKeeping B Diploma`, which cannot be filtered, sorted or counted |
+| Club and region | `main`, resolved against the 413-row affiliate list, which becomes its own table |
+| Internal rating | `main` and the `FQ Data` sheet, reconciled: a number beats the absence of one, in either direction |
+| B Diploma interest | The expression-of-interest form, as **asked / yes / no** — the spreadsheet's blank meant both "said no" and "never asked", for 1,565 rows |
+| Still coaching | A field, because the only record that one coach had stopped was the words "Doesn't coach anymore" in a cell comment, invisible to every filter and export |
+
+The filters on the page are the questions the file held the answers to and could
+not be asked: how many A Diploma coaches are in Wide Bay, whose licence lapses
+inside twelve months, who has asked about the B Diploma. Each was a column, and
+each needed the file sorted by hand.
+
+### What an import will not do
+
+Press **Read the workbook** and the page shows what the file would do before it
+does it — a row per coach, with each field it would change written as *from →
+to*. Then **Import**.
+
+- **It never blanks a field.** The spreadsheet has 625 missing regions and 621
+  missing clubs; an import that pushed those holes into the database would
+  delete work every time somebody re-ran it. Filling in is safe, emptying out is
+  a person's decision.
+- **It never replaces a rating with the absence of one.** Separately and
+  specifically, because that is the fault being fixed.
+- **It never removes a coach.** A row deleted from a hand-kept sheet is not a
+  record being withdrawn. Coaches on the register and absent from the file are
+  listed on the page and left exactly as they are.
+- **It never decides that somebody has stopped coaching.** The cell note is
+  recorded; the status it implies is set by a person.
+- **It cannot promote, rename or deactivate anybody**, the same stance the
+  participant importer takes.
+
+Re-importing the same workbook writes nothing and reports every row as already
+right, which is the check that all of the above holds.
+
+### The sheet it refuses to read
+
+The workbook also carries a **Squadi member export**: 7,476 people with home
+street addresses, mobile numbers, 6,021 Working With Children Check numbers,
+emergency contacts, parent and guardian details — and 165 of them under
+eighteen. It is in the file because 47 club names were filled in from it by
+VLOOKUP.
+
+The importer never reads it, and says so on the page. Pulling a
+child-safeguarding dataset into this database to save 47 cells of typing is not
+a trade worth making. `qualification-report-data` is skipped for a duller
+reason: it is 4,774 MiniRoos and Foundation of Football coaches, a different
+population, 97% of whom are nobody on the coach register.
+
 ## Post-course support
 
 Rated below the mark, and the rubric's own name for what happens next is

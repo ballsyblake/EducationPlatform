@@ -55,6 +55,11 @@ const COURSE_LINKS: NavLink[] = [
   // a register is a whole cohort's assessments plus the coach education team's
   // working notes in its Comments column.
   { href: "/admin/registers", label: "Action plans" },
+  // The standing register of every coach FQ has qualified, which is a longer
+  // list than the coaches on a cohort here and admin-only for the same reason
+  // as Action plans: it is every coach's address beside FQ's own rating of
+  // them, across the whole state.
+  { href: "/admin/coach-db", label: "Coach register" },
 ];
 
 /**
