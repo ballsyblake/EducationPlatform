@@ -53,6 +53,7 @@ import {
   pt,
 } from "@/lib/fq-docx";
 import type { ParsedRegister, RegisterCoach } from "@/lib/register-file";
+import { signatureFonts } from "@/lib/signature-font";
 
 /**
  * FQ's `‘C’ Diploma Assessment – Action Plan` document, filled in from a
@@ -587,6 +588,11 @@ export async function assessmentPlanDocx(
 
   const doc = new Document({
     styles: { default: { document: { run: { font: FONT, size: pt(BODY), color: INK } } } },
+    // The handwriting face for the signature lines rides inside the file, so
+    // it renders on a machine that has never heard of it. One place for it:
+    // all four documents - both C forms and both B forms - come out of this
+    // one constructor.
+    fonts: await signatureFonts(),
     sections: [
       {
         properties: {
