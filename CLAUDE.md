@@ -291,8 +291,13 @@ about — the `/3` cells and the total stay blank.
 The C forms score six areas 0-3 and total them out of eighteen. **The rubric
 is written in, not ticked**: one `/3` cell per area, which is what makes FQ's
 half points expressible — they score 1.5 for an area and FA's grid has no box
-between 1 and 2. FQ's files hold Word checkboxes in the total row; they are not
-carried over, because an unticked one renders as a crossed box outside Word.
+between 1 and 2. **The total row's three bands do carry FQ's Word checkboxes**
+(Blake, 2026-11-24), ticked from the total and clickable so a CET can change
+one. Ticked off a complete set of six scores only — never off the register's
+1-5 rating, which is the conversion this code refuses to invent — so a form
+with no scores comes out with three empty boxes. They were left off until
+then because an unticked content control renders as a crossed box outside
+Word; that is still true, so these go out as .docx, not as PDF.
 
 The B form
 ticks NYC / C / HC per area and **totals nothing**, carries its own rubric
@@ -304,6 +309,14 @@ send one — the page, the photographs and the rich-value reader that found them
 all went together on 2026-11-06, and are in the history if wanted back.
 Don't collapse them: `isBDiploma(register)` picks the layout, `kind` picks which
 of the B pair, and a change to one form is a change to one form.
+
+**The CET's name on a signature line is set in a handwriting face**, which
+`src/lib/signature-font.ts` owns and embeds in the file — no script font is
+installed on both Windows and Mac, and an unresolved font name falls back to
+the body font. Its family name is one word on purpose: `docx` names the
+embedded part after the font, and a space in a part name is not legal OPC.
+Only the signature column; the name in the left-hand column is the record of
+who assessed the coach and stays in Arial.
 
 The Word furniture — the logo, the maroon, the typeface, the cell padding — is
 in `src/lib/fq-docx.ts`, shared by the outcome sheet and the assessment forms.

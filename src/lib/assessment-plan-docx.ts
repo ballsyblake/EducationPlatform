@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   AlignmentType,
+  CheckBox,
   Document,
   PageBreak,
   Packer,
@@ -51,6 +52,7 @@ import {
   INK,
   para,
   pt,
+  text,
 } from "@/lib/fq-docx";
 import type { ParsedRegister, RegisterCoach } from "@/lib/register-file";
 import { signatureFonts } from "@/lib/signature-font";
@@ -352,18 +354,29 @@ function scoreTable(thresholds: ReturnType<typeof thresholdsFor>, filled?: Coach
     });
   });
 
-  // Three coloured cells with nothing to tick, which is the template's own
-  // total row. FQ's file holds a Word checkbox in each; they are not carried
-  // over, because the sdt renders as a crossed box in anything but Word and a
-  // letter converted to PDF with three outcomes apparently ticked is worse
-  // than one a CET marks by hand.
+  // FQ's own total row, with their Word checkbox in each of the three cells.
+  // Real content controls rather than a drawn box, because Blake asked on
+  // 2026-11-24 for a box the CETs can change: the tick follows the total and
+  // an assessor who disagrees clicks it. They were left off until then
+  // because an unticked sdt renders as a crossed box in anything but Word,
+  // and three apparently ticked outcomes on a PDF is worse than a blank row.
+  // That trade went the other way once the box carries the answer: a PDF of a
+  // scored form now shows three crossed boxes rather than one tick, so send
+  // these as .docx, which is how FQ circulate them anyway.
+  //
+  // Ticked only off a complete set of six scores — `outcome` is null without
+  // one. Never off the register's 1-5 rating, which is the conversion this
+  // whole file refuses to invent.
   const outcomeBox = (label: string, fill: string, from: number, count: number, band: string) =>
     tc(
       [
-        para(label, {
-          size: BODY,
-          bold: outcome?.label === band,
-          align: AlignmentType.CENTER,
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 0 },
+          children: [
+            text(`${label}  `, { size: BODY, bold: outcome?.label === band }),
+            new CheckBox({ checked: outcome?.label === band }),
+          ],
         }),
       ],
       { fill, width: span(from, count), span: count > 1 ? count : undefined, middle: true },

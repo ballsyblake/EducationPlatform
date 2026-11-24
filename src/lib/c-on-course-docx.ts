@@ -1,6 +1,6 @@
 import "server-only";
 
-import { AlignmentType, PageBreak, Paragraph, Table, TableRow } from "docx";
+import { AlignmentType, CheckBox, PageBreak, Paragraph, Table, TableRow } from "docx";
 import {
   DELIVERY_AREAS,
   MAX_DELIVERY_POINTS,
@@ -348,14 +348,42 @@ function scoreTable(
     }),
   });
 
-  const band = (label: string, fill: string, at: number, matches: boolean) => {
+  // The band the six scores come to, which is what ticks the box — not
+  // `outcome`, which this form will also take from a CET or from the
+  // register's 1-5 rating when there are no scores. A letter may state an
+  // outcome in words off the rating; a tick on the scoring grid is a claim
+  // about the grid, so it waits for a complete set of six.
+  const scored = total === null ? null : outcomeFor(total, thresholds).label;
+
+  const band = (
+    label: string,
+    fill: string,
+    at: number,
+    matches: boolean,
+    tick: boolean,
+  ) => {
     const [from, count] = TOTAL_SPANS[at];
-    return tc([para(label, { size: BODY, bold: matches, align: AlignmentType.CENTER })], {
-      fill,
-      width: span(from, count),
-      span: count > 1 ? count : undefined,
-      middle: true,
-    });
+    return tc(
+      [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 0 },
+          children: [
+            text(`${label}  `, { size: BODY, bold: matches }),
+            // A real Word checkbox, so a CET who reads the total differently
+            // clicks it rather than retyping the row. Blake's ask of
+            // 2026-11-24.
+            new CheckBox({ checked: tick }),
+          ],
+        }),
+      ],
+      {
+        fill,
+        width: span(from, count),
+        span: count > 1 ? count : undefined,
+        middle: true,
+      },
+    );
   };
 
   const totals = new TableRow({
@@ -378,18 +406,21 @@ function scoreTable(
         NYC_FILL,
         1,
         outcome === "Not Yet Competent",
+        scored === "Not Yet Competent",
       ),
       band(
         `C – Competent (${thresholds.competent}-${thresholds.highlyCompetent - 1})`,
         COMPETENT_FILL,
         2,
         outcome === "Competent",
+        scored === "Competent",
       ),
       band(
         `HC – Highly Competent (${thresholds.highlyCompetent}-${MAX_DELIVERY_POINTS})`,
         HIGHLY_FILL,
         3,
         outcome === "Highly Competent",
+        scored === "Highly Competent",
       ),
     ],
   });
