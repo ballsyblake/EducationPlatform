@@ -254,8 +254,7 @@ b-diploma-docx.ts          The B Diploma's two: the formative assessment /
 FQ's 2027 forms and both put the register's write-ups at the top of page one.
 `action plan` is the `Action Plan` form: six areas down the page with an
 evidence column, a grading band above them, and one letter, FQ's
-not-yet-competent one, with `Area of Strength` / `Performance Gaps` lists left
-as `…` for a CET. `feedback` is the `On Course Pass` form: six areas across
+not-yet-competent one. `feedback` is the `On Course Pass` form: six areas across
 the page, no evidence column, a letter in three versions, one per outcome.
 Both are at 1134 margins, like the B's.
 
@@ -267,16 +266,28 @@ action plan sets out the coach's results from the course. The 9 November
 layout is in the history. Don't bring the self-reflection back onto this
 document.
 
-**The C action plan is five pages, and the break before the letter is
-deliberate.** Blake sent a marked-up copy on 2026-11-24 with row heights set
-in Word — 580 twips on each of the six scoring rows, 2597 on the rubric's —
-because a row left to hug its content is one line of Arial tall and the
-scoring grid came out as a stack of rules with nowhere to write. At that
-height the grid, the letter and two signature lines no longer make one page,
-and what fell off was a CET's signature, alone under a heading. So the letter
-and the sign-off start a page: deliveries, scoring, letter and signatures,
-then FA's rubric three areas a page. The same copy puts the tick box *before*
-the band's label, which is where both C forms put it now.
+**The C action plan's tables carry the heights Blake set in Word**
+(2026-11-24): 580 twips on each of the six scoring rows, 2597 on FA's rubric
+rows, both minimums. A row left to hug its content is one line of Arial tall,
+and six of them read as a stack of rules with nowhere to write. The same copy
+puts the tick box *before* the band's label, which is where both C forms put
+it now.
+
+**The form breaks in one of two places, decided by one estimate.** Where the
+write-ups fit page one, the break is after them and the scoring, the letter
+and the sign-off share page two — four pages. Where they overrun, that break
+goes before the letter instead, because everything below the write-ups is
+pushed down by the overrun and what falls off the foot of the page is a CET's
+signature, alone under a heading. `estimateDeliveryLines` decides both, so a
+document is four pages or five and never a signature short.
+
+**Neither C form carries `Area of Strength` or `Performance Gaps` lists.**
+Blake, 2026-11-25: they are the B Diploma action plan's, and that is the only
+document that prints `filled.strengths` and `filled.gaps`. The C action plan
+had them with a `…` for a CET to type over until then; the on-course form
+printed them only where a CET handed some back, and now ignores them. FQ's
+letter keeps its own sentence about "the performance gaps outlined above",
+which is about the write-ups on page one.
 
 **The on-course pass form's pages are fixed, not flowed.** Page 1 is who the
 coach is and the CETs' feedback, page 2 the scoring, the letter and the

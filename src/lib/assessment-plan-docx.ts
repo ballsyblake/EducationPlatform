@@ -35,7 +35,6 @@ import {
   SHADE,
   SMALL,
   TEXT_WIDTH,
-  bullet,
   candidateBlock,
   deliveryTable,
   estimateDeliveryLines,
@@ -90,18 +89,16 @@ import { signatureFonts } from "@/lib/signature-font";
  * 2. **The grading scale is its own band above the table**, as well as the
  *    three coloured cells in the total row.
  * 3. **FQ wrote one letter, not three.** This form is the not-yet-competent
- *    outcome, so their action-plan wording prints as it stands, with the
- *    `Area of Strength` and `Performance Gaps` lists their template leaves as
- *    `…` for a CET to fill in. A coach the CETs have deemed competent gets the
- *    other document; `kind` picks, in `assessmentPlanDocx`.
+ *    outcome, so their action-plan wording prints as it stands. A coach the
+ *    CETs have deemed competent gets the other document; `kind` picks, in
+ *    `assessmentPlanDocx`.
  *
  * **What this fills in, and what it leaves blank.** Everything the register
  * holds: the course facts, every practical delivery's assessor, block,
  * component, topic, write-up and action steps, the per-delivery NYC/C/HC level
  * as the heading's colour with no 1-5 number printed, and the CETs' names. The
- * six `/3` cells, the total and the strengths and gaps are blank unless
- * somebody hands them in through `filled`, because no 2026 register carries a
- * rubric score — see the note at the head of `register-file.ts`. Deriving
+ * six `/3` cells and the total are blank unless somebody hands them in
+ * through `filled`, because no 2026 register carries a rubric score — see the note at the head of `register-file.ts`. Deriving
  * eighteen points from a 1-5 rating would be inventing a conversion nobody has
  * published.
  */
@@ -161,8 +158,6 @@ const NARRATIVE = {
     "Your formative assessment represents a valuable opportunity to build on what you have learned throughout the course. The CETs have identified both key strengths and areas where further development is needed. Continue to excel in your strengths - keep thriving in these areas. For the performance gap, we are looking for you to narrow the gap and show improvement in the upcoming months.",
   finding: (qualification: string) =>
     `At this stage, the CETs for the ${qualification} have determined that your practical performance is not yet at the level required to be deemed competent in the course. We are sharing this information now to ensure you have ample time to focus on the areas identified and to work closely with your mentor to address the performance gaps outlined above.`,
-  /** What the template leaves in an empty list for a CET to write over. */
-  placeholder: "…",
 };
 
 /* ------------------------------ Page blocks ------------------------------- */
@@ -447,26 +442,13 @@ function narrativeRow(coach: RegisterCoach, register: ParsedRegister, filled?: C
     para(NARRATIVE.framing, { size: BODY, after: GAP }),
   ];
 
-  // Both lists print, with the template's own `…` where nobody has written
-  // one. They are not ours to leave off — FQ's form asks for them in this
-  // order, above the finding that refers to "the performance gaps outlined
-  // above" — and twelve of the Moreton action plans came back with them filled
-  // in by hand, which a rebuild that dropped them would destroy.
-  //
-  // One `…` each rather than the template's two. A CET types over a bullet and
-  // Word makes the next one, so the second is spare; and the two lines it
-  // saves are what keep a third CET's signature on page two for a coach whose
-  // deliveries were watched by three — Joel Anderson on the Logan register,
-  // whose third signature line otherwise sat alone on a page of its own.
-  const list = (lines?: string[]) =>
-    (lines?.length ? lines : [NARRATIVE.placeholder]).map((line) => bullet(line));
-  inner.push(
-    para("Area of Strength:", { size: BODY, after: 3 }),
-    ...list(filled?.strengths),
-    para("Performance Gaps:", { size: BODY, before: 4, after: 3 }),
-    ...list(filled?.gaps),
-  );
-
+  // No `Area of Strength` or `Performance Gaps` lists. They were here, with
+  // the template's `…` for a CET to type over, until Blake said on
+  // 2026-11-25 that the C Diploma does not have them and they belong to the
+  // B Diploma action plan alone — which is where `filled.strengths` and
+  // `filled.gaps` still print. FQ's letter keeps its own wording about
+  // "the performance gaps outlined above": that is their sentence about the
+  // write-ups on page one, not a reference to a list on this page.
   inner.push(para(NARRATIVE.finding(qualification), { size: BODY, before: GAP, after: GAP }));
 
   if (coach.assessmentComment) {
@@ -509,27 +491,29 @@ function coachBlocks(coach: RegisterCoach, register: ParsedRegister, filled?: Co
     qualification: register.qualification,
     title: register.courseTitle,
   });
+  // Whether the CETs' write-ups run past the foot of page one, which is the
+  // one thing that moves everything under them. See `estimateDeliveryLines`.
+  const overflows = estimateDeliveryLines(coach) > PAGE_ONE_LINES;
 
   return [
     candidateBlock(coach, register),
     para("", { size: 2 }),
     ...practicalComments(coach),
-    ...(estimateDeliveryLines(coach) <= PAGE_ONE_LINES
-      ? [new Paragraph({ children: [new PageBreak()] })]
-      : [para("", { size: 2 })]),
+    ...(overflows ? [para("", { size: 2 })] : [new Paragraph({ children: [new PageBreak()] })]),
     gradingBand(thresholds),
     para("", { size: 2 }),
     scoreTable(thresholds, filled),
-    // The letter and the signatures start a page. They used to sit under the
-    // scoring grid, which fitted while a scoring row was one line of Arial
-    // tall; at the row height on Blake's copy of 2026-11-24 the grid, the
-    // letter and two signature lines no longer make one page, and the row
-    // that falls off is a CET's signature — on page three alone, under a
-    // heading, with a page of white under it. So the break is deliberate and
-    // in the one place the document changes subject, which is the rule the
-    // on-course pass form already follows: scoring on one page, what the
-    // CETs wrote and signed on the next.
-    new Paragraph({ children: [new PageBreak()] }),
+    // The letter and the signatures start a page of their own, but only for a
+    // coach whose write-ups ran past page one. Where they fit, the break
+    // above put the scoring, the letter and the sign-off on a page together
+    // and they still fit there. Where they did not, everything below is
+    // pushed down by however much the write-ups overran, and what falls off
+    // the foot of the page is a CET's signature — alone, under a heading,
+    // over a page of white. The same estimate decides both breaks, so a
+    // document is either four pages or five and never a signature short.
+    ...(overflows
+      ? [new Paragraph({ children: [new PageBreak()] })]
+      : [para("", { size: 2 })]),
     signOff(coach, register, {
       columns: SIGN_COLS,
       before: [narrativeRow(coach, register, filled)],

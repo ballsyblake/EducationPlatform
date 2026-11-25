@@ -18,7 +18,6 @@ import {
   SMALL,
   PAGE_ONE_LINES,
   TEXT_WIDTH,
-  bullet,
   candidateBlock,
   deliveryTable,
   estimateDeliveryLines,
@@ -474,22 +473,10 @@ function narrativeBlock(
     para(finding(outcome, qualification), { size: BODY, after: GAP }),
   ];
 
-  // The strengths and gaps FQ's own form has no lists for, back only where a
-  // CET has actually written some. Twelve of the Moreton action plans came back
-  // with them filled in by hand, and a rebuild that dropped them would be
-  // destroying the CET's work rather than following the template.
-  if (filled?.strengths?.length) {
-    inner.push(
-      para("Area of Strength:", { size: BODY, after: 3 }),
-      ...filled.strengths.map((line) => bullet(line)),
-    );
-  }
-  if (filled?.gaps?.length) {
-    inner.push(
-      para("Performance Gaps:", { size: BODY, before: 4, after: 3 }),
-      ...filled.gaps.map((line) => bullet(line)),
-    );
-  }
+  // No strengths or gaps lists. FQ's form has none, and Blake confirmed on
+  // 2026-11-25 that neither C document carries them — they are the B Diploma
+  // action plan's. `filled.strengths` and `filled.gaps` are still read there,
+  // and ignored here even when a CET hands some back.
 
   if (coach.assessmentComment) {
     inner.push(
