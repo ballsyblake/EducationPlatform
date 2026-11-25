@@ -96,6 +96,13 @@ export type TextOpts = {
   underline?: boolean;
   /** Start a new page at this paragraph. See `faRubricAppendix` for why. */
   pageBreakBefore?: boolean;
+  /**
+   * A face other than the brand's, for the one run that needs one: the CET's
+   * name on a signature line, in the handwriting font `signature-font.ts`
+   * embeds. Everything else on these documents is `FONT` and should stay
+   * there — a form in two typefaces reads as a form somebody has edited.
+   */
+  font?: string;
 };
 
 export function text(content: string, o: TextOpts = {}) {
@@ -106,7 +113,7 @@ export function text(content: string, o: TextOpts = {}) {
     color: o.color ?? INK,
     highlight: o.highlight,
     underline: o.underline ? {} : undefined,
-    font: FONT,
+    font: o.font ?? FONT,
   });
 }
 

@@ -3,6 +3,7 @@ import "server-only";
 import {
   AlignmentType,
   BorderStyle,
+  HeightRule,
   Paragraph,
   Table,
   TableCell,
@@ -13,6 +14,7 @@ import {
 } from "docx";
 import { APPENDIX_LEVELS, FA_RUBRIC_APPENDIX } from "@/lib/fa-rubric-appendix";
 import { FULL_WIDTH, para, text } from "@/lib/fq-docx";
+import { SIGNATURE_FONT, SIGNATURE_SIZE } from "@/lib/signature-font";
 import type {
   DeliveryLevel,
   ParsedRegister,
@@ -460,6 +462,13 @@ export function signOff(
     tc([para(`CET ${i + 1}`, { size: BODY })], { fill: SHADE, width });
   const name = (value: string, width: number) =>
     tc([para(value, { size: BODY })], { width });
+  // The signature column only. FQ type the CET's name where a pen would go,
+  // so that one run is set in the embedded handwriting face at its own size —
+  // see `signature-font.ts` for why the font travels inside the file. The
+  // left-hand name cell stays in the body font: it is the record of who
+  // assessed the coach, not the signature.
+  const signed = (value: string, width: number) =>
+    tc([para(value, { size: SIGNATURE_SIZE, font: SIGNATURE_FONT })], { width });
 
   const rows: TableRow[] = [];
   if (signature) {
@@ -473,8 +482,9 @@ export function signOff(
             // The CET's name again, which is how FQ sign these: they type it
             // rather than draw on it, and a column left empty for a signature
             // they are not going to draw is a column somebody has to fill in
-            // by hand before the document can go out.
-            name(staff.name, COLS[3]),
+            // by hand before the document can go out. In the handwriting
+            // face, so a typed signature looks like one.
+            signed(staff.name, COLS[3]),
           ],
         }),
       );
@@ -528,6 +538,14 @@ const APPENDIX_FILLS = ["A6A6A6", "EE0000", "FFC000", "00B050"];
  * sixth area ends up alone under a repeated header. Three and three is what
  * the on-course pass form asks for; see the note on `cOnCourseBlocks`.
  */
+/**
+ * The height Blake set on the rubric's rows in Word, in twips.
+ *
+ * Three of these and a heading row come to a page of A4 landscape inside the
+ * 1134 margins, which is the point of it.
+ */
+const APPENDIX_ROW_HEIGHT = 2597;
+
 export function faRubricAppendix(
   cols: number[],
   o: { perPage?: number } = {},
@@ -556,6 +574,13 @@ export function faRubricAppendix(
   const areaRow = (area: (typeof FA_RUBRIC_APPENDIX)[number]) =>
     new TableRow({
       cantSplit: true,
+      // Off Blake's copy of 2026-11-24, where the rubric's rows are given a
+      // height rather than left to hug the shortest descriptor: three areas
+      // of this height fill the page they are on, which is what makes the
+      // appendix read as a reference page rather than three bands of text at
+      // the top of a sheet of white. A minimum, not a fixed height, so the
+      // longest descriptor still sets its own row.
+      height: { value: APPENDIX_ROW_HEIGHT, rule: HeightRule.ATLEAST },
       children: [
         tc(
           [

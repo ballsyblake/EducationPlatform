@@ -1,6 +1,6 @@
 import "server-only";
 
-import { AlignmentType, PageBreak, Paragraph, Table, TableRow } from "docx";
+import { AlignmentType, CheckBox, PageBreak, Paragraph, Table, TableRow } from "docx";
 import {
   DELIVERY_AREAS,
   MAX_DELIVERY_POINTS,
@@ -18,7 +18,6 @@ import {
   SMALL,
   PAGE_ONE_LINES,
   TEXT_WIDTH,
-  bullet,
   candidateBlock,
   deliveryTable,
   estimateDeliveryLines,
@@ -348,14 +347,43 @@ function scoreTable(
     }),
   });
 
-  const band = (label: string, fill: string, at: number, matches: boolean) => {
+  // The band the six scores come to, which is what ticks the box — not
+  // `outcome`, which this form will also take from a CET or from the
+  // register's 1-5 rating when there are no scores. A letter may state an
+  // outcome in words off the rating; a tick on the scoring grid is a claim
+  // about the grid, so it waits for a complete set of six.
+  const scored = total === null ? null : outcomeFor(total, thresholds).label;
+
+  const band = (
+    label: string,
+    fill: string,
+    at: number,
+    matches: boolean,
+    tick: boolean,
+  ) => {
     const [from, count] = TOTAL_SPANS[at];
-    return tc([para(label, { size: BODY, bold: matches, align: AlignmentType.CENTER })], {
-      fill,
-      width: span(from, count),
-      span: count > 1 ? count : undefined,
-      middle: true,
-    });
+    return tc(
+      [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 0 },
+          children: [
+            // A real Word checkbox, so a CET who reads the total differently
+            // clicks it rather than retyping the row. Box before the label,
+            // which is the order on Blake's marked-up copy. His ask of
+            // 2026-11-24.
+            new CheckBox({ checked: tick }),
+            text(` ${label}`, { size: BODY, bold: matches }),
+          ],
+        }),
+      ],
+      {
+        fill,
+        width: span(from, count),
+        span: count > 1 ? count : undefined,
+        middle: true,
+      },
+    );
   };
 
   const totals = new TableRow({
@@ -378,18 +406,21 @@ function scoreTable(
         NYC_FILL,
         1,
         outcome === "Not Yet Competent",
+        scored === "Not Yet Competent",
       ),
       band(
         `C – Competent (${thresholds.competent}-${thresholds.highlyCompetent - 1})`,
         COMPETENT_FILL,
         2,
         outcome === "Competent",
+        scored === "Competent",
       ),
       band(
         `HC – Highly Competent (${thresholds.highlyCompetent}-${MAX_DELIVERY_POINTS})`,
         HIGHLY_FILL,
         3,
         outcome === "Highly Competent",
+        scored === "Highly Competent",
       ),
     ],
   });
@@ -423,7 +454,14 @@ function narrativeBlock(
   // own 160-twip gap between these paragraphs is 80 here, not 8. The rest of
   // the form is set at the house's near-zero spacing; the letter is not,
   // because it is four paragraphs of prose in a ruled box and FQ space it.
-  const GAP = 80;
+  // Three quarters of FQ's 160-twip gap, the same trim the action plan's
+  // letter takes and for the same reason: this form is four fixed pages, and
+  // page two holds the scoring grid, the letter and the signatures. The
+  // checkbox on the total row and the handwriting on the signature lines are
+  // each a little taller than the Arial they replaced, which was enough to
+  // push a second CET's signature onto a page of its own. A point and a half
+  // between paragraphs nobody sees; the orphan everybody does.
+  const GAP = 60;
   const inner: Paragraph[] = [
     para(competent ? "FEEDBACK / FURTHER COMMENTS" : "ACTION PLAN / FURTHER COMMENTS", {
       bold: true,
@@ -435,22 +473,10 @@ function narrativeBlock(
     para(finding(outcome, qualification), { size: BODY, after: GAP }),
   ];
 
-  // The strengths and gaps FQ's own form has no lists for, back only where a
-  // CET has actually written some. Twelve of the Moreton action plans came back
-  // with them filled in by hand, and a rebuild that dropped them would be
-  // destroying the CET's work rather than following the template.
-  if (filled?.strengths?.length) {
-    inner.push(
-      para("Area of Strength:", { size: BODY, after: 3 }),
-      ...filled.strengths.map((line) => bullet(line)),
-    );
-  }
-  if (filled?.gaps?.length) {
-    inner.push(
-      para("Performance Gaps:", { size: BODY, before: 4, after: 3 }),
-      ...filled.gaps.map((line) => bullet(line)),
-    );
-  }
+  // No strengths or gaps lists. FQ's form has none, and Blake confirmed on
+  // 2026-11-25 that neither C document carries them — they are the B Diploma
+  // action plan's. `filled.strengths` and `filled.gaps` are still read there,
+  // and ignored here even when a CET hands some back.
 
   if (coach.assessmentComment) {
     inner.push(

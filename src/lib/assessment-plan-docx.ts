@@ -2,6 +2,8 @@ import "server-only";
 
 import {
   AlignmentType,
+  CheckBox,
+  HeightRule,
   Document,
   PageBreak,
   Packer,
@@ -33,7 +35,6 @@ import {
   SHADE,
   SMALL,
   TEXT_WIDTH,
-  bullet,
   candidateBlock,
   deliveryTable,
   estimateDeliveryLines,
@@ -51,8 +52,10 @@ import {
   INK,
   para,
   pt,
+  text,
 } from "@/lib/fq-docx";
 import type { ParsedRegister, RegisterCoach } from "@/lib/register-file";
+import { signatureFonts } from "@/lib/signature-font";
 
 /**
  * FQ's `‘C’ Diploma Assessment – Action Plan` document, filled in from a
@@ -86,18 +89,16 @@ import type { ParsedRegister, RegisterCoach } from "@/lib/register-file";
  * 2. **The grading scale is its own band above the table**, as well as the
  *    three coloured cells in the total row.
  * 3. **FQ wrote one letter, not three.** This form is the not-yet-competent
- *    outcome, so their action-plan wording prints as it stands, with the
- *    `Area of Strength` and `Performance Gaps` lists their template leaves as
- *    `…` for a CET to fill in. A coach the CETs have deemed competent gets the
- *    other document; `kind` picks, in `assessmentPlanDocx`.
+ *    outcome, so their action-plan wording prints as it stands. A coach the
+ *    CETs have deemed competent gets the other document; `kind` picks, in
+ *    `assessmentPlanDocx`.
  *
  * **What this fills in, and what it leaves blank.** Everything the register
  * holds: the course facts, every practical delivery's assessor, block,
  * component, topic, write-up and action steps, the per-delivery NYC/C/HC level
  * as the heading's colour with no 1-5 number printed, and the CETs' names. The
- * six `/3` cells, the total and the strengths and gaps are blank unless
- * somebody hands them in through `filled`, because no 2026 register carries a
- * rubric score — see the note at the head of `register-file.ts`. Deriving
+ * six `/3` cells and the total are blank unless somebody hands them in
+ * through `filled`, because no 2026 register carries a rubric score — see the note at the head of `register-file.ts`. Deriving
  * eighteen points from a 1-5 rating would be inventing a conversion nobody has
  * published.
  */
@@ -157,8 +158,6 @@ const NARRATIVE = {
     "Your formative assessment represents a valuable opportunity to build on what you have learned throughout the course. The CETs have identified both key strengths and areas where further development is needed. Continue to excel in your strengths - keep thriving in these areas. For the performance gap, we are looking for you to narrow the gap and show improvement in the upcoming months.",
   finding: (qualification: string) =>
     `At this stage, the CETs for the ${qualification} have determined that your practical performance is not yet at the level required to be deemed competent in the course. We are sharing this information now to ensure you have ample time to focus on the areas identified and to work closely with your mentor to address the performance gaps outlined above.`,
-  /** What the template leaves in an empty list for a CET to write over. */
-  placeholder: "…",
 };
 
 /* ------------------------------ Page blocks ------------------------------- */
@@ -292,6 +291,9 @@ export type CoachFilled = BFilled & {
   outcomeLevel?: DeliveryOutcome["label"];
 };
 
+/** The height Blake set on the six scoring rows in Word, in twips. */
+const SCORE_ROW_HEIGHT = 580;
+
 /**
  * The assessors' six-area table, the evidence beside each score, and the total
  * under them.
@@ -326,6 +328,13 @@ function scoreTable(thresholds: ReturnType<typeof thresholdsFor>, filled?: Coach
     const evidence = filled?.evidence?.[area.code] ?? [];
     return new TableRow({
       cantSplit: true,
+      // Blake's copy of 2026-11-24 sets this on each of the six rows. A row
+      // left to hug its content is one line of Arial tall, and six of them
+      // make the scoring grid a stack of rules with no room to write the
+      // evidence in; a minimum height gives the CET the space the printed
+      // form has. Still a minimum, so an area with four lines of evidence
+      // grows.
+      height: { value: SCORE_ROW_HEIGHT, rule: HeightRule.ATLEAST },
       children: [
         tc(
           [
@@ -351,18 +360,30 @@ function scoreTable(thresholds: ReturnType<typeof thresholdsFor>, filled?: Coach
     });
   });
 
-  // Three coloured cells with nothing to tick, which is the template's own
-  // total row. FQ's file holds a Word checkbox in each; they are not carried
-  // over, because the sdt renders as a crossed box in anything but Word and a
-  // letter converted to PDF with three outcomes apparently ticked is worse
-  // than one a CET marks by hand.
+  // FQ's own total row, with their Word checkbox in each of the three cells.
+  // Real content controls rather than a drawn box, because Blake asked on
+  // 2026-11-24 for a box the CETs can change: the tick follows the total and
+  // an assessor who disagrees clicks it. They were left off until then
+  // because an unticked sdt renders as a crossed box in anything but Word,
+  // and three apparently ticked outcomes on a PDF is worse than a blank row.
+  // That trade went the other way once the box carries the answer: a PDF of a
+  // scored form now shows three crossed boxes rather than one tick, so send
+  // these as .docx, which is how FQ circulate them anyway.
+  //
+  // Ticked only off a complete set of six scores — `outcome` is null without
+  // one. Never off the register's 1-5 rating, which is the conversion this
+  // whole file refuses to invent.
   const outcomeBox = (label: string, fill: string, from: number, count: number, band: string) =>
     tc(
       [
-        para(label, {
-          size: BODY,
-          bold: outcome?.label === band,
-          align: AlignmentType.CENTER,
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 0 },
+          children: [
+            // Box first, then the label, which is the order on Blake's copy.
+            new CheckBox({ checked: outcome?.label === band }),
+            text(` ${label}`, { size: BODY, bold: outcome?.label === band }),
+          ],
         }),
       ],
       { fill, width: span(from, count), span: count > 1 ? count : undefined, middle: true },
@@ -421,26 +442,13 @@ function narrativeRow(coach: RegisterCoach, register: ParsedRegister, filled?: C
     para(NARRATIVE.framing, { size: BODY, after: GAP }),
   ];
 
-  // Both lists print, with the template's own `…` where nobody has written
-  // one. They are not ours to leave off — FQ's form asks for them in this
-  // order, above the finding that refers to "the performance gaps outlined
-  // above" — and twelve of the Moreton action plans came back with them filled
-  // in by hand, which a rebuild that dropped them would destroy.
-  //
-  // One `…` each rather than the template's two. A CET types over a bullet and
-  // Word makes the next one, so the second is spare; and the two lines it
-  // saves are what keep a third CET's signature on page two for a coach whose
-  // deliveries were watched by three — Joel Anderson on the Logan register,
-  // whose third signature line otherwise sat alone on a page of its own.
-  const list = (lines?: string[]) =>
-    (lines?.length ? lines : [NARRATIVE.placeholder]).map((line) => bullet(line));
-  inner.push(
-    para("Area of Strength:", { size: BODY, after: 3 }),
-    ...list(filled?.strengths),
-    para("Performance Gaps:", { size: BODY, before: 4, after: 3 }),
-    ...list(filled?.gaps),
-  );
-
+  // No `Area of Strength` or `Performance Gaps` lists. They were here, with
+  // the template's `…` for a CET to type over, until Blake said on
+  // 2026-11-25 that the C Diploma does not have them and they belong to the
+  // B Diploma action plan alone — which is where `filled.strengths` and
+  // `filled.gaps` still print. FQ's letter keeps its own wording about
+  // "the performance gaps outlined above": that is their sentence about the
+  // write-ups on page one, not a reference to a list on this page.
   inner.push(para(NARRATIVE.finding(qualification), { size: BODY, before: GAP, after: GAP }));
 
   if (coach.assessmentComment) {
@@ -483,18 +491,29 @@ function coachBlocks(coach: RegisterCoach, register: ParsedRegister, filled?: Co
     qualification: register.qualification,
     title: register.courseTitle,
   });
+  // Whether the CETs' write-ups run past the foot of page one, which is the
+  // one thing that moves everything under them. See `estimateDeliveryLines`.
+  const overflows = estimateDeliveryLines(coach) > PAGE_ONE_LINES;
 
   return [
     candidateBlock(coach, register),
     para("", { size: 2 }),
     ...practicalComments(coach),
-    ...(estimateDeliveryLines(coach) <= PAGE_ONE_LINES
-      ? [new Paragraph({ children: [new PageBreak()] })]
-      : [para("", { size: 2 })]),
+    ...(overflows ? [para("", { size: 2 })] : [new Paragraph({ children: [new PageBreak()] })]),
     gradingBand(thresholds),
     para("", { size: 2 }),
     scoreTable(thresholds, filled),
-    para("", { size: 2 }),
+    // The letter and the signatures start a page of their own, but only for a
+    // coach whose write-ups ran past page one. Where they fit, the break
+    // above put the scoring, the letter and the sign-off on a page together
+    // and they still fit there. Where they did not, everything below is
+    // pushed down by however much the write-ups overran, and what falls off
+    // the foot of the page is a CET's signature — alone, under a heading,
+    // over a page of white. The same estimate decides both breaks, so a
+    // document is either four pages or five and never a signature short.
+    ...(overflows
+      ? [new Paragraph({ children: [new PageBreak()] })]
+      : [para("", { size: 2 })]),
     signOff(coach, register, {
       columns: SIGN_COLS,
       before: [narrativeRow(coach, register, filled)],
@@ -587,6 +606,11 @@ export async function assessmentPlanDocx(
 
   const doc = new Document({
     styles: { default: { document: { run: { font: FONT, size: pt(BODY), color: INK } } } },
+    // The handwriting face for the signature lines rides inside the file, so
+    // it renders on a machine that has never heard of it. One place for it:
+    // all four documents - both C forms and both B forms - come out of this
+    // one constructor.
+    fonts: await signatureFonts(),
     sections: [
       {
         properties: {

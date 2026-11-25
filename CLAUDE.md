@@ -254,8 +254,7 @@ b-diploma-docx.ts          The B Diploma's two: the formative assessment /
 FQ's 2027 forms and both put the register's write-ups at the top of page one.
 `action plan` is the `Action Plan` form: six areas down the page with an
 evidence column, a grading band above them, and one letter, FQ's
-not-yet-competent one, with `Area of Strength` / `Performance Gaps` lists left
-as `…` for a CET. `feedback` is the `On Course Pass` form: six areas across
+not-yet-competent one. `feedback` is the `On Course Pass` form: six areas across
 the page, no evidence column, a letter in three versions, one per outcome.
 Both are at 1134 margins, like the B's.
 
@@ -266,6 +265,29 @@ reported the missing feedback as a bug, sent the 2027 form, and said an
 action plan sets out the coach's results from the course. The 9 November
 layout is in the history. Don't bring the self-reflection back onto this
 document.
+
+**The C action plan's tables carry the heights Blake set in Word**
+(2026-11-24): 580 twips on each of the six scoring rows, 2597 on FA's rubric
+rows, both minimums. A row left to hug its content is one line of Arial tall,
+and six of them read as a stack of rules with nowhere to write. The same copy
+puts the tick box *before* the band's label, which is where both C forms put
+it now.
+
+**The form breaks in one of two places, decided by one estimate.** Where the
+write-ups fit page one, the break is after them and the scoring, the letter
+and the sign-off share page two — four pages. Where they overrun, that break
+goes before the letter instead, because everything below the write-ups is
+pushed down by the overrun and what falls off the foot of the page is a CET's
+signature, alone under a heading. `estimateDeliveryLines` decides both, so a
+document is four pages or five and never a signature short.
+
+**Neither C form carries `Area of Strength` or `Performance Gaps` lists.**
+Blake, 2026-11-25: they are the B Diploma action plan's, and that is the only
+document that prints `filled.strengths` and `filled.gaps`. The C action plan
+had them with a `…` for a CET to type over until then; the on-course form
+printed them only where a CET handed some back, and now ignores them. FQ's
+letter keeps its own sentence about "the performance gaps outlined above",
+which is about the write-ups on page one.
 
 **The on-course pass form's pages are fixed, not flowed.** Page 1 is who the
 coach is and the CETs' feedback, page 2 the scoring, the letter and the
@@ -291,8 +313,13 @@ about — the `/3` cells and the total stay blank.
 The C forms score six areas 0-3 and total them out of eighteen. **The rubric
 is written in, not ticked**: one `/3` cell per area, which is what makes FQ's
 half points expressible — they score 1.5 for an area and FA's grid has no box
-between 1 and 2. FQ's files hold Word checkboxes in the total row; they are not
-carried over, because an unticked one renders as a crossed box outside Word.
+between 1 and 2. **The total row's three bands do carry FQ's Word checkboxes**
+(Blake, 2026-11-24), ticked from the total and clickable so a CET can change
+one. Ticked off a complete set of six scores only — never off the register's
+1-5 rating, which is the conversion this code refuses to invent — so a form
+with no scores comes out with three empty boxes. They were left off until
+then because an unticked content control renders as a crossed box outside
+Word; that is still true, so these go out as .docx, not as PDF.
 
 The B form
 ticks NYC / C / HC per area and **totals nothing**, carries its own rubric
@@ -304,6 +331,14 @@ send one — the page, the photographs and the rich-value reader that found them
 all went together on 2026-11-06, and are in the history if wanted back.
 Don't collapse them: `isBDiploma(register)` picks the layout, `kind` picks which
 of the B pair, and a change to one form is a change to one form.
+
+**The CET's name on a signature line is set in a handwriting face**, which
+`src/lib/signature-font.ts` owns and embeds in the file — no script font is
+installed on both Windows and Mac, and an unresolved font name falls back to
+the body font. Its family name is one word on purpose: `docx` names the
+embedded part after the font, and a space in a part name is not legal OPC.
+Only the signature column; the name in the left-hand column is the record of
+who assessed the coach and stays in Arial.
 
 The Word furniture — the logo, the maroon, the typeface, the cell padding — is
 in `src/lib/fq-docx.ts`, shared by the outcome sheet and the assessment forms.
